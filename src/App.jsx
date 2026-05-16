@@ -305,6 +305,53 @@ async function plejdCallService({ url, token }, service, entity_id, payload = {}
   return r.json();
 }
 
+// Plejd plugs / switches via HA. Plejd's wall-mounted relay outputs and any
+// "Plejd plug" surface as `switch.*` entities in HA. We fetch them in the
+// same poll cycle as the lights and map them onto the existing Outlet shape
+// so they show up in the Power section alongside any Shelly devices. The
+// `_entity` discriminator lets toggleOutlet route to HA's service endpoint
+// instead of the Shelly HTTP API.
+async function plejdFetchOutlets({ url, token }) {
+  if (!url || !token) throw new Error('Plejd not configured');
+  const base = url.replace(/\/$/, '');
+  const r = await fetch(`${base}/api/states`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  if (!r.ok) {
+    if (r.status === 401) throw new Error('HA token rejected (401)');
+    throw new Error(`HA ${r.status}`);
+  }
+  const states = await r.json();
+  return states
+    .filter(s => s.entity_id.startsWith('switch.'))
+    // Heuristic: most Plejd plug entities are explicitly "plejd" in their
+    // unique_id or device_class. We include all switch.* by default and let
+    // the user prune in Settings later -- HA users typically WANT all their
+    // switches surfaced on a Power tile.
+    .map(s => ({
+      id: s.entity_id.replace('switch.', ''),
+      name: s.attributes?.friendly_name || s.entity_id,
+      room: s.attributes?.room || '',
+      watts: 0,
+      on: s.state === 'on',
+      // No always-on detection from HA -- user can mark in catalog if needed.
+      alwaysOn: false,
+      icon: 'Plug',
+      _entity: s.entity_id,
+    }));
+}
+// Toggle a switch entity in HA. Returns true on 200.
+async function plejdToggleSwitch({ url, token }, entity_id, on) {
+  const base = url.replace(/\/$/, '');
+  const r = await fetch(`${base}/api/services/switch/${on ? 'turn_on' : 'turn_off'}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_id }),
+  });
+  if (!r.ok) throw new Error(`HA ${r.status}`);
+  return r.json();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sonos via node-sonos-http-api (https://github.com/jishi/node-sonos-http-api).
 // GET /zones returns current zone state; GET /<room>/play|pause|volume/<n>
@@ -1802,11 +1849,24 @@ function App() {
       return;
     }
     let cancelled = false;
-    const load = () => plejdFetchRooms(cfg)
-      .then(rs => {
+    // Both lights and switches come from the same HA /api/states call --
+    // we fire them in parallel so the home page populates rooms AND plugs
+    // in one round-trip. The user explicitly asked for plugs alongside
+    // lights from the Plejd / HA gateway.
+    const load = () => Promise.all([plejdFetchRooms(cfg), plejdFetchOutlets(cfg)])
+      .then(([rs, outs]) => {
         if (cancelled) return;
-        setRooms(rs); setPlejdErr(null);
-        useHomeStore.getState().markOk('plejd', `${rs.length} rooms`);
+        setRooms(rs);
+        // Merge HA switches with any existing Shelly outlets the user has
+        // configured manually. HA-backed outlets get an `_entity` field;
+        // Shelly ones have an `ip` field. toggleOutlet routes on whichever
+        // is present.
+        setOutlets((prev) => {
+          const shellyOnly = (prev || []).filter(o => o.ip && !o._entity);
+          return [...shellyOnly, ...outs];
+        });
+        setPlejdErr(null);
+        useHomeStore.getState().markOk('plejd', `${rs.length} rooms · ${outs.length} plugs`);
       })
       .catch(e => {
         if (cancelled) return;
@@ -2030,8 +2090,25 @@ function App() {
     // (1) optimistic
     setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: next } : oo));
     logActivity('outlet', `${o.name} **${next ? 'on' : 'off'}**`);
-    // (2) real device call -- only when we have an IP. Demo data has no IPs.
-    if (!o.ip || demoMode) return;
+    if (demoMode) return;
+    const revert = (err, statusId) => {
+      setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: !next } : oo));
+      logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
+      useHomeStore.getState().markFailed(statusId, String(err.message || err));
+    };
+    // Plejd / HA switch entity: route via the HA service endpoint. The
+    // _entity field is the discriminator -- when present, this outlet came
+    // from the plejdFetchOutlets call and the Shelly HTTP path doesn't apply.
+    if (o._entity) {
+      const cfg = integrations.config.plejd;
+      if (!cfg?.url || !cfg?.token) return; // shouldn't happen, but be safe
+      plejdToggleSwitch(cfg, o._entity, next)
+        .then(() => useHomeStore.getState().markOk('plejd', `${outlets.filter(x => x._entity).length} HA plug(s)`))
+        .catch(err => revert(err, 'plejd'));
+      return;
+    }
+    // Shelly HTTP path: try Gen2 RPC first, fall back to Gen1 relay endpoint.
+    if (!o.ip) return;
     const ip = o.ip;
     const tryGen2 = fetch(`http://${ip}/rpc/Switch.Set?id=0&on=${next}`, { method: 'GET' });
     const tryGen1 = (resp) => (resp && resp.ok) ? resp : fetch(`http://${ip}/relay/0?turn=${next ? 'on' : 'off'}`, { method: 'GET' });
@@ -2044,12 +2121,7 @@ function App() {
           throw new Error(`Shelly ${ip} responded ${r?.status || 'unreachable'}`);
         }
       })
-      .catch(err => {
-        // (3) revert + surface
-        setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: !next } : oo));
-        logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
-        useHomeStore.getState().markFailed('shelly', String(err.message || err));
-      });
+      .catch(err => revert(err, 'shelly'));
   };
 
   // Speaker handlers -- three sources, dispatched in order of preference:
@@ -2186,6 +2258,7 @@ function App() {
             musicLabel={musicNowLabel}
             musicSub={musicNowSub}
             onOpenMusic={() => navigate('music')}
+            user={google.user}
           />
           <LanLostBanner />
           <FirstRunBanner
@@ -2490,7 +2563,7 @@ function SensorsSection() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Pieces
 // ─────────────────────────────────────────────────────────────────────────────
-function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, city, route, playback, togglePlay, seekRel, oembed, musicLabel, musicSub, onOpenMusic }) {
+function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, city, route, playback, togglePlay, seekRel, oembed, musicLabel, musicSub, onOpenMusic, user }) {
   const greeting = (() => {
     const h = now.getHours();
     if (h < 5) return 'Working late';
@@ -2519,7 +2592,7 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
   return (
     <header className="page-header">
       <div className="welcome-row">
-        <span className="welcome-text">{greeting}, Mira.</span>
+        <span className="welcome-text">{greeting}{user?.given_name || user?.name ? `, ${user.given_name || user.name.split(' ')[0]}` : ''}.</span>
         <span className="welcome-sep">·</span>
         <span className="welcome-sub">{subByRoute[route] ?? subByRoute.home}</span>
       </div>
@@ -2580,6 +2653,57 @@ function Section({ title, summary, source, statusId, children }) {
       </div>
       {children}
     </section>
+  );
+}
+
+// MaskedSecret -- one component handles every "the value is set, don't make
+// the user stare at it; let them change it when they want to" interaction.
+// The default view shows ••••••••••<last 4 chars> in a read-only input. Click
+// "Change" to swap to a real password input + Save / Cancel. Empty values
+// start in edit mode (there's nothing to mask yet).
+//
+// Why not just <input type="password">? Browsers reveal the value on focus or
+// via DevTools, the read-only "•••e9c" pattern is the idiot-proof default the
+// user asked for. Tokens stop appearing in over-the-shoulder screenshots.
+function MaskedSecret({ value, onSave, placeholder, type = 'password', autoComplete = 'off' }) {
+  const [editing, setEditing] = useState(!value);
+  const [draft, setDraft] = useState(value || '');
+  useEffect(() => { setDraft(value || ''); setEditing(!value); }, [value]);
+  const masked = value
+    ? '••••••••' + String(value).slice(-4)
+    : '';
+
+  if (editing) {
+    return (
+      <div className="masked-secret">
+        <input
+          className="settings-input"
+          type={type}
+          placeholder={placeholder}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          autoComplete={autoComplete}
+          spellCheck="false"
+        />
+        <button
+          className="group-toggle"
+          data-active="true"
+          onClick={() => { onSave(draft.trim()); setEditing(false); }}
+          disabled={!draft.trim()}
+        >Save</button>
+        {value && (
+          <button className="group-toggle" onClick={() => { setDraft(value); setEditing(false); }}>
+            Cancel
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="masked-secret">
+      <input className="settings-input" type="text" value={masked} readOnly aria-label="Stored value (masked)" />
+      <button className="group-toggle" onClick={() => setEditing(true)}>Change</button>
+    </div>
   );
 }
 
@@ -4015,22 +4139,57 @@ function IntegrationConfig({ id, integrations, spotify }) {
 
 function PlejdConfig({ integrations }) {
   const cfg = integrations.config.plejd || { url: '', token: '' };
-  const [url, setUrl] = useState(cfg.url);
-  const [token, setToken] = useState(cfg.token);
-  useEffect(() => { setUrl(cfg.url); setToken(cfg.token); }, [cfg.url, cfg.token]);
+  const hasUrl   = !!cfg.url;
+  const hasToken = !!cfg.token;
+  const hostedTokenHref = hasUrl ? cfg.url.replace(/\/$/, '') + '/profile/security' : 'https://www.home-assistant.io/';
   return (
     <div className="catalog-form">
-      <p className="catalog-help">
-        Run <a href="https://www.home-assistant.io/" target="_blank" rel="noreferrer">Home Assistant</a> with the <span className="mono">hassio-plejd</span> add-on on a Pi or NAS, generate a long-lived access token under your HA profile, then paste both below. HA's <span className="mono">configuration.yaml</span> must include this site's origin under <span className="mono">http.cors_allowed_origins</span>.
-      </p>
-      <label className="catalog-label">Home Assistant URL</label>
-      <input className="settings-input" type="url" placeholder="http://homeassistant.local:8123" value={url} onChange={(e) => setUrl(e.target.value)} autoComplete="off" />
-      <label className="catalog-label">Long-lived access token</label>
-      <input className="settings-input" type="password" placeholder="eyJhbGciOi..." value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
-      <div className="catalog-actions">
-        <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('plejd', { url: url.trim(), token: token.trim() })}>Save</button>
-        {(cfg.url || cfg.token) && <button className="group-toggle" onClick={() => integrations.setIntegration('plejd', { url: '', token: '' })}>Disconnect</button>}
-      </div>
+      {/* Friendly-state callout. Three states the user can actually be in:
+            - both set      -> quiet success line (no jargon)
+            - URL set, token missing  -> the most common case; big "almost there" with deep link to HA's token page
+            - nothing set   -> short setup blurb */}
+      {hasUrl && hasToken && (
+        <p className="catalog-help">Connected. Your lights and plugs will appear on the home page automatically.</p>
+      )}
+      {hasUrl && !hasToken && (
+        <p className="catalog-help" style={{ color: 'var(--primary)', borderLeft: '2px solid var(--primary)', paddingLeft: 10 }}>
+          <b>Almost there.</b> Your Home Assistant address is set. The dashboard needs an <b>access token</b> from your Home Assistant profile so it can read your lights. <a href={hostedTokenHref} target="_blank" rel="noreferrer">Open my Home Assistant profile</a> → scroll to <b>Long-Lived Access Tokens</b> → <b>Create Token</b> → paste it below.
+        </p>
+      )}
+      {!hasUrl && (
+        <p className="catalog-help">
+          You'll need <a href="https://www.home-assistant.io/" target="_blank" rel="noreferrer">Home Assistant</a> running on your LAN (Pi, NAS, Docker — any always-on box). Paste its address and an access token below.
+        </p>
+      )}
+
+      <label className="catalog-label">Home Assistant address</label>
+      <MaskedSecret
+        value={cfg.url || ''}
+        onSave={(v) => integrations.setIntegration('plejd', { url: v, token: cfg.token || '' })}
+        placeholder="http://homeassistant.local:8123"
+        type="text"
+        autoComplete="url"
+      />
+
+      <label className="catalog-label" style={{ marginTop: 10 }}>Access token</label>
+      <MaskedSecret
+        value={cfg.token || ''}
+        onSave={(v) => integrations.setIntegration('plejd', { url: cfg.url || '', token: v })}
+        placeholder="eyJhbGciOi..."
+      />
+
+      {(hasUrl || hasToken) && (
+        <div className="catalog-actions" style={{ marginTop: 12 }}>
+          <button className="group-toggle" onClick={() => integrations.setIntegration('plejd', { url: '', token: '' })}>Disconnect</button>
+        </div>
+      )}
+
+      <details className="settings-advanced">
+        <summary>Advanced — what runs on my LAN?</summary>
+        <p className="catalog-help">
+          The dashboard talks to Plejd through Home Assistant via the <span className="mono">hassio-plejd</span> add-on. HA's <span className="mono">configuration.yaml</span> must include this site's origin under <span className="mono">http.cors_allowed_origins</span>: <span className="mono">{window.location.origin}</span>.
+        </p>
+      </details>
     </div>
   );
 }
@@ -4155,9 +4314,13 @@ function SpotifyConfig({ spotify }) {
       )}
       {spotify.error && <div style={{ color: 'var(--destructive)', fontSize: 11, marginBottom: 6 }}>{spotify.error}</div>}
       <label className="catalog-label">Client ID</label>
-      <input className="settings-input" type="text" placeholder="32-char hex" value={draft} onChange={e => setDraft(e.target.value)} autoComplete="off" spellCheck="false" />
-      <div className="catalog-actions">
-        <button className="group-toggle" onClick={() => spotify.setClientId(draft.trim())}>Save Client ID</button>
+      <MaskedSecret
+        value={spotify.clientId || ''}
+        onSave={(v) => spotify.setClientId(v)}
+        placeholder="32-char hex"
+        type="text"
+      />
+      <div className="catalog-actions" style={{ marginTop: 12 }}>
         {spotify.token ? (
           <button className="group-toggle" onClick={spotify.disconnect}>Disconnect ({spotify.me?.display_name || 'Spotify'})</button>
         ) : (
@@ -4171,19 +4334,24 @@ function SpotifyConfig({ spotify }) {
 
 function TibberConfig({ integrations }) {
   const cfg = integrations.config.tibber || { token: '' };
-  const [token, setToken] = useState(cfg.token);
-  useEffect(() => { setToken(cfg.token); }, [cfg.token]);
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Generate a personal access token at <a href="https://developer.tibber.com" target="_blank" rel="noreferrer">developer.tibber.com</a>. CORS-friendly; called directly from the browser.
+        {cfg.token
+          ? <>Connected. Live electricity prices flow into the Power tile.</>
+          : <>Get a personal access token at <a href="https://developer.tibber.com" target="_blank" rel="noreferrer">developer.tibber.com</a> and paste it here. It stays in this browser.</>}
       </p>
-      <label className="catalog-label">Personal access token</label>
-      <input className="settings-input" type="password" placeholder="Bearer ..." value={token} onChange={e => setToken(e.target.value)} autoComplete="off" />
-      <div className="catalog-actions">
-        <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('tibber', { token: token.trim() })}>Save</button>
-        {cfg.token && <button className="group-toggle" onClick={() => integrations.setIntegration('tibber', { token: '' })}>Disconnect</button>}
-      </div>
+      <label className="catalog-label">Access token</label>
+      <MaskedSecret
+        value={cfg.token || ''}
+        onSave={(v) => integrations.setIntegration('tibber', { token: v })}
+        placeholder="Bearer ..."
+      />
+      {cfg.token && (
+        <div className="catalog-actions" style={{ marginTop: 12 }}>
+          <button className="group-toggle" onClick={() => integrations.setIntegration('tibber', { token: '' })}>Disconnect</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -4323,11 +4491,11 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
   return (
     <>
       <Section
-        title="Account"
-        source={google?.user ? `signed in as ${google.user.email || google.user.name}` : 'not signed in'}
+        title="Your account"
+        source={google?.user ? 'Signed in' : 'Not signed in'}
         summary={google?.user
-          ? <>Identity verified by Google · this browser only</>
-          : <>Sign in with Google to personalize this household</>}
+          ? <>Identity verified · stored only in this browser</>
+          : <>Sign in to make this dashboard yours</>}
       >
         <div className="settings-page">
           <div className="settings-section">
@@ -4335,10 +4503,9 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
               <div className="settings-row" style={{ color: 'var(--destructive)' }}>
                 <span className="settings-row-icon"><I.PowerOff size={14} /></span>
                 <div>
-                  <div className="settings-row-name">Google sign-in error</div>
+                  <div className="settings-row-name">Sign-in error</div>
                   <div className="settings-row-sub">{google.error}</div>
                 </div>
-                <span className="settings-row-state">Check ID</span>
               </div>
             )}
             <div className="settings-row" data-on={!!google?.user}>
@@ -4348,13 +4515,13 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                   : <I.Home size={14} />}
               </span>
               <div style={{ width: '100%' }}>
-                <div className="settings-row-name">Account</div>
+                <div className="settings-row-name">{google?.user?.name || 'Not signed in'}</div>
                 <div className="settings-row-sub">
                   {google?.user
-                    ? <>Signed in as <b>{google.user.name}</b> ({google.user.email || 'no email scope'})</>
+                    ? google.user.email || 'Local profile'
                     : google?.clientId
-                      ? <>Click the Google button to sign in.</>
-                      : <>Add a Google OAuth Client ID below, then sign in.</>}
+                      ? 'Tap the Google button below to sign in.'
+                      : 'Add a Google connection (Advanced ▾) or sign up with email.'}
                 </div>
                 {!google?.user && google?.clientId && (
                   <div ref={gsiBtnRef} style={{ marginTop: 8, minHeight: 40 }} />
@@ -4368,55 +4535,36 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
               <div className="settings-row">
                 <span className="settings-row-icon"><I.Home size={14} /></span>
                 <div style={{ width: '100%' }}>
-                  <div className="settings-row-name">Or sign up with email</div>
+                  <div className="settings-row-name">Or use email instead</div>
                   <div className="settings-row-sub">
-                    Local profile, this browser only. No password, no recovery — pair with Google later if you want sync.
+                    Local profile in this browser. No password, no sync. Good enough for guests.
                   </div>
                   <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
-                    <input
-                      className="settings-input"
-                      type="text"
-                      autoComplete="off"
-                      placeholder="Name"
-                      value={signupName}
-                      onChange={(e) => setSignupName(e.target.value)}
-                    />
-                    <input
-                      className="settings-input"
-                      type="email"
-                      autoComplete="off"
-                      placeholder="you@example.com"
-                      value={signupEmail}
-                      onChange={(e) => setSignupEmail(e.target.value)}
-                    />
+                    <input className="settings-input" type="text" autoComplete="off" placeholder="Your name" value={signupName} onChange={(e) => setSignupName(e.target.value)} />
+                    <input className="settings-input" type="email" autoComplete="off" placeholder="you@example.com" value={signupEmail} onChange={(e) => setSignupEmail(e.target.value)} />
                     <button className="group-toggle" onClick={submitSignup} disabled={!signupName.trim() || !signupEmail.trim()}>Create</button>
                   </div>
                 </div>
               </div>
             )}
-            <div className="settings-row">
-              <span className="settings-row-icon"><I.Settings size={14} /></span>
-              <div style={{ width: '100%' }}>
-                <div className="settings-row-name">Google OAuth Client ID</div>
-                <div className="settings-row-sub">
-                  From console.cloud.google.com → APIs &amp; Services → Credentials.
-                  Add this site's origin (<span className="mono">{window.location.origin}</span>) under <b>Authorized JavaScript origins</b>. No redirect URI is needed for One Tap / GIS.
-                </div>
-                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                  <input
-                    className="settings-input"
-                    type="text"
-                    autoComplete="off"
-                    spellCheck="false"
-                    placeholder="123456789-abc.apps.googleusercontent.com"
-                    value={draftGoogleClient}
-                    onChange={(e) => setDraftGoogleClient(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <button className="group-toggle" onClick={saveGoogleClient}>Save</button>
-                </div>
-              </div>
-            </div>
+            {/* Google OAuth Client ID is now hidden behind an "Advanced" expander
+                so the typical signed-in user never sees the technical scaffolding.
+                One-time setup, change-only-when-you-need-to. */}
+            <details className="settings-advanced">
+              <summary>Advanced — Google connection</summary>
+              <p className="catalog-help" style={{ marginBottom: 6 }}>
+                The dashboard signs you in through a Google Cloud project you own.
+                {' '}<a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Create a Client ID</a>
+                {' '}(APIs &amp; Services → Credentials → OAuth Client ID, Web type), and add{' '}
+                <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins".
+              </p>
+              <MaskedSecret
+                value={google?.clientId || ''}
+                onSave={(v) => google?.setClientId?.(v)}
+                placeholder="123456789-abc.apps.googleusercontent.com"
+                type="text"
+              />
+            </details>
           </div>
         </div>
       </Section>

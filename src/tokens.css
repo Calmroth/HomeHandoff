@@ -449,6 +449,53 @@ img.avatar { display: block; }
   margin-top: 6px;
 }
 
+/* MaskedSecret -- compact value-or-edit row used in every Settings form
+   that stores a secret or a long token. The masked-by-default treatment is
+   the "idiot proof" default. */
+.masked-secret {
+  display: flex; gap: 8px; align-items: center;
+}
+.masked-secret input { flex: 1; min-width: 0; }
+.masked-secret input[readonly] {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+/* Settings -- progressive disclosure (Advanced expander) and friendlier copy.
+   The <details> element gets a chevron + tap-target affordance so the
+   "Advanced" toggle reads as an interactive control rather than text. */
+.settings-advanced {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--clay-50) 3%, transparent);
+}
+.settings-advanced > summary {
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted-foreground);
+  user-select: none;
+  list-style: none;
+  display: flex; align-items: center; gap: 8px;
+  outline: none;
+}
+.settings-advanced > summary::-webkit-details-marker { display: none; }
+.settings-advanced > summary::before {
+  content: '+';
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  font-weight: 400;
+}
+.settings-advanced[open] > summary::before { content: '−'; }
+.settings-advanced > div, .settings-advanced > p {
+  margin-top: 12px;
+}
+
 /* Startup screen -- the gate. Full-viewport overlay until the user signs in.
    Photo backdrop and wash stay behind it (z-index ladder: .bg-photo=0,
    .bg-wash=1, .startup-screen=20, default app shell=2). The card is centered
