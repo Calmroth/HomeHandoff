@@ -377,11 +377,16 @@ async function sonosFetchSpeakers({ url }) {
   zones.forEach(z => {
     const members = z.members || [z.coordinator];
     members.forEach(m => {
+      const pbState = z.coordinator?.state?.playbackState;
+      const track   = z.coordinator?.state?.currentTrack;
       speakers.push({
         id: (m.roomName || '').toLowerCase().replace(/\s+/g, '_'),
         name: m.roomName,
-        source: z.coordinator?.state?.currentTrack?.title || (m.roomName === z.coordinator.roomName ? 'Standalone' : z.coordinator.roomName),
-        on: (z.coordinator?.state?.playbackState === 'PLAYING'),
+        // source: track title when playing/paused, fallback for stopped/ungrouped
+        source: track?.title || (m.roomName === z.coordinator?.roomName ? null : z.coordinator?.roomName),
+        artist: track?.artist || null,
+        on:     pbState === 'PLAYING',
+        paused: pbState === 'PAUSED_PLAYBACK',
         volume: m.state?.volume ?? z.coordinator?.state?.volume ?? 0,
         primary: m.uuid === z.uuid,
         _room: m.roomName,
@@ -1581,6 +1586,7 @@ function App() {
     // re-filters once integrations.config is available.
     if (env.VITE_HOME_ASSISTANT_URL) out.push({ id: 'plejd', label: 'Home Assistant (Plejd lights & plugs)', detail: 'Local URL and access token for your HA bridge.' });
     if (env.VITE_TIBBER_TOKEN) out.push({ id: 'tibber', label: 'Tibber energy', detail: 'Personal access token for live electricity prices.' });
+    if (env.VITE_SONOS_URL) out.push({ id: 'sonos', label: 'Sonos bridge', detail: 'node-sonos-http-api URL for local speaker control.' });
     return out;
   });
   // Apply a single pending entry. The setter writes to whatever slot
@@ -1600,6 +1606,9 @@ function App() {
         break;
       case 'tibber':
         if (env.VITE_TIBBER_TOKEN) integrations.setIntegration('tibber', { token: env.VITE_TIBBER_TOKEN });
+        break;
+      case 'sonos':
+        if (env.VITE_SONOS_URL) integrations.setIntegration('sonos', { url: env.VITE_SONOS_URL });
         break;
     }
     logActivity('integration', `Connected ${id} from environment`);
@@ -3109,7 +3118,13 @@ function SpeakerCard({ speaker, onToggle, onVolume }) {
         <div>
           <div className="speaker-name">{speaker.name}</div>
           <div className="speaker-source">
-            {speaker.on ? speaker.source : 'Off'}
+            {speaker.on ? (
+              speaker.source || 'Playing'
+            ) : speaker.paused && speaker.source ? (
+              <><span style={{ opacity: 0.5, marginRight: 4 }}>⏸</span>{speaker.source}</>
+            ) : (
+              'Off'
+            )}
             {speaker.primary && <span style={{ marginLeft: 8, color: 'var(--primary)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Lead</span>}
           </div>
         </div>
