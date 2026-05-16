@@ -2341,6 +2341,8 @@ function App() {
           {route === 'music' && (
             <MusicPage
               speakers={speakers}
+              toggleSpeaker={toggleSpeaker}
+              setVolume={setVolume}
               musicSource={musicSource}
               pickCurated={pickCurated}
               musicCustom={musicCustom}
@@ -2923,7 +2925,7 @@ function TibberPriceCell({ totalW }) {
   );
 }
 
-function NowPlaying({ speakers, onCastToggle, spotify }) {
+function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
   const playback     = useHomeStore(s => s.playback);
   const spotifyState = useHomeStore(s => s.status.spotify);
   const isConnected  = spotifyState.state === 'ok';
@@ -2998,16 +3000,18 @@ function NowPlaying({ speakers, onCastToggle, spotify }) {
                 {sonosSpeaker.on ? <I.Pause size={20} /> : <I.Play size={20} />}
               </button>
             </div>
-            <div className="hero-actions">
-              <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
-                <I.Music size={11} /> Open Music
-              </button>
-              {!isConnected && (
-                <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
-                  <BrandSpotify size={11} /> Connect Spotify
+            {!hideNavActions && (
+              <div className="hero-actions">
+                <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
+                  <I.Music size={11} /> Open Music
                 </button>
-              )}
-            </div>
+                {!isConnected && (
+                  <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
+                    <BrandSpotify size={11} /> Connect Spotify
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       );
@@ -3037,16 +3041,18 @@ function NowPlaying({ speakers, onCastToggle, spotify }) {
               {isConnected ? 'Start something on any device' : 'Sign in via Settings → Spotify'}
             </div>
           </div>
-          <div className="hero-actions">
-            <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
-              <I.Music size={11} /> Open Music
-            </button>
-            {!isConnected && (
-              <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
-                <BrandSpotify size={11} /> Connect
+          {!hideNavActions && (
+            <div className="hero-actions">
+              <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
+                <I.Music size={11} /> Open Music
               </button>
-            )}
-          </div>
+              {!isConnected && (
+                <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
+                  <BrandSpotify size={11} /> Connect
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -3390,10 +3396,19 @@ const spImg = (item) => item?.images?.[item.images.length - 1]?.url
   ?? null;
 
 function MusicPage({
-  speakers, musicSource, pickCurated, musicCustom, playSpotify,
+  speakers, toggleSpeaker, setVolume,
+  musicSource, pickCurated, musicCustom, playSpotify,
   spotify, favourites, addFav, removeFav, musicNowLabel,
 }) {
   const onCount = speakers.filter(s => s.on).length;
+
+  // onCastToggle mirrors the home-page logic: find the first active speaker,
+  // or the first idle one, or fall back to [0].
+  const handleCast = useCallback((activeSpeaker) => {
+    if (!speakers.length) return;
+    const target = activeSpeaker || speakers.find(s => !s.on) || speakers[0];
+    toggleSpeaker(target.id);
+  }, [speakers, toggleSpeaker]);
 
   // Search + library state
   const [query, setQuery] = useState('');
@@ -3481,6 +3496,9 @@ function MusicPage({
     >
       <div className="music-page">
         <div className="music-page-stage">
+          {/* NowPlaying hero — identical to home dashboard; suppress nav buttons since we're already here */}
+          <NowPlaying speakers={speakers} onCastToggle={handleCast} spotify={spotify} hideNavActions />
+
           {/* Toolbar — search input + connect/disconnect state */}
           <div className="music-toolbar">
             <div className="music-search">
@@ -3605,18 +3623,28 @@ function MusicPage({
             })}
           </div>
 
-          {/* Streaming-to rooms — same data as the Home Sound section */}
+          {/* Speakers — interactive, identical to home Sound section */}
           <div className="music-side-card">
-            <div className="np-label">Streaming to</div>
-            <div className="hero-rooms-list">
-              {speakers.map(sp => (
-                <div key={sp.id} className="hero-room-row" data-on={sp.on}>
-                  <span className="hero-room-dot" />
-                  <span className="hero-room-name">{sp.name}</span>
-                  <span className="hero-room-state mono">{sp.on ? sp.volume : 'off'}</span>
-                </div>
-              ))}
+            <div className="music-side-head">
+              <div className="np-label">Speakers</div>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                {onCount} of {speakers.length} on
+              </span>
             </div>
+            {speakers.length === 0 ? (
+              <div className="music-empty">No speakers — add a Sonos bridge in Settings.</div>
+            ) : (
+              <div className="speaker-grid" style={{ gap: 2 }}>
+                {speakers.map(sp => (
+                  <SpeakerCard
+                    key={sp.id}
+                    speaker={sp}
+                    onToggle={() => toggleSpeaker(sp.id)}
+                    onVolume={(v) => setVolume(sp.id, v)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
