@@ -503,7 +503,28 @@ img.avatar { display: block; }
 .catalog-head-wrap {
   display: flex; align-items: stretch;
 }
-.catalog-head { flex: 1; }
+.catalog-head {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+.catalog-head-meta { flex: 1; min-width: 0; }
+.catalog-kind {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.catalog-status {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.catalog-status[data-status="configured"] { color: var(--primary); }
+.catalog-status[data-status="partial"]    { color: var(--foreground); }
 .catalog-head-action {
   margin: 0 6px;
   align-self: center;

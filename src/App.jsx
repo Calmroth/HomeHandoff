@@ -4084,7 +4084,7 @@ function inlineActionFor(it, status, integrations, spotify) {
   switch (it.id) {
     case 'spotify': {
       if (spotify.token) {
-        return { label: 'Disconnect', onClick: spotify.disconnect, title: 'Sign out of Spotify' };
+        return { label: 'Disconnect', destructive: true, onClick: spotify.disconnect, title: 'Sign out of Spotify' };
       }
       if (spotify.clientId) {
         return { label: 'Connect', onClick: spotify.connect, primary: true, title: 'Sign in to Spotify' };
@@ -4096,11 +4096,8 @@ function inlineActionFor(it, status, integrations, spotify) {
       if (integrations.config.plejd?.url || integrations.config.plejd?.token) {
         return {
           label: 'Disconnect',
-          onClick: () => {
-            if (confirm('Disconnect Home Assistant? Plejd lights and plugs will disappear from the dashboard until you reconnect.')) {
-              integrations.setIntegration('plejd', { url: '', token: '' });
-            }
-          },
+          destructive: true,
+          onClick: () => integrations.setIntegration('plejd', { url: '', token: '' }),
           title: 'Forget the Home Assistant URL + token',
         };
       }
@@ -4109,11 +4106,8 @@ function inlineActionFor(it, status, integrations, spotify) {
       if (integrations.config.sonos?.url) {
         return {
           label: 'Disconnect',
-          onClick: () => {
-            if (confirm('Disconnect the Sonos bridge? Speaker control via node-sonos-http-api will stop until you reconnect.')) {
-              integrations.setIntegration('sonos', { url: '' });
-            }
-          },
+          destructive: true,
+          onClick: () => integrations.setIntegration('sonos', { url: '' }),
           title: 'Forget the Sonos bridge URL',
         };
       }
@@ -4122,11 +4116,8 @@ function inlineActionFor(it, status, integrations, spotify) {
       if ((integrations.config.shelly?.devices?.length ?? 0) > 0) {
         return {
           label: 'Forget all',
-          onClick: () => {
-            if (confirm(`Remove all ${integrations.config.shelly.devices.length} Shelly device(s)?`)) {
-              integrations.setIntegration('shelly', { devices: [] });
-            }
-          },
+          destructive: true,
+          onClick: () => integrations.setIntegration('shelly', { devices: [] }),
           title: 'Forget every saved Shelly device IP',
         };
       }
@@ -4135,11 +4126,8 @@ function inlineActionFor(it, status, integrations, spotify) {
       if (integrations.config.tibber?.token) {
         return {
           label: 'Disconnect',
-          onClick: () => {
-            if (confirm('Disconnect Tibber? Live electricity prices will stop updating until you re-paste the token.')) {
-              integrations.setIntegration('tibber', { token: '' });
-            }
-          },
+          destructive: true,
+          onClick: () => integrations.setIntegration('tibber', { token: '' }),
           title: 'Forget the Tibber token',
         };
       }
@@ -4148,11 +4136,8 @@ function inlineActionFor(it, status, integrations, spotify) {
       if ((integrations.config.ha?.entities?.length ?? 0) > 0) {
         return {
           label: 'Unpin all',
-          onClick: () => {
-            if (confirm(`Remove all ${integrations.config.ha.entities.length} pinned sensor(s)?`)) {
-              integrations.setIntegration('ha', { entities: [] });
-            }
-          },
+          destructive: true,
+          onClick: () => integrations.setIntegration('ha', { entities: [] }),
           title: 'Unpin every Home Assistant sensor',
         };
       }
@@ -4163,6 +4148,81 @@ function inlineActionFor(it, status, integrations, spotify) {
     default:
       return null;
   }
+}
+
+// CatalogItem -- one integration row. Extracted into its own component so each
+// row owns its per-row armed state for the Disconnect confirm pattern
+// (arm → "Confirm | Cancel", auto-disarm after 3 s). Non-destructive actions
+// (Spotify "Connect") skip the arm step and fire directly.
+function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  const Ic = I[it.icon] ?? I.Plug;
+  const status = it.status(integrations, spotify);
+  const action = inlineActionFor(it, status, integrations, spotify);
+
+  return (
+    <div className="catalog-item" data-status={status} data-open={isOpen}>
+      <div className="catalog-head-wrap">
+        <button
+          type="button"
+          className="catalog-head"
+          onClick={onToggle}
+          aria-expanded={isOpen}
+        >
+          <span className="settings-row-icon"><Ic size={14} /></span>
+          <div className="catalog-head-meta">
+            <div className="catalog-head-name">{it.name}</div>
+            <div className="catalog-head-sub">{it.tagline}</div>
+          </div>
+          <span className="catalog-kind">{it.kind}</span>
+          <span className="catalog-status" data-status={status}> · {STATUS_LABEL[status]}</span>
+        </button>
+        {/* Inline action: non-destructive fires directly; destructive arms first. */}
+        {action && (
+          armed
+            ? <>
+                <button type="button" className="catalog-head-action group-toggle"
+                  style={{ color: 'var(--destructive)' }}
+                  onClick={() => { action.onClick(); setArmed(false); }}>
+                  Confirm
+                </button>
+                <button type="button" className="catalog-head-action group-toggle"
+                  onClick={() => setArmed(false)}>
+                  Cancel
+                </button>
+              </>
+            : <button
+                type="button"
+                className="catalog-head-action group-toggle"
+                data-active={action.primary || undefined}
+                onClick={action.destructive ? () => setArmed(true) : action.onClick}
+                title={action.title || action.label}
+              >
+                {action.label}
+              </button>
+        )}
+        <button
+          type="button"
+          className="catalog-chev-btn"
+          onClick={onToggle}
+          aria-label={isOpen ? 'Collapse details' : 'Expand details'}
+        >
+          {isOpen ? '−' : '+'}
+        </button>
+      </div>
+      {isOpen && (
+        <div className="catalog-body">
+          <IntegrationConfig id={it.id} integrations={integrations} spotify={spotify} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function IntegrationCatalog({ integrations, spotify }) {
@@ -4202,58 +4262,16 @@ function IntegrationCatalog({ integrations, spotify }) {
             </div>
           </div>
         )}
-        {items.map(it => {
-          const Ic = I[it.icon] ?? I.Plug;
-          const status = it.status(integrations, spotify);
-          const isOpen = expanded === it.id;
-          const action = inlineActionFor(it, status, integrations, spotify);
-          return (
-            <div key={it.id} className="catalog-item" data-status={status} data-open={isOpen}>
-              <div className="catalog-head-wrap">
-                <button
-                  type="button"
-                  className="catalog-head"
-                  onClick={() => setExpanded(isOpen ? null : it.id)}
-                  aria-expanded={isOpen}
-                >
-                  <span className="settings-row-icon"><Ic size={14} /></span>
-                  <div className="catalog-head-meta">
-                    <div className="catalog-head-name">{it.name}</div>
-                    <div className="catalog-head-sub">{it.tagline}</div>
-                  </div>
-                  <span className="catalog-kind">{it.kind}</span>
-                  <span className="catalog-status" data-status={status}>{STATUS_LABEL[status]}</span>
-                </button>
-                {/* One-click action that doesn't require expanding the row.
-                    Connect / Sign in / Disconnect depending on state. */}
-                {action && (
-                  <button
-                    type="button"
-                    className="catalog-head-action group-toggle"
-                    data-active={action.primary || undefined}
-                    onClick={action.onClick}
-                    title={action.title || action.label}
-                  >
-                    {action.label}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="catalog-chev-btn"
-                  onClick={() => setExpanded(isOpen ? null : it.id)}
-                  aria-label={isOpen ? 'Collapse details' : 'Expand details'}
-                >
-                  {isOpen ? '−' : '+'}
-                </button>
-              </div>
-              {isOpen && (
-                <div className="catalog-body">
-                  <IntegrationConfig id={it.id} integrations={integrations} spotify={spotify} />
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {items.map(it => (
+          <CatalogItem
+            key={it.id}
+            it={it}
+            integrations={integrations}
+            spotify={spotify}
+            isOpen={expanded === it.id}
+            onToggle={() => setExpanded(expanded === it.id ? null : it.id)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -4678,16 +4696,8 @@ function HaSensorsConfig({ integrations }) {
 
 function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, integrations, demoMode, onLoadDemo, onClearDemo }) {
   const deviceTotal = rooms.length + outlets.length + speakers.length;
-  const [draftClient, setDraftClient] = useState(spotify.clientId);
-  useEffect(() => { setDraftClient(spotify.clientId); }, [spotify.clientId]);
-  const saveClient = () => spotify.setClientId(draftClient);
-
-  // Google -- mirrors the Spotify draft/save pattern. The Sign-in button is
-  // rendered by Google Identity Services into the gsiBtnRef container the
-  // moment a Client ID is present (the hook's renderButton is idempotent).
-  const [draftGoogleClient, setDraftGoogleClient] = useState(google?.clientId || '');
-  useEffect(() => { setDraftGoogleClient(google?.clientId || ''); }, [google?.clientId]);
-  const saveGoogleClient = () => google?.setClientId(draftGoogleClient);
+  // MaskedSecret handles its own draft/save for both Spotify and Google Client
+  // IDs — no top-level draft state needed here.
   const gsiBtnRef = useRef(null);
   useEffect(() => {
     if (!google?.user && google?.clientId && gsiBtnRef.current) {
@@ -4719,6 +4729,12 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
     const t = setTimeout(() => setClearDemoArmed(false), 3000);
     return () => clearTimeout(t);
   }, [clearDemoArmed]);
+
+  // Derive honest device-tier status. In demo mode all three report active;
+  // otherwise status follows whether the integration is configured.
+  const plejdActive  = demoMode || !!(integrations.config.plejd?.cloudSession || (integrations.config.plejd?.url && integrations.config.plejd?.token));
+  const sonosActive  = demoMode || !!integrations.config.sonos?.url;
+  const shellyActive = demoMode || (integrations.config.shelly?.devices?.length ?? 0) > 0;
 
   return (
     <>
@@ -4825,29 +4841,29 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
       >
         <div className="settings-page">
           <div className="settings-section">
-            <div className="settings-row" data-on={true}>
+            <div className="settings-row" data-on={plejdActive || undefined}>
               <span className="settings-row-icon"><I.Light size={14} /></span>
               <div>
                 <div className="settings-row-name">Plejd bulbs</div>
                 <div className="settings-row-sub">{rooms.reduce((a,r) => a + r.bulbs, 0)} bulbs across {rooms.length} rooms</div>
               </div>
-              <span className="settings-row-state">Online</span>
+              <span className="settings-row-state">{plejdActive ? 'Online' : 'Not set up'}</span>
             </div>
-            <div className="settings-row" data-on={true}>
+            <div className="settings-row" data-on={shellyActive || undefined}>
               <span className="settings-row-icon"><I.Plug size={14} /></span>
               <div>
                 <div className="settings-row-name">Shelly outlets</div>
                 <div className="settings-row-sub">{outlets.length} outlets · {outlets.filter(o => o.alwaysOn).length} always-on</div>
               </div>
-              <span className="settings-row-state">Online</span>
+              <span className="settings-row-state">{shellyActive ? 'Online' : 'Not set up'}</span>
             </div>
-            <div className="settings-row" data-on={true}>
+            <div className="settings-row" data-on={sonosActive || undefined}>
               <span className="settings-row-icon"><I.Speaker size={14} /></span>
               <div>
                 <div className="settings-row-name">Sonos speakers</div>
                 <div className="settings-row-sub">{speakers.length} speakers · lead room: {speakers.find(s => s.primary)?.name ?? '—'}</div>
               </div>
-              <span className="settings-row-state">Online</span>
+              <span className="settings-row-state">{sonosActive ? 'Online' : 'Not set up'}</span>
             </div>
           </div>
         </div>
@@ -4861,7 +4877,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
         <div className="settings-page">
           <div className="settings-section settings-about">
             <span><b>Home Domain</b> — a one-screen control surface for a multi-vendor smart home.</span>
-            <span>This build hosts vendor web UIs (Spotify, news sites) as iframes and computes everything else locally. No API keys, no cloud accounts.</span>
+            <span>Any credentials you add stay in your browser only. No data is sent to our servers.</span>
             <span>Version <span className="mono">2026.5.0-prototype</span></span>
             <span>Keyboard: <b className="mono">1–5</b> apply Home scenes · <b className="mono">G</b> jump to Home · <b className="mono">Esc</b> clear scene</span>
           </div>
