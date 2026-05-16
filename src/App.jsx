@@ -4431,17 +4431,90 @@ function PlejdConfig({ integrations }) {
 function SonosConfig({ integrations }) {
   const cfg = integrations.config.sonos || { url: '' };
   const [url, setUrl] = useState(cfg.url);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
   useEffect(() => { setUrl(cfg.url); }, [cfg.url]);
+
+  async function testConnection() {
+    const base = url.trim().replace(/\/$/, '');
+    if (!base) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(`${base}/zones`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const zones = await res.json();
+      const rooms = zones
+        .map(z => z.coordinator?.roomName || z.zoneName || '')
+        .filter(Boolean);
+      setTestResult({ ok: true, rooms });
+    } catch (err) {
+      setTestResult({ ok: false, error: err.message || 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Run <a href="https://github.com/jishi/node-sonos-http-api" target="_blank" rel="noreferrer">node-sonos-http-api</a> on any LAN box (Pi, NAS, Docker). It auto-discovers your Sonos zones; paste its base URL below.
+        Run <a href="https://github.com/jishi/node-sonos-http-api" target="_blank" rel="noreferrer">node-sonos-http-api</a> on any LAN machine (Raspberry Pi, NAS, Docker). It auto-discovers your Sonos zones over UPnP — no configuration required.
       </p>
-      <label className="catalog-label">sonos-http-api base URL</label>
-      <input className="settings-input" type="url" placeholder="http://sonos.local:5005" value={url} onChange={(e) => setUrl(e.target.value)} autoComplete="off" />
+      <pre className="catalog-code">{`npm install -g node-sonos-http-api\nnode-sonos-http-api`}</pre>
+      <div>
+        <label className="catalog-label">Bridge URL</label>
+        <div className="catalog-search">
+          <input
+            className="settings-input"
+            type="url"
+            placeholder="http://192.168.1.x:5005"
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); setTestResult(null); }}
+            autoComplete="off"
+          />
+          <button
+            className="group-toggle"
+            onClick={testConnection}
+            disabled={testing || !url.trim()}
+          >
+            {testing ? 'Testing…' : 'Test'}
+          </button>
+        </div>
+      </div>
+      {testResult && !testResult.ok && (
+        <p className="catalog-help" style={{ color: 'var(--destructive)' }}>
+          {testResult.error}
+        </p>
+      )}
+      {testResult?.ok && (
+        <div>
+          <label className="catalog-label">
+            Discovered rooms ({testResult.rooms.length})
+          </label>
+          <ul className="catalog-list">
+            {testResult.rooms.map(r => (
+              <li key={r} className="catalog-list-row">{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="catalog-actions">
-        <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('sonos', { url: url.trim() })}>Save</button>
-        {cfg.url && <button className="group-toggle" onClick={() => integrations.setIntegration('sonos', { url: '' })}>Disconnect</button>}
+        <button
+          className="group-toggle"
+          data-active="true"
+          onClick={() => integrations.setIntegration('sonos', { url: url.trim() })}
+        >
+          Save
+        </button>
+        {cfg.url && (
+          <button
+            className="group-toggle"
+            onClick={() => { integrations.setIntegration('sonos', { url: '' }); setTestResult(null); }}
+          >
+            Disconnect
+          </button>
+        )}
       </div>
     </div>
   );
@@ -4542,7 +4615,7 @@ function SpotifyConfig({ spotify }) {
         Create a Spotify app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">developer.spotify.com</a>. Set the redirect URI to exactly <span className="mono">{spRedirectUri()}</span>. Each user signs in with their own Spotify account; tokens stay in this browser.
       </p>
       {onLocalhost && (
-        <p className="catalog-help" style={{ color: 'var(--primary)', borderLeft: '2px solid var(--primary)', paddingLeft: 10 }}>
+        <p className="catalog-help catalog-notice">
           <b>Heads up:</b> Spotify rejects <span className="mono">localhost</span> as a redirect-URI host since 2024 — they only accept <span className="mono">127.0.0.1</span> for non-HTTPS URIs. Either register <span className="mono">{suggested127}</span> in your Spotify app AND access this page at <a href={suggested127}>{suggested127}</a>, or deploy to an HTTPS host (Netlify / Vercel) and register that URL instead.
         </p>
       )}
@@ -4660,8 +4733,8 @@ function HaSensorsConfig({ integrations }) {
         Pin any Home Assistant entity onto the dashboard. Reuses the URL + token from the Plejd integration -- one HA bridge, two consumers. To find an entity ID in HA: <span className="mono">Developer Tools → States</span>. Common examples: <span className="mono">sensor.kitchen_temperature</span>, <span className="mono">binary_sensor.front_door</span>, <span className="mono">sensor.vacuum_battery</span>.
       </p>
       {!haCredsSet && (
-        <p className="catalog-help" style={{ color: 'var(--primary)', borderLeft: '2px solid var(--primary)', paddingLeft: 10 }}>
-          <b>Heads up:</b> set up Plejd first (URL + Home Assistant token) -- the sensors share those credentials.
+        <p className="catalog-help catalog-notice">
+          <b>Heads up:</b> set up Plejd first (URL + Home Assistant token) — the sensors share those credentials.
         </p>
       )}
       {entities.length > 0 && (

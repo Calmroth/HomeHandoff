@@ -541,6 +541,110 @@ img.avatar { display: block; }
 }
 .catalog-chev-btn:hover { color: var(--foreground); }
 
+/* Catalog body -- the expanded config panel that opens below each row. */
+.catalog-body {
+  padding: 16px 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* Catalog form -- wraps all fields inside a catalog-body. */
+.catalog-form { display: flex; flex-direction: column; gap: 12px; }
+
+.catalog-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted-foreground);
+  margin-bottom: 4px;
+}
+
+.catalog-help {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+  margin: 0;
+}
+.catalog-help a { color: var(--foreground); }
+
+/* catalog-notice: contextual callout -- amber background tint, no side stripe. */
+.catalog-notice {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 24%, transparent);
+  color: var(--foreground);
+}
+
+/* catalog-code: monospace shell-command block */
+.catalog-code {
+  background: color-mix(in oklch, var(--clay-50) 4%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--foreground);
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* catalog-actions: Save / Disconnect button row */
+.catalog-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+/* catalog-list: discovered zones / devices / sensors */
+.catalog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.catalog-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--clay-50) 4%, transparent);
+}
+
+/* catalog-search: URL input + Test button side by side */
+.catalog-search {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.catalog-search .settings-input { flex: 1; min-width: 0; }
+
+/* catalog-scan: progress line shown during LAN scans (Shelly) */
+.catalog-scan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+/* catalog-add-grid: entity-ID input + Add button (HA sensors) */
+.catalog-add-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+
 /* MaskedSecret -- compact value-or-edit row used in every Settings form
    that stores a secret or a long token. The masked-by-default treatment is
    the "idiot proof" default. */
