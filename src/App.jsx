@@ -1284,33 +1284,24 @@ function FirstRunBanner({ demoMode, google, spotifyConnected, anyRealIntegration
   );
 }
 
-// StartupScreen -- the front door. Full-viewport gate that mounts when nobody
-// is signed in; unmounts (and never re-mounts unless the user signs out) the
-// moment google.user is set. This is the single visual surface that the user
-// sees on every fresh browser load until they have an identity. The photo
-// backdrop + clock stay visible behind it through the translucent card so
-// "the house" reads as already alive.
+// StartupScreen -- the front door. Mounts when nobody is signed in; unmounts
+// the moment google.user is set and never re-mounts until explicit sign-out.
 //
-// Two sign-in paths:
-//   - Google -- real GIS-rendered "Continue with Google" pill. Pre-seeded
-//     Client ID from .env.local (VITE_GOOGLE_CLIENT_ID) means most users
-//     just tap once.
-//   - Email -- local-only profile, no password, no sync. Useful for guests
-//     and for households that don't use Google at all.
+// Sign-in paths (both always shown when applicable):
+//   1. Google -- GIS "Continue with Google" button, rendered when
+//      VITE_GOOGLE_CLIENT_ID is present in .env.local. No Client ID input
+//      here; the technical owner can change it in Settings > Advanced.
+//   2. Email -- local-only profile, no password. Always available.
 //
-// Why this is a hard gate and not the old soft FirstRunBanner step 1: the
-// user asked for "when logged in do not show that screen again." That's a
-// gate semantic, not a banner-dismiss semantic.
+// Layout when Client ID is set: Google button, divider, then email below.
+// Layout when not set: just email, no mention of Google.
 function StartupScreen({ google }) {
   const gsiBtnRef = useRef(null);
   const [signupName, setSignupName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
-  const [draftClientId, setDraftClientId] = useState(google?.clientId || '');
-  useEffect(() => { setDraftClientId(google?.clientId || ''); }, [google?.clientId]);
 
-  // Render the live GIS button. Same self-healing retry pattern as the old
-  // FirstRunBanner -- useGoogleAuth's `initialize` may not have run yet on
-  // first commit, so we re-attempt for up to 3 s.
+  // Render the GIS button when VITE_GOOGLE_CLIENT_ID is seeded. Self-healing
+  // retry handles the parent/child effect ordering race on first commit.
   useEffect(() => {
     if (!google?.clientId || !gsiBtnRef.current) return;
     let cancelled = false;
@@ -1328,7 +1319,6 @@ function StartupScreen({ google }) {
     return () => { cancelled = true; };
   }, [google?.clientId, google?.renderButton]);
 
-  const saveClientId = () => google?.setClientId?.(draftClientId.trim());
   const submitSignup = () => {
     if (google?.signUpLocal?.({ name: signupName, email: signupEmail })) {
       setSignupName(''); setSignupEmail('');
@@ -1349,11 +1339,22 @@ function StartupScreen({ google }) {
         <div className="startup-eyebrow">{greeting}.</div>
         <h1 id="startup-title" className="startup-title">Home Domain</h1>
         <p className="startup-sub">
-          Sign in to take ownership of this household. The dashboard reads your lights, music,
-          energy use, and weather — then quietly gets out of the way.
+          Sign in to take ownership of this household. The dashboard reads your lights,
+          music, energy use, and weather — then quietly gets out of the way.
         </p>
 
-        {/* Primary path: email / local profile. No Google Cloud console required. */}
+        {/* Google sign-in — only rendered when VITE_GOOGLE_CLIENT_ID is set in .env */}
+        {google?.clientId && (
+          <>
+            <div className="startup-gsi">
+              <div ref={gsiBtnRef} className="startup-gsi-target" />
+            </div>
+            {google?.error && <div className="startup-error">{google.error}</div>}
+            <div className="startup-divider"><span>or</span></div>
+          </>
+        )}
+
+        {/* Email / local profile — always available, no credentials required */}
         <div className="startup-form">
           <div className="startup-email-grid">
             <input
@@ -1372,50 +1373,17 @@ function StartupScreen({ google }) {
               value={signupEmail}
               onChange={(e) => setSignupEmail(e.target.value)}
             />
-            <button className="group-toggle" data-active="true" onClick={submitSignup} disabled={!signupName.trim() || !signupEmail.trim()}>
+            <button
+              className="group-toggle"
+              data-active={!google?.clientId || undefined}
+              onClick={submitSignup}
+              disabled={!signupName.trim() || !signupEmail.trim()}
+            >
               Sign in
             </button>
           </div>
-          <p className="startup-hint">
-            Local profile, this browser only. No password required.
-          </p>
+          <p className="startup-hint">Local profile, this browser only. No password required.</p>
         </div>
-
-        {/* Secondary path: Google sign-in. Needs a Client ID; shown in Advanced. */}
-        <details className="startup-advanced">
-          <summary>Sign in with Google instead</summary>
-          <div className="startup-form" style={{ marginTop: 12 }}>
-            {google?.clientId ? (
-              <>
-                <div ref={gsiBtnRef} className="startup-gsi-target" />
-                <button type="button" className="startup-link" onClick={() => google.setClientId('')}>
-                  Use a different Client ID
-                </button>
-              </>
-            ) : (
-              <>
-                <input
-                  className="settings-input"
-                  type="text"
-                  autoComplete="off"
-                  spellCheck="false"
-                  placeholder="Paste your Google OAuth Client ID"
-                  value={draftClientId}
-                  onChange={(e) => setDraftClientId(e.target.value)}
-                />
-                <div className="startup-actions" style={{ marginTop: 8 }}>
-                  <button className="group-toggle" onClick={saveClientId} disabled={!draftClientId.trim()}>
-                    Save
-                  </button>
-                </div>
-                <p className="startup-hint">
-                  <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Create a Client ID</a> at Google Cloud Console → Credentials → OAuth Client ID (Web). Add <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins".
-                </p>
-              </>
-            )}
-            {google?.error && <div className="startup-error">{google.error}</div>}
-          </div>
-        </details>
       </div>
     </div>
   );
