@@ -607,11 +607,30 @@ function useSpotify() {
 // Routing — hash-based so the prototype works as a flat file with no router lib
 // ─────────────────────────────────────────────────────────────────────────────
 const ROUTES = ['home', 'rooms', 'music', 'energy', 'weather', 'news', 'settings'];
+const LAST_ROUTE_KEY = 'hdg-last-route';
 
+// Per-device last-route persistence. The council's "per-device bookmarks"
+// answer to multi-user. The kitchen iPad becomes the kitchen iPad by virtue
+// of being where you last opened the music or lights view; reloading it
+// returns to that view, not to Home.
+//
+// If the URL has an explicit hash, that always wins (someone tapped a link
+// or pasted a URL). When the hash is empty AND we've saved a route before,
+// boot into the saved route. Settings is excluded from the auto-restore so
+// finishing OAuth never re-opens the Settings page after a reload.
 function useRoute() {
   const read = () => {
-    const h = (window.location.hash || '#home').replace(/^#\/?/, '');
-    return ROUTES.includes(h) ? h : 'home';
+    const raw = window.location.hash || '';
+    if (raw) {
+      const h = raw.replace(/^#\/?/, '');
+      return ROUTES.includes(h) ? h : 'home';
+    }
+    // No hash -- consider the stored bookmark.
+    try {
+      const stored = localStorage.getItem(LAST_ROUTE_KEY);
+      if (stored && ROUTES.includes(stored) && stored !== 'settings') return stored;
+    } catch (e) {}
+    return 'home';
   };
   const [route, setRoute] = useState(read);
   useEffect(() => {
@@ -619,6 +638,13 @@ function useRoute() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+  // Persist every non-Settings route as the "preferred starting view" for
+  // this device. Skip Settings because it's a destination, not a home.
+  useEffect(() => {
+    if (route && route !== 'settings') {
+      try { localStorage.setItem(LAST_ROUTE_KEY, route); } catch (e) {}
+    }
+  }, [route]);
   const navigate = useCallback((id) => { window.location.hash = '#' + id; }, []);
   return [route, navigate];
 }
@@ -1099,12 +1125,104 @@ function usePrefersReducedMotion() {
   return reduced;
 }
 
+// FirstRunBanner -- the council's "demo first, make this yours" affordance.
+// Renders a single full-width strip immediately under the PageHeader. Three
+// progressive states:
+//
+//   step 1 ("welcome"):  demo is live, no Google user yet
+//                        -> "This is a demo house. Sign in to make it yours."
+//                           [Sign in]   [Skip]
+//
+//   step 2 ("connect"):  Google user signed in, no Spotify token yet
+//                        -> "Welcome <name>. Connect Spotify to bring real music."
+//                           [Connect Spotify]   [Skip]
+//
+//   step 3 ("real"):     Spotify connected, no real LAN integrations yet
+//                        -> "Add real lights, outlets, or speakers when you're ready."
+//                           [Open Integrations]   [Dismiss]
+//
+//   hidden when:
+//     - the user dismissed it (`hdg-onboarding-dismissed` set)
+//     - demoMode is off AND there's at least one real integration configured
+//       (the user is past onboarding)
+//     - all 3 steps complete
+//
+// Persisted dismissal lives in localStorage so it survives reloads. Per the
+// Outsider's note, the banner uses appliance language ("lights", "music"),
+// never vendor names ("Plejd", "Spotify Connect").
+function FirstRunBanner({ demoMode, googleUser, spotifyConnected, anyRealIntegration, onClearDemo, onNavigate }) {
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem('hdg-onboarding-dismissed') === '1');
+  if (dismissed) return null;
+  // If the user already has at least one real integration AND isn't in demo,
+  // they're past onboarding -- hide the banner without requiring a click.
+  if (!demoMode && anyRealIntegration) return null;
+  const dismiss = () => {
+    localStorage.setItem('hdg-onboarding-dismissed', '1');
+    setDismissed(true);
+  };
+  const goSettings = () => onNavigate('settings');
+
+  // Decide which step to show. We surface the first incomplete step only;
+  // never a list. Choice is the enemy of premium (the Outsider).
+  let title, sub, primary;
+  if (!googleUser) {
+    title = 'This is a demo house.';
+    sub = 'Sign in with Google or email to make it yours -- the demo turns into your actual home.';
+    primary = { label: 'Sign in', onClick: goSettings };
+  } else if (!spotifyConnected) {
+    title = `Welcome, ${googleUser.given_name || googleUser.name || 'friend'}.`;
+    sub = 'Connect your music account next so the dashboard plays for real, not from the demo iframe.';
+    primary = { label: 'Connect music', onClick: goSettings };
+  } else if (!anyRealIntegration && demoMode) {
+    title = 'Demo data is on.';
+    sub = "Ready to add real lights, outlets, or speakers? They take 5 minutes to wire and you'll see them appear here.";
+    primary = { label: 'Add real devices', onClick: goSettings };
+  } else {
+    // All complete -- auto-dismiss so the banner doesn't linger.
+    if (localStorage.getItem('hdg-onboarding-dismissed') !== '1') {
+      localStorage.setItem('hdg-onboarding-dismissed', '1');
+    }
+    return null;
+  }
+
+  return (
+    <div className="first-run-banner" role="region" aria-label="Get started">
+      <div className="first-run-text">
+        <div className="first-run-title">{title}</div>
+        <div className="first-run-sub">{sub}</div>
+      </div>
+      <div className="first-run-actions">
+        <button className="group-toggle" data-active="true" onClick={primary.onClick}>{primary.label}</button>
+        <button className="group-toggle" onClick={dismiss} title="Hide this banner. You can still add devices later in Settings.">Skip</button>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // Demo mode persists in localStorage so reloads keep the demo state alive.
-  const [demoMode, setDemoMode] = useState(() => localStorage.getItem('hdg-demo-mode') === '1');
+  // First-run heuristic: if neither demo nor any integration nor any user has
+  // ever been touched in this browser, treat it as a brand-new install and
+  // auto-load the demo house. The council was unanimous -- "the owner's house
+  // is the demo" -- so visitors land inside a living dashboard, not empty
+  // boxes. The `hdg-touched` flag is the latch that prevents re-running this
+  // on subsequent visits even after the user explicitly clears the demo.
+  const [demoMode, setDemoMode] = useState(() => {
+    if (localStorage.getItem('hdg-demo-mode') === '1') return true;
+    const touched = localStorage.getItem('hdg-touched') === '1';
+    if (touched) return false;
+    // Fresh browser -- arm demo on boot.
+    return true;
+  });
   const [rooms, setRooms] = useState(() => demoMode ? DEMO_ROOMS : INITIAL_ROOMS);
   const [outlets, setOutlets] = useState(() => demoMode ? DEMO_OUTLETS : INITIAL_OUTLETS);
   const [speakers, setSpeakers] = useState(() => demoMode ? DEMO_SPEAKERS : INITIAL_SPEAKERS);
+  // Latch the "touched" flag so the auto-demo doesn't re-arm on every reload.
+  useEffect(() => {
+    if (localStorage.getItem('hdg-touched') !== '1') {
+      localStorage.setItem('hdg-touched', '1');
+    }
+  }, []);
   const loadDemoData = useCallback(() => {
     setRooms(DEMO_ROOMS); setOutlets(DEMO_OUTLETS); setSpeakers(DEMO_SPEAKERS);
     setDemoMode(true);
@@ -1684,6 +1802,16 @@ function App() {
             musicSub={musicNowSub}
             onOpenMusic={() => navigate('music')}
           />
+          <FirstRunBanner
+            demoMode={demoMode}
+            googleUser={google.user}
+            spotifyConnected={!!spotify.token}
+            anyRealIntegration={
+              !!(integrations.config.plejd?.url || integrations.config.sonos?.url || (integrations.config.shelly?.devices?.length))
+            }
+            onClearDemo={clearDemoData}
+            onNavigate={navigate}
+          />
           {route === 'home' && (
             <HomePage
               rooms={rooms} outlets={outlets} speakers={speakers}
@@ -1781,7 +1909,7 @@ function HomePage({
       <Section
         title="Music"
         statusId="spotify"
-        source="open.spotify.com/embed"
+        source={null /* dot in title is enough; vendor name moved to Settings */}
         summary={<>Streaming to <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> rooms</>}
       >
         <NowPlaying speakers={speakers} onCastToggle={handleCastToggle} />
@@ -1790,7 +1918,7 @@ function HomePage({
       <Section
         title="Sound"
         statusId="sonos"
-        source={speakers.length ? 'sonos · live' : 'sonos not configured'}
+        source={speakers.length ? `${speakers.length} ${speakers.length === 1 ? 'zone' : 'zones'} · live` : 'no speakers yet'}
         summary={
           speakers.length ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
@@ -1816,7 +1944,7 @@ function HomePage({
       <Section
         title="Lights"
         statusId="plejd"
-        source={rooms.length ? 'plejd · live' : 'plejd not configured'}
+        source={rooms.length ? `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'} · live` : 'no rooms yet'}
         summary={rooms.length
           ? <><b>{onCount}</b> of <b>{rooms.length}</b> rooms · <b>{Math.round(litWatts)} W</b> drawn</>
           : <>No rooms loaded</>}
@@ -1847,7 +1975,7 @@ function HomePage({
       <Section
         title="Power"
         statusId="shelly"
-        source={outlets.length ? 'shelly · live' : 'shelly not configured'}
+        source={outlets.length ? `${outlets.length} ${outlets.length === 1 ? 'outlet' : 'outlets'} · live` : 'no outlets yet'}
         summary={outlets.length
           ? <>Live load <b className="mono">{outletWatts} W</b> across {outlets.filter(o=>o.on).length} outlets</>
           : <>No outlets configured</>}
