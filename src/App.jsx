@@ -669,7 +669,32 @@ function useSpotify() {
     }
   }, [token, api]);
 
-  return { clientId, setClientId, token, me, error, connect, disconnect, api, devices, refreshDevices, transferTo, pauseDevice, setDeviceVolume };
+  // Transport controls — skip, resume, pause on the active/any device.
+  const skipNext = useCallback(async () => {
+    if (!token) return;
+    try { await api('/me/player/next', { method: 'POST' }); } catch (e) { setError(String(e.message || e)); }
+  }, [token, api]);
+
+  const skipPrev = useCallback(async () => {
+    if (!token) return;
+    try { await api('/me/player/previous', { method: 'POST' }); } catch (e) { setError(String(e.message || e)); }
+  }, [token, api]);
+
+  const resumePlay = useCallback(async (deviceId) => {
+    if (!token) return;
+    try {
+      await api(`/me/player/play${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ''}`, { method: 'PUT' });
+    } catch (e) { setError(String(e.message || e)); }
+  }, [token, api]);
+
+  const pausePlay = useCallback(async (deviceId) => {
+    if (!token) return;
+    try {
+      await api(`/me/player/pause${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ''}`, { method: 'PUT' });
+    } catch (e) { setError(String(e.message || e)); }
+  }, [token, api]);
+
+  return { clientId, setClientId, token, me, error, connect, disconnect, api, devices, refreshDevices, transferTo, pauseDevice, setDeviceVolume, skipNext, skipPrev, resumePlay, pausePlay };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2295,6 +2320,7 @@ function App() {
               activeScene={activeScene} activeSceneAt={activeSceneAt} now={now}
               applyScene={applyScene} breakScene={breakScene}
               activity={activity}
+              spotify={spotify}
             />
           )}
           {route === 'rooms' && (
@@ -2362,6 +2388,7 @@ function HomePage({
   activeScene, activeSceneAt, now,
   applyScene, breakScene,
   activity,
+  spotify,
 }) {
   // Cast-to-room handler for the NowPlaying hero. Two cases:
   // (1) a speaker is already active -> reassert it (no-op behavioral, but the
@@ -2384,7 +2411,7 @@ function HomePage({
         source={null /* dot in title is enough; vendor name moved to Settings */}
         summary={<>Streaming to <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> rooms</>}
       >
-        <NowPlaying speakers={speakers} onCastToggle={handleCastToggle} />
+        <NowPlaying speakers={speakers} onCastToggle={handleCastToggle} spotify={spotify} />
       </Section>
 
       <Section
@@ -2887,60 +2914,151 @@ function TibberPriceCell({ totalW }) {
   );
 }
 
-function NowPlaying({ speakers, onCastToggle }) {
-  // Reads live Spotify state from the home store. The hero now reflects what
-  // is *actually* playing on the user's Spotify Connect target instead of a
-  // hardcoded Carly Rae Jepsen album. When nothing is playing or Spotify is
-  // not connected, the iframe stays as a curated discovery surface and the
-  // side panel says so honestly.
+function NowPlaying({ speakers, onCastToggle, spotify }) {
   const playback     = useHomeStore(s => s.playback);
   const spotifyState = useHomeStore(s => s.status.spotify);
   const isConnected  = spotifyState.state === 'ok';
+  const hasTrack     = !!playback.track;
   const onCount      = speakers.filter(s => s.on).length;
   const activeSpeaker = speakers.find(s => s.primary || s.on);
 
-  // The embed URL prefers the album of what's currently playing (so the user
-  // sees their album art at full size). Falls back to a curated "Discover
-  // Weekly" placeholder when no track is selected.
-  const embedSrc = useMemo(() => {
-    if (playback.albumUri) {
-      const id = String(playback.albumUri).split(':').pop();
-      return `https://open.spotify.com/embed/album/${id}?utm_source=generator&theme=0`;
+  // Optimistic play/pause toggle so the button responds instantly.
+  const [toggling, setToggling] = useState(false);
+  const handlePlayPause = async () => {
+    if (!spotify?.token || toggling) return;
+    setToggling(true);
+    try {
+      if (playback.isPlaying) {
+        await spotify.pausePlay(playback.deviceId);
+        useHomeStore.getState().setPlayback({ ...useHomeStore.getState().playback, isPlaying: false });
+      } else {
+        await spotify.resumePlay(playback.deviceId);
+        useHomeStore.getState().setPlayback({ ...useHomeStore.getState().playback, isPlaying: true });
+      }
+    } finally {
+      setToggling(false);
     }
-    if (playback.uri && playback.uri.startsWith('spotify:track:')) {
-      const id = playback.uri.split(':').pop();
-      return `https://open.spotify.com/embed/track/${id}?utm_source=generator&theme=0`;
-    }
-    // Editorial fallback -- a public Spotify-curated playlist that doesn't
-    // require auth. Replace with a household-saved playlist later.
-    return 'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator&theme=0';
-  }, [playback.albumUri, playback.uri]);
+  };
 
-  return (
-    <div className="music-hero">
-      <div className="music-hero-embed">
-        <iframe
-          className="np-embed"
-          src={embedSrc}
-          title="Spotify Web Player"
-          allow="autoplay; clipboard-write; encrypted-media; picture-in-picture"
-          loading="lazy"
-          frameBorder="0"
-        />
-      </div>
-      <div className="music-hero-side">
-        <div>
-          <div className="np-label">{playback.isPlaying ? 'Now playing' : (isConnected ? 'Paused' : 'Discover')}</div>
-          <div className="np-title-big">
-            {playback.track ? playback.track : (isConnected ? 'Nothing playing' : 'Connect Spotify to see live')}
+  // Progress bar: interpolate locally between polls (Spotify polls every 8s).
+  const [localMs, setLocalMs] = useState(playback.progressMs || 0);
+  useEffect(() => { setLocalMs(playback.progressMs || 0); }, [playback.progressMs]);
+  useEffect(() => {
+    if (!playback.isPlaying || !playback.durationMs) return;
+    const t = setInterval(() => setLocalMs(ms => Math.min(ms + 1000, playback.durationMs)), 1000);
+    return () => clearInterval(t);
+  }, [playback.isPlaying, playback.durationMs]);
+
+  const progress = playback.durationMs ? (localMs / playback.durationMs) * 100 : 0;
+  const fmtTime = (ms) => {
+    const s = Math.floor((ms ?? 0) / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+
+  // Show real player if connected + has a track. Otherwise show the embed.
+  if (!isConnected || !hasTrack) {
+    // Discovery / unauthenticated fallback — keep the Spotify embed.
+    const embedSrc = 'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator&theme=0';
+    return (
+      <div className="music-hero">
+        <div className="music-hero-embed">
+          <iframe
+            className="np-embed"
+            src={embedSrc}
+            title="Spotify Web Player"
+            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture"
+            loading="lazy"
+            frameBorder="0"
+          />
+        </div>
+        <div className="music-hero-side">
+          <div>
+            <div className="np-label">Discover</div>
+            <div className="np-title-big" style={{ fontSize: 18 }}>
+              {isConnected ? 'Nothing playing' : 'Connect Spotify'}
+            </div>
+            <div className="np-source mono">
+              {isConnected ? 'Start something on any device' : 'Sign in via Settings → Spotify'}
+            </div>
           </div>
-          <div className="np-source mono">
-            {playback.artist
-              ? <>{playback.artist}{playback.deviceName ? <> · {playback.deviceName}</> : null}</>
-              : 'open.spotify.com/embed'}
+          <div className="hero-actions">
+            <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
+              <I.Music size={11} /> Open Music
+            </button>
+            {!isConnected && (
+              <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
+                <BrandSpotify size={11} /> Connect
+              </button>
+            )}
           </div>
         </div>
+      </div>
+    );
+  }
 
+  return (
+    <div className="music-hero music-hero--live">
+      {/* Album art */}
+      <div className="np-art-wrap">
+        {playback.art
+          ? <img src={playback.art} alt={playback.track} className="np-art" />
+          : <div className="np-art np-art--placeholder"><BrandSpotify size={32} /></div>
+        }
+      </div>
+
+      {/* Track info + controls */}
+      <div className="music-hero-side">
+        <div className="np-meta">
+          <div className="np-label">
+            {playback.isPlaying ? 'Now playing' : 'Paused'}
+            {playback.deviceName && <span className="np-device"> · {playback.deviceName}</span>}
+          </div>
+          <div className="np-title-big">{playback.track}</div>
+          <div className="np-source mono">{playback.artist}</div>
+        </div>
+
+        {/* Progress bar */}
+        {playback.durationMs > 0 && (
+          <div className="np-progress">
+            <div className="np-progress-track">
+              <div className="np-progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="np-progress-times">
+              <span className="mono">{fmtTime(localMs)}</span>
+              <span className="mono">{fmtTime(playback.durationMs)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Transport controls */}
+        <div className="np-transport">
+          <button
+            className="np-ctrl"
+            onClick={() => spotify.skipPrev()}
+            title="Previous"
+            aria-label="Previous track"
+          >
+            <I.Back size={16} />
+          </button>
+          <button
+            className="np-ctrl np-ctrl--play"
+            onClick={handlePlayPause}
+            disabled={toggling}
+            aria-label={playback.isPlaying ? 'Pause' : 'Play'}
+          >
+            {playback.isPlaying ? <I.Pause size={20} /> : <I.Play size={20} />}
+          </button>
+          <button
+            className="np-ctrl"
+            onClick={() => spotify.skipNext()}
+            title="Next"
+            aria-label="Next track"
+          >
+            <I.Skip size={16} />
+          </button>
+        </div>
+
+        {/* Speaker rooms */}
         <div className="hero-rooms">
           <div className="hero-rooms-head">
             <span className="micro-label">Streaming to</span>
@@ -2952,7 +3070,7 @@ function NowPlaying({ speakers, onCastToggle }) {
             {speakers.length === 0 && (
               <div className="hero-room-row" data-on={false}>
                 <span className="hero-room-dot" />
-                <span className="hero-room-name">No speakers found</span>
+                <span className="hero-room-name">No speakers</span>
                 <span className="hero-room-state mono">—</span>
               </div>
             )}
@@ -2972,16 +3090,11 @@ function NowPlaying({ speakers, onCastToggle }) {
             data-active={!!activeSpeaker}
             disabled={!speakers.length}
             onClick={() => onCastToggle?.(activeSpeaker)}
-            title={activeSpeaker ? `Active target: ${activeSpeaker.name}` : 'No speaker selected'}
           >
-            <I.Speaker size={11} /> {activeSpeaker ? `Casting · ${activeSpeaker.name}` : 'Cast to room'}
+            <I.Speaker size={11} /> {activeSpeaker ? `${activeSpeaker.name}` : 'Cast to room'}
           </button>
-          <button
-            className="group-toggle"
-            onClick={() => { window.location.hash = '#music'; }}
-            title="Open Music page for full player + search"
-          >
-            <I.Music size={11} /> Open Music
+          <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
+            <I.Music size={11} /> Library
           </button>
         </div>
       </div>
@@ -3980,6 +4093,90 @@ function NewsPage({ tab, setTab }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Brand SVG marks — inline, currentColor, so they inherit glass-card foreground.
+// Kept small (20×20 viewBox / ≤5 paths) for crisp rendering at 18–22px.
+// ─────────────────────────────────────────────────────────────────────────────
+function BrandSpotify({ size = 18 }) {
+  // Spotify canonical logo: filled circle + 3 horizontal arcs.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424a.622.622 0 01-.857.207c-2.348-1.435-5.304-1.76-8.785-.964a.622.622 0 01-.277-1.215c3.809-.87 7.076-.496 9.712 1.115a.623.623 0 01.207.857zm1.223-2.722a.78.78 0 01-1.072.257c-2.687-1.652-6.786-2.131-9.965-1.166a.779.779 0 01-.968-.519.781.781 0 01.519-.968c3.632-1.102 8.147-.568 11.228 1.324a.78.78 0 01.258 1.072zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71a.937.937 0 11-.543-1.79c3.533-1.072 9.404-.866 13.115 1.337a.937.937 0 01-.954 1.61z" />
+    </svg>
+  );
+}
+function BrandPlejd({ size = 18 }) {
+  // Plejd: rounded rectangle housing a P letterform (matches their app icon shape).
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="2" y="2" width="20" height="20" rx="5" opacity="0.18" />
+      <path d="M8 5.5h4.8C15.13 5.5 17 7.37 17 9.7s-1.87 4.2-4.2 4.2H10.2V19H8V5.5zm2.2 2v5.4h2.4c1.22 0 2.2-.98 2.2-2.2v-1c0-1.22-.98-2.2-2.2-2.2h-2.4z" />
+    </svg>
+  );
+}
+function BrandSonos({ size = 18 }) {
+  // Sonos: WiFi-style arcs radiating from a dot — multi-room audio metaphor.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="5" cy="19" r="2" fill="currentColor" />
+      <path d="M5 14a5 5 0 015 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <path d="M5 9a10 10 0 0110 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+      <path d="M5 4a15 15 0 0115 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
+function BrandShelly({ size = 18 }) {
+  // Shelly: plug body + lightning bolt — smart outlet with live wattage.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="2" width="12" height="14" rx="3" opacity="0.2" />
+      <rect x="6" y="2" width="12" height="14" rx="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="9" y1="2" x2="9" y2="5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="15" y1="2" x2="15" y2="5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M13 8l-3 5h4l-3 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+function BrandTibber({ size = 18 }) {
+  // Tibber: circle + lightning bolt — energy price brand.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" opacity="0.18" />
+      <path d="M13.5 4l-5 8h4.5l-3 8 7-10H13L15.5 4z" />
+    </svg>
+  );
+}
+function BrandHomeAssistant({ size = 18 }) {
+  // Home Assistant: house silhouette with a connectivity dot (the HA icon).
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 3L3 8.5V21h6v-5h6v5h6V8.5L12 3zm0 2.6l6 3.5V19h-2v-5H8v5H6V9.1l6-3.5z" />
+      <circle cx="12" cy="12" r="1.5" />
+    </svg>
+  );
+}
+function BrandWeather({ size = 18 }) {
+  // Open-Meteo / weather: sun with rays (clearly distinct from all other marks).
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" fill="currentColor" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5.64 5.64l2.12 2.12M16.24 16.24l2.12 2.12M5.64 18.36l2.12-2.12M16.24 7.76l2.12-2.12"
+        stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Map catalog id → brand logo component (falls back to Lucide via icon field).
+const BRAND_LOGOS = {
+  plejd:       BrandPlejd,
+  sonos:       BrandSonos,
+  shelly:      BrandShelly,
+  spotify:     BrandSpotify,
+  tibber:      BrandTibber,
+  weather:     BrandWeather,
+  'ha-sensors': BrandHomeAssistant,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Integration catalog -- shape per entry:
 //   { id, name, icon, kind, tagline, keywords, status(integrations, spotify) }
 // "kind" is used in the badge ("Cloud OAuth" / "LAN bridge" / "Cloud token" / "LAN devices")
@@ -4006,7 +4203,7 @@ const INTEGRATION_CATALOG = [
   },
   {
     id: 'spotify', name: 'Spotify', icon: 'Music', kind: 'Cloud OAuth',
-    tagline: 'Music search, your library, and playback in the embedded player.',
+    tagline: 'Each household member signs in with their own Spotify account.',
     keywords: ['spotify', 'music', 'playback', 'streaming'],
     status: (i, sp) => sp?.token ? 'configured' : (sp?.clientId ? 'partial' : 'not-configured'),
   },
@@ -4024,7 +4221,7 @@ const INTEGRATION_CATALOG = [
   },
   {
     id: 'ha-sensors', name: 'Home Assistant sensors', icon: 'Home', kind: 'LAN bridge (HA)',
-    tagline: 'Pin any Home Assistant entity (temperature, motion, door, vacuum battery) onto the dashboard. Reuses the Plejd HA credentials.',
+    tagline: 'Pin any Home Assistant entity (temperature, motion, door, vacuum battery) onto the dashboard.',
     keywords: ['sensors', 'home assistant', 'ha', 'temperature', 'motion', 'door', 'entities', 'plejd', 'hass'],
     status: (i) => (i.config.ha?.entities?.length ?? 0) > 0 ? 'configured' : 'not-configured',
   },
@@ -4162,7 +4359,7 @@ function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
     return () => clearTimeout(t);
   }, [armed]);
 
-  const Ic = I[it.icon] ?? I.Plug;
+  const Ic = BRAND_LOGOS[it.id] ?? I[it.icon] ?? I.Plug;
   const status = it.status(integrations, spotify);
   const action = inlineActionFor(it, status, integrations, spotify);
 
@@ -4605,36 +4802,77 @@ function ShellyConfig({ integrations }) {
 }
 
 function SpotifyConfig({ spotify }) {
-  const [draft, setDraft] = useState(spotify.clientId || '');
-  useEffect(() => { setDraft(spotify.clientId || ''); }, [spotify.clientId]);
   const onLocalhost = window.location.hostname === 'localhost';
   const suggested127 = `http://127.0.0.1${window.location.port ? ':' + window.location.port : ''}${window.location.pathname}`;
+  const isSetUp = !!spotify.clientId;
+  const isSignedIn = !!spotify.token;
+
   return (
     <div className="catalog-form">
-      <p className="catalog-help">
-        Create a Spotify app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">developer.spotify.com</a>. Set the redirect URI to exactly <span className="mono">{spRedirectUri()}</span>. Each user signs in with their own Spotify account; tokens stay in this browser.
-      </p>
-      {onLocalhost && (
-        <p className="catalog-help catalog-notice">
-          <b>Heads up:</b> Spotify rejects <span className="mono">localhost</span> as a redirect-URI host since 2024 — they only accept <span className="mono">127.0.0.1</span> for non-HTTPS URIs. Either register <span className="mono">{suggested127}</span> in your Spotify app AND access this page at <a href={suggested127}>{suggested127}</a>, or deploy to an HTTPS host (Netlify / Vercel) and register that URL instead.
-        </p>
+      {/* ── Step 1: Admin one-time setup ───────────────────────────────── */}
+      <details className="settings-advanced" open={!isSetUp}>
+        <summary>Admin setup (one time per household)</summary>
+        <div>
+          <p className="catalog-help" style={{ marginBottom: 10 }}>
+            Register one Spotify app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">developer.spotify.com</a>. Every person in the household then signs in with <b>their own</b> Spotify account — no separate app per person.
+          </p>
+          <ol className="catalog-help" style={{ paddingLeft: 18, margin: '0 0 10px', lineHeight: 2 }}>
+            <li>Create an app at developer.spotify.com → "Create app"</li>
+            <li>Add redirect URI: <span className="mono">{spRedirectUri()}</span></li>
+            <li>Copy the <b>Client ID</b> (32-char hex) and paste it below</li>
+            <li>Add each household member's Spotify email to the app's "Users" allowlist</li>
+          </ol>
+          {onLocalhost && (
+            <p className="catalog-help catalog-notice" style={{ marginBottom: 10 }}>
+              <b>Note:</b> Spotify rejects <span className="mono">localhost</span> redirect URIs. Register <span className="mono">{suggested127}</span> and access this page at <a href={suggested127}>{suggested127}</a>, or deploy to an HTTPS host.
+            </p>
+          )}
+          <label className="catalog-label">Client ID</label>
+          <MaskedSecret
+            value={spotify.clientId || ''}
+            onSave={(v) => spotify.setClientId(v)}
+            placeholder="32-char hex from developer.spotify.com"
+            type="text"
+          />
+        </div>
+      </details>
+
+      {/* ── Step 2: Any household member signs in ──────────────────────── */}
+      {isSetUp && !isSignedIn && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+          <p className="catalog-help">
+            Sign in with your personal Spotify account. Your token stays in this browser only.
+          </p>
+          <button
+            className="spotify-signin-btn"
+            onClick={spotify.connect}
+          >
+            <BrandSpotify size={16} />
+            Sign in with Spotify
+          </button>
+        </div>
       )}
-      {spotify.error && <div style={{ color: 'var(--destructive)', fontSize: 11, marginBottom: 6 }}>{spotify.error}</div>}
-      <label className="catalog-label">Client ID</label>
-      <MaskedSecret
-        value={spotify.clientId || ''}
-        onSave={(v) => spotify.setClientId(v)}
-        placeholder="32-char hex"
-        type="text"
-      />
-      <div className="catalog-actions" style={{ marginTop: 12 }}>
-        {spotify.token ? (
-          <button className="group-toggle" onClick={spotify.disconnect}>Disconnect ({spotify.me?.display_name || 'Spotify'})</button>
-        ) : (
-          <button className="group-toggle" data-active="true" onClick={spotify.connect} disabled={!spotify.clientId}>Connect with Spotify</button>
-        )}
-      </div>
-      {spotify.me && <div className="catalog-help" style={{ marginTop: 8 }}>Signed in as <b>{spotify.me.display_name}</b>{spotify.me.email && <> ({spotify.me.email})</>}.</div>}
+
+      {isSignedIn && (
+        <div className="spotify-signed-in">
+          {spotify.me?.images?.[0]?.url && (
+            <img
+              src={spotify.me.images[0].url}
+              alt=""
+              className="spotify-avatar"
+            />
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 500, fontSize: 13 }}>{spotify.me?.display_name || 'Spotify user'}</div>
+            {spotify.me?.email && <div className="catalog-help">{spotify.me.email}</div>}
+          </div>
+          <button className="group-toggle" onClick={spotify.disconnect}>Sign out</button>
+        </div>
+      )}
+
+      {spotify.error && (
+        <p className="catalog-help" style={{ color: 'var(--destructive)' }}>{spotify.error}</p>
+      )}
     </div>
   );
 }

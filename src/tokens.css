@@ -1525,6 +1525,132 @@ img.avatar { display: block; }
   gap: 8px;
 }
 
+/* ── NowPlaying live player (when Spotify is connected + playing) ─────────── */
+.music-hero--live {
+  /* Swap: album art square on the left instead of an iFrame */
+  grid-template-columns: 200px 1fr;
+}
+.np-art-wrap {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  aspect-ratio: 1 / 1;
+  background: color-mix(in oklch, var(--clay-50) 4%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.np-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.np-art--placeholder {
+  color: var(--muted-foreground);
+}
+.np-meta { display: flex; flex-direction: column; gap: 2px; }
+.np-device { color: var(--muted-foreground); font-size: 9px; }
+
+/* Progress bar */
+.np-progress { display: flex; flex-direction: column; gap: 4px; }
+.np-progress-track {
+  height: 3px;
+  border-radius: 99px;
+  background: color-mix(in oklch, var(--clay-50) 12%, transparent);
+  overflow: hidden;
+}
+.np-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 99px;
+  transition: width 0.9s linear;
+}
+.np-progress-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+
+/* Transport controls: ⏮ ⏯ ⏭ */
+.np-transport {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.np-ctrl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 6px;
+  transition: color var(--motion-duration-fast), background var(--motion-duration-fast);
+  min-width: 36px;
+  min-height: 36px;
+}
+.np-ctrl:hover { color: var(--foreground); background: color-mix(in oklch, var(--clay-50) 6%, transparent); }
+.np-ctrl--play {
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--primary);
+  border-radius: 99px;
+  min-width: 44px;
+  min-height: 44px;
+}
+.np-ctrl--play:hover {
+  background: color-mix(in oklch, var(--primary) 22%, transparent);
+  color: var(--primary);
+}
+.np-ctrl:disabled { opacity: 0.4; cursor: default; }
+
+/* Spotify "Sign in" button — Spotify green with white text */
+.spotify-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: oklch(0.66 0.18 152);   /* Spotify green in OKLCH */
+  color: oklch(0.99 0.002 65);
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--motion-duration-fast), transform var(--motion-duration-fast);
+  letter-spacing: 0.01em;
+}
+.spotify-signin-btn:hover {
+  background: oklch(0.70 0.18 152);
+  transform: scale(1.02);
+}
+.spotify-signin-btn:active { transform: scale(0.98); }
+
+/* Spotify signed-in state row */
+.spotify-signed-in {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--clay-50) 4%, transparent);
+  border: 1px solid var(--border);
+}
+.spotify-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* ── catalog icon sizing for brand SVGs (larger than Lucide at same em) ─── */
+.settings-row-icon svg,
+.catalog-head svg { display: block; }
+
 /* Speaker grid (now alone in Sound section) */
 .speaker-grid {
   display: grid;
