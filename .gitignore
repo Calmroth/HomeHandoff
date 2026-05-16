@@ -1,0 +1,44 @@
+# Dependencies (in case the prototype ever grows a node build)
+node_modules/
+.pnpm-store/
+
+# Secrets -- never commit these
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets.json
+.claude/secrets*
+.claude/credentials*
+
+# Build / dist artifacts
+dist/
+build/
+out/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.history/
+
+# OS detritus
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# OneDrive lock / sync artifacts (this project lives under OneDrive)
+*.lnk
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local screenshots / scratch
+screenshot*.png
+*.local.md
