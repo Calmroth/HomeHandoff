@@ -69,13 +69,21 @@ function useIntegrations() {
       return { ...DEFAULT_INTEGRATIONS, ...raw };
     } catch (e) { return { ...DEFAULT_INTEGRATIONS }; }
   });
-  const persist = useCallback((next) => {
-    setConfig(next);
-    try { localStorage.setItem('hdg-integrations', JSON.stringify(next)); } catch (e) {}
+  // setConfig + localStorage write. Functional setter form -- crucial when
+  // multiple setIntegration calls land in the same render tick (e.g. the
+  // .env.local one-shot seed touches plejd + tibber + weather back-to-back).
+  // Without the functional form, each closure'd `config` was the same stale
+  // value and later calls would clobber earlier ones.
+  const persist = useCallback((updater) => {
+    setConfig((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try { localStorage.setItem('hdg-integrations', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
   }, []);
   const setIntegration = useCallback((id, patch) => {
-    persist({ ...config, [id]: { ...(config[id] || {}), ...patch } });
-  }, [config, persist]);
+    persist((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), ...patch } }));
+  }, [persist]);
   const status = useCallback((id) => {
     const c = config[id] || {};
     switch (id) {
@@ -1422,6 +1430,64 @@ function App() {
   const pickCurated = useCallback((id) => {
     setMusicSource(id);
     setMusicCustom(null);
+  }, []);
+
+  // One-shot .env.local seeding. Reads import.meta.env.VITE_* values that
+  // were copied from .env.local (gitignored) and writes them straight into
+  // the running app's integration config + auth state. Each key seeds only
+  // if the corresponding live slot is empty -- a value the user typed in
+  // Settings always wins over the env default. Latched per-key in
+  // localStorage so a "clear and re-enter" cycle isn't undone on next reload.
+  //
+  // What lives where:
+  //   import.meta.env (Vite dev/prod bundle, gitignored at source)
+  //     -> localStorage (hdg-g-clientid, hdg-sp-clientid -- Client IDs are
+  //        public)
+  //     -> integrations.config blob (HA URL, Tibber token -- those are
+  //        secrets; in v3.0 they'll move into the encrypted IDB vault
+  //        unconditionally, but for now they live wherever useIntegrations
+  //        keeps them).
+  useEffect(() => {
+    const env = import.meta.env || {};
+    const seededFlag = 'hdg-env-seeded-v1';
+    if (localStorage.getItem(seededFlag) === '1') return;
+    const seedIfEmpty = (key, value, setter, label) => {
+      if (!value) return false;
+      if (key) {
+        const existing = localStorage.getItem(key);
+        if (existing) return false;
+      }
+      setter(value);
+      logActivity('integration', `Seeded ${label} from environment`);
+      return true;
+    };
+    seedIfEmpty('hdg-g-clientid', env.VITE_GOOGLE_CLIENT_ID, google.setClientId, 'Google Client ID');
+    seedIfEmpty('hdg-sp-clientid', env.VITE_SPOTIFY_CLIENT_ID, spotify.setClientId, 'Spotify Client ID');
+    // Plejd/HA: URL + token must both be present to count as configured.
+    // If only the URL is in env (the token is sensitive and may be set later)
+    // we still seed the URL so the user can paste just the token in Settings.
+    if (env.VITE_HOME_ASSISTANT_URL && !integrations.config.plejd?.url) {
+      integrations.setIntegration('plejd', {
+        url: env.VITE_HOME_ASSISTANT_URL,
+        token: integrations.config.plejd?.token || env.VITE_HOME_ASSISTANT_TOKEN || '',
+      });
+      logActivity('integration', 'Seeded Home Assistant URL from environment');
+    } else if (env.VITE_HOME_ASSISTANT_TOKEN && !integrations.config.plejd?.token) {
+      integrations.setIntegration('plejd', {
+        url: integrations.config.plejd?.url || '',
+        token: env.VITE_HOME_ASSISTANT_TOKEN,
+      });
+      logActivity('integration', 'Seeded Home Assistant token from environment');
+    }
+    if (env.VITE_TIBBER_TOKEN && !integrations.config.tibber?.token) {
+      integrations.setIntegration('tibber', { token: env.VITE_TIBBER_TOKEN });
+      logActivity('integration', 'Seeded Tibber token from environment');
+    }
+    localStorage.setItem(seededFlag, '1');
+    // Intentionally narrow deps: this should run once on mount only. The
+    // setters and integrations object are stable enough that React's effect
+    // identity check won't loop us into infinite re-runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Geolocation one-shot. The Contrarian's rule: ask ONCE at onboarding,
@@ -3665,6 +3731,12 @@ const INTEGRATION_CATALOG = [
     keywords: ['weather', 'forecast', 'open-meteo', 'temperature', 'rain'],
     status: (i) => i.config.weather?.lat && i.config.weather?.lon ? 'configured' : 'default',
   },
+  {
+    id: 'ha-sensors', name: 'Home Assistant sensors', icon: 'Home', kind: 'LAN bridge (HA)',
+    tagline: 'Pin any Home Assistant entity (temperature, motion, door, vacuum battery) onto the dashboard. Reuses the Plejd HA credentials.',
+    keywords: ['sensors', 'home assistant', 'ha', 'temperature', 'motion', 'door', 'entities', 'plejd', 'hass'],
+    status: (i) => (i.config.ha?.entities?.length ?? 0) > 0 ? 'configured' : 'not-configured',
+  },
 ];
 
 const STATUS_LABEL = { configured: 'Connected', partial: 'Half set up', 'not-configured': 'Not set up', default: 'Using defaults' };
@@ -3792,6 +3864,7 @@ function IntegrationConfig({ id, integrations, spotify }) {
   if (id === 'spotify') return <SpotifyConfig spotify={spotify} />;
   if (id === 'tibber') return <TibberConfig integrations={integrations} />;
   if (id === 'weather') return <WeatherConfig integrations={integrations} />;
+  if (id === 'ha-sensors') return <HaSensorsConfig integrations={integrations} />;
   return null;
 }
 
@@ -3996,6 +4069,79 @@ function WeatherConfig({ integrations }) {
       </div>
       <div className="catalog-actions">
         <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('weather', { lat: String(lat).trim(), lon: String(lon).trim(), city: String(city).trim() })}>Save</button>
+      </div>
+    </div>
+  );
+}
+
+// HaSensorsConfig -- per-entity pin list. Reuses the Plejd HA URL+token (a
+// home only has one HA bridge in practice). Each entity gets a label + unit
+// + icon so the home-page tile reads as an appliance ("Kitchen 21.4°C"), not
+// as an HA entity ID ("sensor.kitchen_temperature 21.4").
+//
+// Icon names come from the global I icon set; we offer a small curated
+// shortlist via a dropdown rather than free-form to avoid typos. Unit is
+// free-form ("°C", "%", "kWh", "lx", or empty for binary states).
+const HA_ICON_CHOICES = ['Sun', 'Moon', 'Cloud', 'Home', 'Light', 'Plug', 'Speaker', 'Disc', 'Zap', 'Router', 'Coffee', 'TV', 'Lamp', 'Bulb', 'Fan'];
+
+function HaSensorsConfig({ integrations }) {
+  const plejdCfg = integrations.config.plejd || {};
+  const cfg = integrations.config.ha || { entities: [] };
+  const entities = cfg.entities || [];
+  // Local draft state for the "add a new entity" row.
+  const [id, setId] = useState('');
+  const [label, setLabel] = useState('');
+  const [unit, setUnit] = useState('');
+  const [icon, setIcon] = useState('Home');
+
+  const canAdd = id.trim().includes('.') && label.trim();
+  const haCredsSet = !!(plejdCfg.url && plejdCfg.token);
+
+  const add = () => {
+    if (!canAdd) return;
+    const next = [...entities, { id: id.trim(), label: label.trim(), unit: unit.trim(), icon }];
+    integrations.setIntegration('ha', { entities: next });
+    setId(''); setLabel(''); setUnit(''); setIcon('Home');
+  };
+  const remove = (entityId) => {
+    integrations.setIntegration('ha', { entities: entities.filter(e => e.id !== entityId) });
+  };
+
+  return (
+    <div className="catalog-form">
+      <p className="catalog-help">
+        Pin any Home Assistant entity onto the dashboard. Reuses the URL + token from the Plejd integration -- one HA bridge, two consumers. To find an entity ID in HA: <span className="mono">Developer Tools → States</span>. Common examples: <span className="mono">sensor.kitchen_temperature</span>, <span className="mono">binary_sensor.front_door</span>, <span className="mono">sensor.vacuum_battery</span>.
+      </p>
+      {!haCredsSet && (
+        <p className="catalog-help" style={{ color: 'var(--primary)', borderLeft: '2px solid var(--primary)', paddingLeft: 10 }}>
+          <b>Heads up:</b> set up Plejd first (URL + Home Assistant token) -- the sensors share those credentials.
+        </p>
+      )}
+      {entities.length > 0 && (
+        <div className="catalog-list">
+          {entities.map((e) => {
+            const Ic = I[e.icon] ?? I.Home;
+            return (
+              <div key={e.id} className="catalog-list-row">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                  <Ic size={14} />
+                  <b>{e.label}</b> <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{e.id}</span>{e.unit ? <> · {e.unit}</> : null}
+                </span>
+                <button className="group-toggle" onClick={() => remove(e.id)}>Remove</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <label className="catalog-label" style={{ marginTop: 12 }}>Add an entity</label>
+      <div className="catalog-add-grid" style={{ gridTemplateColumns: '2fr 1fr 80px auto auto' }}>
+        <input className="settings-input" placeholder="sensor.kitchen_temperature" value={id} onChange={e => setId(e.target.value)} autoComplete="off" spellCheck="false" />
+        <input className="settings-input" placeholder="Label (Kitchen)" value={label} onChange={e => setLabel(e.target.value)} autoComplete="off" />
+        <input className="settings-input" placeholder="°C" value={unit} onChange={e => setUnit(e.target.value)} autoComplete="off" />
+        <select className="settings-input" value={icon} onChange={e => setIcon(e.target.value)} style={{ minWidth: 90 }}>
+          {HA_ICON_CHOICES.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <button className="group-toggle" data-active="true" onClick={add} disabled={!canAdd || !haCredsSet}>Add</button>
       </div>
     </div>
   );
