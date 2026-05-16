@@ -1,7 +1,7 @@
 // Home Domain — Home control surface: Lights, Power, Sound.
 // Match DESIGN.md exactly: dark, clay/amber, flat translucent cards, 2px stack.
 
-const { useState, useEffect, useRef, useMemo, useCallback } = React;
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Icons (inline SVG, 1.5 stroke — matches lucide weight)
@@ -871,18 +871,18 @@ const WEATHER_OPTIONS = [
 function pickBackdrop(now, weather) {
   const h = now.getHours();
   // Night (21–5)
-  if (h >= 21 || h < 5) return 'assets/backdrop-night.avif';
+  if (h >= 21 || h < 5) return '/assets/backdrop-night.avif';
   // Sunrise (5–9)
-  if (h < 9) return 'assets/backdrop-sunrise.avif';
+  if (h < 9) return '/assets/backdrop-sunrise.avif';
   // Day (9–17) — weather decides
   if (h < 17) {
-    if (weather === 'rain') return 'assets/backdrop-rain.avif';
-    if (weather === 'snow') return 'assets/backdrop-winter.avif';
-    if (weather === 'cloudy') return 'assets/backdrop-cabin.avif';
-    return 'assets/backdrop-day.avif';
+    if (weather === 'rain') return '/assets/backdrop-rain.avif';
+    if (weather === 'snow') return '/assets/backdrop-winter.avif';
+    if (weather === 'cloudy') return '/assets/backdrop-cabin.avif';
+    return '/assets/backdrop-day.avif';
   }
   // Sunset (17–21)
-  return 'assets/backdrop-sunset.avif';
+  return '/assets/backdrop-sunset.avif';
 }
 
 function timeSlotLabel(now) {
@@ -3540,4 +3540,5 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// Mount logic moved to `src/main.jsx`. Export the root component instead.
+export default App;

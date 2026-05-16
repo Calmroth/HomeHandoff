@@ -107,7 +107,7 @@ body {
 .bg-photo {
   position: fixed; inset: 0;
   z-index: 0;
-  background-image: url('assets/backdrop-sunset.avif');
+  background-image: url('/assets/backdrop-sunset.avif');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
