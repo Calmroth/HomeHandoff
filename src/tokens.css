@@ -1607,6 +1607,94 @@ img.avatar { display: block; }
 }
 .np-ctrl:disabled { opacity: 0.4; cursor: default; }
 
+/* ── Speaker picker (room-selector popover in NowPlaying hero) ───────────── */
+/* The device-name becomes an interactive button */
+.np-room-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: 0; padding: 0;
+  color: var(--muted-foreground); font-size: 9px;
+  cursor: pointer; border-radius: 4px;
+  transition: color var(--motion-duration-fast);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.np-room-btn:hover { color: var(--foreground); }
+.np-room-btn[data-open="true"] { color: var(--primary); }
+.np-room-btn svg { flex-shrink: 0; transition: transform var(--motion-duration-fast); }
+.np-room-btn[data-open="true"] svg { transform: rotate(180deg); }
+
+/* Popover container — anchored to the label row */
+.np-picker-wrap {
+  position: relative; display: inline-block;
+}
+.np-picker {
+  position: absolute;
+  top: calc(100% + 6px); left: 0;
+  min-width: 260px;
+  background: color-mix(in oklch, var(--clay-850) 96%, transparent);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 60;
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.45);
+  animation: picker-in var(--motion-duration-fast) var(--motion-ease-out-quart) both;
+}
+@keyframes picker-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Each speaker row inside the picker */
+.np-picker-row {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 0; background: none; width: 100%; text-align: left;
+  transition: background var(--motion-duration-fast);
+}
+.np-picker-row:hover { background: color-mix(in oklch, var(--clay-50) 5%, transparent); }
+.np-picker-row[data-on="true"] { background: color-mix(in oklch, var(--primary) 8%, transparent); }
+.np-picker-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--muted-foreground);
+  transition: background var(--motion-duration-fast);
+}
+.np-picker-row[data-on="true"] .np-picker-dot { background: var(--primary); }
+.np-picker-row[data-paused="true"]:not([data-on="true"]) .np-picker-dot {
+  background: color-mix(in oklch, var(--primary) 45%, var(--muted-foreground));
+}
+.np-picker-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.np-picker-name { font-size: 12px; font-weight: 500; color: var(--foreground); }
+.np-picker-row[data-on="true"] .np-picker-name { color: var(--primary); }
+.np-picker-track {
+  font-size: 10px; color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;
+}
+.np-picker-toggle {
+  width: 28px; height: 16px; border-radius: 99px; flex-shrink: 0;
+  background: color-mix(in oklch, var(--clay-50) 12%, transparent);
+  border: 1px solid var(--border);
+  position: relative; transition: background var(--motion-duration-base);
+}
+.np-picker-toggle::after {
+  content: ''; position: absolute;
+  top: 2px; left: 2px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--muted-foreground);
+  transition: transform var(--motion-duration-base), background var(--motion-duration-base);
+}
+.np-picker-row[data-on="true"] .np-picker-toggle {
+  background: color-mix(in oklch, var(--primary) 30%, transparent);
+  border-color: var(--primary);
+}
+.np-picker-row[data-on="true"] .np-picker-toggle::after {
+  transform: translateX(12px); background: var(--primary);
+}
+
 /* Spotify "Sign in" button — Spotify green with white text */
 .spotify-signin-btn {
   display: inline-flex;

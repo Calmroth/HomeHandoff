@@ -2925,6 +2925,51 @@ function TibberPriceCell({ totalW }) {
   );
 }
 
+// Small popover that appears when clicking the room name in the NowPlaying
+// hero. Lists every Sonos zone with a mini-toggle so the user can choose
+// which rooms to cast to without leaving the hero.
+function SpeakerPicker({ speakers, onToggle, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey  = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  return (
+    <div className="np-picker" ref={ref} role="dialog" aria-label="Choose rooms">
+      {speakers.length === 0 && (
+        <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--muted-foreground)' }}>
+          No speakers configured
+        </div>
+      )}
+      {speakers.map(sp => (
+        <button
+          key={sp.id}
+          className="np-picker-row"
+          data-on={sp.on}
+          data-paused={sp.paused}
+          onClick={() => onToggle(sp)}
+          aria-pressed={sp.on}
+          aria-label={`${sp.on ? 'Turn off' : 'Turn on'} ${sp.name}`}
+        >
+          <span className="np-picker-dot" />
+          <span className="np-picker-info">
+            <span className="np-picker-name">{sp.name}</span>
+            {(sp.source) && (
+              <span className="np-picker-track">
+                {sp.paused && !sp.on ? '⏸ ' : ''}{sp.source}
+              </span>
+            )}
+          </span>
+          <span className="np-picker-toggle" aria-hidden="true" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
   const playback     = useHomeStore(s => s.playback);
   const spotifyState = useHomeStore(s => s.status.spotify);
@@ -2932,6 +2977,10 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
   const hasTrack     = !!playback.track;
   const onCount      = speakers.filter(s => s.on).length;
   const activeSpeaker = speakers.find(s => s.primary || s.on);
+
+  // Speaker picker (room-selector) popover state
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerWrapRef = useRef(null);
 
   // Optimistic play/pause toggle so the button responds instantly.
   const [toggling, setToggling] = useState(false);
@@ -2984,9 +3033,28 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
           </div>
           <div className="music-hero-side">
             <div className="np-meta">
-              <div className="np-label">
+              <div className="np-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 {sonosSpeaker.on ? 'Now playing' : 'Paused'}
-                <span className="np-device"> · {sonosSpeaker.name}</span>
+                <span style={{ color: 'var(--muted-foreground)', fontSize: 9 }}> · </span>
+                <div className="np-picker-wrap" ref={pickerWrapRef}>
+                  <button
+                    className="np-room-btn"
+                    data-open={pickerOpen}
+                    onClick={() => setPickerOpen(v => !v)}
+                    aria-expanded={pickerOpen}
+                    aria-haspopup="dialog"
+                  >
+                    {sonosSpeaker.name}
+                    <Icon size={10}><path d="m6 9 6 6 6-6"/></Icon>
+                  </button>
+                  {pickerOpen && (
+                    <SpeakerPicker
+                      speakers={speakers}
+                      onToggle={(sp) => { onCastToggle(sp); }}
+                      onClose={() => setPickerOpen(false)}
+                    />
+                  )}
+                </div>
               </div>
               <div className="np-title-big">{sonosSpeaker.source}</div>
               {sonosSpeaker.artist && <div className="np-source mono">{sonosSpeaker.artist}</div>}
@@ -3071,9 +3139,32 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
       {/* Track info + controls */}
       <div className="music-hero-side">
         <div className="np-meta">
-          <div className="np-label">
+          <div className="np-label" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
             {playback.isPlaying ? 'Now playing' : 'Paused'}
-            {playback.deviceName && <span className="np-device"> · {playback.deviceName}</span>}
+            {(playback.deviceName || speakers.length > 0) && (
+              <>
+                <span style={{ color: 'var(--muted-foreground)', fontSize: 9 }}> · </span>
+                <div className="np-picker-wrap">
+                  <button
+                    className="np-room-btn"
+                    data-open={pickerOpen}
+                    onClick={() => setPickerOpen(v => !v)}
+                    aria-expanded={pickerOpen}
+                    aria-haspopup="dialog"
+                  >
+                    {playback.deviceName || `${speakers.filter(s => s.on).length} rooms`}
+                    <Icon size={10}><path d="m6 9 6 6 6-6"/></Icon>
+                  </button>
+                  {pickerOpen && (
+                    <SpeakerPicker
+                      speakers={speakers}
+                      onToggle={(sp) => { onCastToggle(sp); }}
+                      onClose={() => setPickerOpen(false)}
+                    />
+                  )}
+                </div>
+              </>
+            )}
           </div>
           <div className="np-title-big">{playback.track}</div>
           <div className="np-source mono">{playback.artist}</div>
@@ -4642,7 +4733,7 @@ function PlejdConfig({ integrations }) {
           Your real rooms, devices, and names appear on the home page automatically.
         </p>
         <p className="catalog-help" style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>
-          <b>Heads up:</b> cloud sign-in lets the dashboard <i>see</i> your devices. Toggling lights/plugs from this dashboard works only if you have a <b>Plejd Hub</b> paired to your installation (the dashboard tries; if it fails, the tile reverts and an amber dot appears). Without a Hub, you'd need a tiny Node bridge on your LAN. Use the Plejd app on your phone for control in the meantime.
+          Cloud sign-in gives the dashboard <b>read access</b> to your device names, rooms, and state. <b>Toggle control</b> requires a <a href="https://www.plejd.com/products/gwy-01" target="_blank" rel="noreferrer">Plejd GWY-01 gateway</a> paired to your installation — it bridges cloud commands to the local BLE mesh. Without GWY-01, the dashboard shows your rooms accurately but tiles are read-only; the Plejd app on your phone remains the control surface.
         </p>
         <div className="catalog-actions" style={{ marginTop: 12 }}>
           <button className="group-toggle" onClick={disconnectCloud}>Sign out of Plejd</button>
@@ -4670,7 +4761,7 @@ function PlejdConfig({ integrations }) {
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Sign in with your Plejd account — same email and password as the Plejd mobile app.
+        Sign in with your Plejd account (same credentials as the Plejd mobile app) to see your rooms and device names. Toggle control also requires a <b>GWY-01</b> gateway on the same installation — the dashboard will try and indicate if it succeeds.
       </p>
       <label className="catalog-label">Plejd email</label>
       <input className="settings-input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
