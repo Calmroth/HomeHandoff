@@ -2964,9 +2964,56 @@ function NowPlaying({ speakers, onCastToggle, spotify }) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
 
-  // Show real player if connected + has a track. Otherwise show the embed.
+  // If Sonos has a paused (or active) track we can show a real mini-player
+  // without requiring Spotify at all. Pick the best candidate: a playing
+  // speaker first, then the most recently paused one with a known track.
+  const sonosSpeaker = speakers.find(s => s.on && s.source)
+                    || speakers.find(s => s.paused && s.source);
+
+  // Show real player if connected + has a track.
   if (!isConnected || !hasTrack) {
-    // Discovery / unauthenticated fallback — keep the Spotify embed.
+    // If the Sonos bridge has something paused/playing, show a Sonos mini-
+    // player instead of the generic embed — much more honest and actionable.
+    if (sonosSpeaker) {
+      return (
+        <div className="music-hero music-hero--live">
+          <div className="np-art-wrap">
+            <div className="np-art np-art--placeholder"><BrandSonos size={36} /></div>
+          </div>
+          <div className="music-hero-side">
+            <div className="np-meta">
+              <div className="np-label">
+                {sonosSpeaker.on ? 'Now playing' : 'Paused'}
+                <span className="np-device"> · {sonosSpeaker.name}</span>
+              </div>
+              <div className="np-title-big">{sonosSpeaker.source}</div>
+              {sonosSpeaker.artist && <div className="np-source mono">{sonosSpeaker.artist}</div>}
+            </div>
+            <div className="np-transport">
+              <button
+                className="np-ctrl np-ctrl--play"
+                onClick={() => onCastToggle(sonosSpeaker)}
+                aria-label={sonosSpeaker.on ? `Pause ${sonosSpeaker.name}` : `Resume ${sonosSpeaker.name}`}
+              >
+                {sonosSpeaker.on ? <I.Pause size={20} /> : <I.Play size={20} />}
+              </button>
+            </div>
+            <div className="hero-actions">
+              <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
+                <I.Music size={11} /> Open Music
+              </button>
+              {!isConnected && (
+                <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
+                  <BrandSpotify size={11} /> Connect Spotify
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // No Sonos track and no Spotify — show the discovery embed.
     const embedSrc = 'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator&theme=0';
     return (
       <div className="music-hero">
