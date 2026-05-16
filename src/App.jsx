@@ -1173,6 +1173,45 @@ function usePrefersReducedMotion() {
   return reduced;
 }
 
+// EnvSeedPrompt -- "we found credentials in your environment, want to
+// connect them?". Replaces the silent seeder that used to auto-write
+// import.meta.env.VITE_* into localStorage on mount. Per the user's request:
+// "ask before auto connect integrations with the Google credentials."
+//
+// Per-item Connect or Skip; "Connect all" / "Skip all" for the impatient.
+// The banner disappears as items are applied or skipped; once empty the
+// `hdg-env-seeded-v1` latch is set so we don't re-prompt next reload.
+function EnvSeedPrompt({ items, onApply, onApplyAll, onSkipAll }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="env-seed-banner" role="region" aria-label="Detected credentials">
+      <div className="env-seed-head">
+        <div>
+          <div className="env-seed-title">We found connection details in your environment.</div>
+          <div className="env-seed-sub">
+            The dashboard isn't connecting anything automatically — pick what you want to wire up.
+          </div>
+        </div>
+        <div className="env-seed-head-actions">
+          <button className="group-toggle" onClick={onSkipAll}>Skip all</button>
+          <button className="group-toggle" data-active="true" onClick={onApplyAll}>Connect all</button>
+        </div>
+      </div>
+      <ul className="env-seed-list">
+        {items.map((it) => (
+          <li key={it.id} className="env-seed-row">
+            <div>
+              <div className="env-seed-row-name">{it.label}</div>
+              <div className="env-seed-row-sub">{it.detail}</div>
+            </div>
+            <button className="group-toggle" onClick={() => onApply(it.id)}>Connect</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // LanLostBanner -- the watchdog's only UI. Renders a top-bleed amber strip
 // (full width inside the main column) when no LAN integration has been
 // reachable in the past 5 minutes despite the user having configured one.
@@ -1614,63 +1653,70 @@ function App() {
     setMusicCustom(null);
   }, []);
 
-  // One-shot .env.local seeding. Reads import.meta.env.VITE_* values that
-  // were copied from .env.local (gitignored) and writes them straight into
-  // the running app's integration config + auth state. Each key seeds only
-  // if the corresponding live slot is empty -- a value the user typed in
-  // Settings always wins over the env default. Latched per-key in
-  // localStorage so a "clear and re-enter" cycle isn't undone on next reload.
+  // Pending .env.local credentials -- DETECTED but not yet applied. The user
+  // explicitly asked: "ask before auto-connect integrations with the Google
+  // credentials." So instead of silently seeding from import.meta.env, we
+  // compute the list of {id, label, apply} entries on mount and render an
+  // <EnvSeedPrompt> banner that lets the user pick which to connect. The
+  // seeded flag only flips when the user has decided -- nothing is written
+  // to localStorage or the integrations config until they say so.
   //
-  // What lives where:
-  //   import.meta.env (Vite dev/prod bundle, gitignored at source)
-  //     -> localStorage (hdg-g-clientid, hdg-sp-clientid -- Client IDs are
-  //        public)
-  //     -> integrations.config blob (HA URL, Tibber token -- those are
-  //        secrets; in v3.0 they'll move into the encrypted IDB vault
-  //        unconditionally, but for now they live wherever useIntegrations
-  //        keeps them).
-  useEffect(() => {
+  // Why React state and not a closure: the prompt component needs to render
+  // the list, and clicking "Connect" needs to remove that item from the list
+  // for next render.
+  const [pendingEnvCreds, setPendingEnvCreds] = useState(() => {
+    if (localStorage.getItem('hdg-env-seeded-v1') === '1') return [];
     const env = import.meta.env || {};
-    const seededFlag = 'hdg-env-seeded-v1';
-    if (localStorage.getItem(seededFlag) === '1') return;
-    const seedIfEmpty = (key, value, setter, label) => {
-      if (!value) return false;
-      if (key) {
-        const existing = localStorage.getItem(key);
-        if (existing) return false;
-      }
-      setter(value);
-      logActivity('integration', `Seeded ${label} from environment`);
-      return true;
-    };
-    seedIfEmpty('hdg-g-clientid', env.VITE_GOOGLE_CLIENT_ID, google.setClientId, 'Google Client ID');
-    seedIfEmpty('hdg-sp-clientid', env.VITE_SPOTIFY_CLIENT_ID, spotify.setClientId, 'Spotify Client ID');
-    // Plejd/HA: URL + token must both be present to count as configured.
-    // If only the URL is in env (the token is sensitive and may be set later)
-    // we still seed the URL so the user can paste just the token in Settings.
-    if (env.VITE_HOME_ASSISTANT_URL && !integrations.config.plejd?.url) {
-      integrations.setIntegration('plejd', {
-        url: env.VITE_HOME_ASSISTANT_URL,
-        token: integrations.config.plejd?.token || env.VITE_HOME_ASSISTANT_TOKEN || '',
-      });
-      logActivity('integration', 'Seeded Home Assistant URL from environment');
-    } else if (env.VITE_HOME_ASSISTANT_TOKEN && !integrations.config.plejd?.token) {
-      integrations.setIntegration('plejd', {
-        url: integrations.config.plejd?.url || '',
-        token: env.VITE_HOME_ASSISTANT_TOKEN,
-      });
-      logActivity('integration', 'Seeded Home Assistant token from environment');
+    const out = [];
+    if (env.VITE_GOOGLE_CLIENT_ID && !localStorage.getItem('hdg-g-clientid')) {
+      out.push({ id: 'google', label: 'Google sign-in', detail: 'Connection ID for your Google Cloud project.' });
     }
-    if (env.VITE_TIBBER_TOKEN && !integrations.config.tibber?.token) {
-      integrations.setIntegration('tibber', { token: env.VITE_TIBBER_TOKEN });
-      logActivity('integration', 'Seeded Tibber token from environment');
+    if (env.VITE_SPOTIFY_CLIENT_ID && !localStorage.getItem('hdg-sp-clientid')) {
+      out.push({ id: 'spotify', label: 'Spotify', detail: 'Client ID for the music + Connect device control.' });
     }
-    localStorage.setItem(seededFlag, '1');
-    // Intentionally narrow deps: this should run once on mount only. The
-    // setters and integrations object are stable enough that React's effect
-    // identity check won't loop us into infinite re-runs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // We can't read integrations.config here yet (called inside useState
+    // initializer, before useIntegrations runs). The component effect below
+    // re-filters once integrations.config is available.
+    if (env.VITE_HOME_ASSISTANT_URL) out.push({ id: 'plejd', label: 'Home Assistant (Plejd lights & plugs)', detail: 'Local URL and access token for your HA bridge.' });
+    if (env.VITE_TIBBER_TOKEN) out.push({ id: 'tibber', label: 'Tibber energy', detail: 'Personal access token for live electricity prices.' });
+    return out;
+  });
+  // Apply a single pending entry. The setter writes to whatever slot
+  // matches; the corresponding entry then drops out of `pendingEnvCreds`.
+  const applyPendingEnv = useCallback((id) => {
+    const env = import.meta.env || {};
+    switch (id) {
+      case 'google':  if (env.VITE_GOOGLE_CLIENT_ID)  google.setClientId(env.VITE_GOOGLE_CLIENT_ID); break;
+      case 'spotify': if (env.VITE_SPOTIFY_CLIENT_ID) spotify.setClientId(env.VITE_SPOTIFY_CLIENT_ID); break;
+      case 'plejd':
+        if (env.VITE_HOME_ASSISTANT_URL || env.VITE_HOME_ASSISTANT_TOKEN) {
+          integrations.setIntegration('plejd', {
+            url: env.VITE_HOME_ASSISTANT_URL || integrations.config.plejd?.url || '',
+            token: env.VITE_HOME_ASSISTANT_TOKEN || integrations.config.plejd?.token || '',
+          });
+        }
+        break;
+      case 'tibber':
+        if (env.VITE_TIBBER_TOKEN) integrations.setIntegration('tibber', { token: env.VITE_TIBBER_TOKEN });
+        break;
+    }
+    logActivity('integration', `Connected ${id} from environment`);
+    setPendingEnvCreds((curr) => {
+      const next = curr.filter(c => c.id !== id);
+      if (next.length === 0) localStorage.setItem('hdg-env-seeded-v1', '1');
+      return next;
+    });
+  }, [google.setClientId, spotify.setClientId, integrations, logActivity]);
+  // "Skip all" -- dismiss the whole prompt without applying anything.
+  const skipAllPendingEnv = useCallback(() => {
+    setPendingEnvCreds([]);
+    localStorage.setItem('hdg-env-seeded-v1', '1');
+    logActivity('integration', 'Skipped environment credentials');
+  }, [logActivity]);
+  // "Connect all" -- one-tap accept everything detected.
+  const applyAllPendingEnv = useCallback(() => {
+    pendingEnvCreds.forEach((c) => applyPendingEnv(c.id));
+  }, [pendingEnvCreds, applyPendingEnv]);
 
   // Geolocation one-shot. The Contrarian's rule: ask ONCE at onboarding,
   // store the lat/lon as a config value, never call the API again. The user
@@ -2261,6 +2307,12 @@ function App() {
             user={google.user}
           />
           <LanLostBanner />
+          <EnvSeedPrompt
+            items={pendingEnvCreds}
+            onApply={applyPendingEnv}
+            onApplyAll={applyAllPendingEnv}
+            onSkipAll={skipAllPendingEnv}
+          />
           <FirstRunBanner
             demoMode={demoMode}
             google={google}
@@ -4053,6 +4105,96 @@ async function scanShellySubnet(subnet, onProgress) {
   return found;
 }
 
+// Per-integration inline action: what one-tap button shows on the catalog
+// row header so the user can sign in / sign out without expanding details.
+// Returns { label, onClick, primary?, title? } or null if the integration
+// has no meaningful one-tap action (e.g. weather just needs lat/lon -- no
+// connection to sign out of). Primary=true makes the button amber.
+function inlineActionFor(it, status, integrations, spotify) {
+  switch (it.id) {
+    case 'spotify': {
+      if (spotify.token) {
+        return { label: 'Disconnect', onClick: spotify.disconnect, title: 'Sign out of Spotify' };
+      }
+      if (spotify.clientId) {
+        return { label: 'Connect', onClick: spotify.connect, primary: true, title: 'Sign in to Spotify' };
+      }
+      // No Client ID yet -- the expand-and-paste flow is the only path.
+      return null;
+    }
+    case 'plejd':
+      if (integrations.config.plejd?.url || integrations.config.plejd?.token) {
+        return {
+          label: 'Disconnect',
+          onClick: () => {
+            if (confirm('Disconnect Home Assistant? Plejd lights and plugs will disappear from the dashboard until you reconnect.')) {
+              integrations.setIntegration('plejd', { url: '', token: '' });
+            }
+          },
+          title: 'Forget the Home Assistant URL + token',
+        };
+      }
+      return null;
+    case 'sonos':
+      if (integrations.config.sonos?.url) {
+        return {
+          label: 'Disconnect',
+          onClick: () => {
+            if (confirm('Disconnect the Sonos bridge? Speaker control via node-sonos-http-api will stop until you reconnect.')) {
+              integrations.setIntegration('sonos', { url: '' });
+            }
+          },
+          title: 'Forget the Sonos bridge URL',
+        };
+      }
+      return null;
+    case 'shelly':
+      if ((integrations.config.shelly?.devices?.length ?? 0) > 0) {
+        return {
+          label: 'Forget all',
+          onClick: () => {
+            if (confirm(`Remove all ${integrations.config.shelly.devices.length} Shelly device(s)?`)) {
+              integrations.setIntegration('shelly', { devices: [] });
+            }
+          },
+          title: 'Forget every saved Shelly device IP',
+        };
+      }
+      return null;
+    case 'tibber':
+      if (integrations.config.tibber?.token) {
+        return {
+          label: 'Disconnect',
+          onClick: () => {
+            if (confirm('Disconnect Tibber? Live electricity prices will stop updating until you re-paste the token.')) {
+              integrations.setIntegration('tibber', { token: '' });
+            }
+          },
+          title: 'Forget the Tibber token',
+        };
+      }
+      return null;
+    case 'ha-sensors':
+      if ((integrations.config.ha?.entities?.length ?? 0) > 0) {
+        return {
+          label: 'Unpin all',
+          onClick: () => {
+            if (confirm(`Remove all ${integrations.config.ha.entities.length} pinned sensor(s)?`)) {
+              integrations.setIntegration('ha', { entities: [] });
+            }
+          },
+          title: 'Unpin every Home Assistant sensor',
+        };
+      }
+      return null;
+    case 'weather':
+      // Weather is always-on with defaults; no sign-out action.
+      return null;
+    default:
+      return null;
+  }
+}
+
 function IntegrationCatalog({ integrations, spotify }) {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(null);
@@ -4094,23 +4236,46 @@ function IntegrationCatalog({ integrations, spotify }) {
           const Ic = I[it.icon] ?? I.Plug;
           const status = it.status(integrations, spotify);
           const isOpen = expanded === it.id;
+          const action = inlineActionFor(it, status, integrations, spotify);
           return (
             <div key={it.id} className="catalog-item" data-status={status} data-open={isOpen}>
-              <button
-                type="button"
-                className="catalog-head"
-                onClick={() => setExpanded(isOpen ? null : it.id)}
-                aria-expanded={isOpen}
-              >
-                <span className="settings-row-icon"><Ic size={14} /></span>
-                <div className="catalog-head-meta">
-                  <div className="catalog-head-name">{it.name}</div>
-                  <div className="catalog-head-sub">{it.tagline}</div>
-                </div>
-                <span className="catalog-kind">{it.kind}</span>
-                <span className="catalog-status" data-status={status}>{STATUS_LABEL[status]}</span>
-                <span className="catalog-chev" aria-hidden="true">{isOpen ? '−' : '+'}</span>
-              </button>
+              <div className="catalog-head-wrap">
+                <button
+                  type="button"
+                  className="catalog-head"
+                  onClick={() => setExpanded(isOpen ? null : it.id)}
+                  aria-expanded={isOpen}
+                >
+                  <span className="settings-row-icon"><Ic size={14} /></span>
+                  <div className="catalog-head-meta">
+                    <div className="catalog-head-name">{it.name}</div>
+                    <div className="catalog-head-sub">{it.tagline}</div>
+                  </div>
+                  <span className="catalog-kind">{it.kind}</span>
+                  <span className="catalog-status" data-status={status}>{STATUS_LABEL[status]}</span>
+                </button>
+                {/* One-click action that doesn't require expanding the row.
+                    Connect / Sign in / Disconnect depending on state. */}
+                {action && (
+                  <button
+                    type="button"
+                    className="catalog-head-action group-toggle"
+                    data-active={action.primary || undefined}
+                    onClick={action.onClick}
+                    title={action.title || action.label}
+                  >
+                    {action.label}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="catalog-chev-btn"
+                  onClick={() => setExpanded(isOpen ? null : it.id)}
+                  aria-label={isOpen ? 'Collapse details' : 'Expand details'}
+                >
+                  {isOpen ? '−' : '+'}
+                </button>
+              </div>
               {isOpen && (
                 <div className="catalog-body">
                   <IntegrationConfig id={it.id} integrations={integrations} spotify={spotify} />
