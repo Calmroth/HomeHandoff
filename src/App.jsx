@@ -1150,57 +1150,133 @@ function LanLostBanner() {
 }
 
 // FirstRunBanner -- the council's "demo first, make this yours" affordance.
-// Renders a single full-width strip immediately under the PageHeader. Three
-// progressive states:
+// Renders a single full-width strip immediately under the PageHeader and
+// embeds the real Google sign-in button inline (no journey through Settings)
+// the moment a Client ID is present. If no Client ID is set yet, the banner
+// inline-renders a one-input + "Save" form plus a direct link to create one
+// at console.cloud.google.com -- the goal is "click here, sign in" with the
+// minimum possible side-trip.
 //
+// Three progressive states:
 //   step 1 ("welcome"):  demo is live, no Google user yet
-//                        -> "This is a demo house. Sign in to make it yours."
-//                           [Sign in]   [Skip]
-//
+//                        -> Embedded GSI button (or Client ID setup if needed)
 //   step 2 ("connect"):  Google user signed in, no Spotify token yet
-//                        -> "Welcome <name>. Connect Spotify to bring real music."
-//                           [Connect Spotify]   [Skip]
-//
+//                        -> "Welcome <name>. Connect Spotify..."   [Connect music]
 //   step 3 ("real"):     Spotify connected, no real LAN integrations yet
-//                        -> "Add real lights, outlets, or speakers when you're ready."
-//                           [Open Integrations]   [Dismiss]
+//                        -> "Add real lights..."   [Add real devices]
 //
-//   hidden when:
-//     - the user dismissed it (`hdg-onboarding-dismissed` set)
-//     - demoMode is off AND there's at least one real integration configured
-//       (the user is past onboarding)
-//     - all 3 steps complete
-//
-// Persisted dismissal lives in localStorage so it survives reloads. Per the
-// Outsider's note, the banner uses appliance language ("lights", "music"),
-// never vendor names ("Plejd", "Spotify Connect").
-function FirstRunBanner({ demoMode, googleUser, spotifyConnected, anyRealIntegration, onClearDemo, onNavigate }) {
+//   hidden when: dismissed via the Skip button, OR the user has any real
+//   integration + demoMode off, OR all 3 steps complete.
+function FirstRunBanner({ demoMode, google, spotifyConnected, anyRealIntegration, onNavigate }) {
+  const googleUser = google?.user;
   const [dismissed, setDismissed] = useState(() => localStorage.getItem('hdg-onboarding-dismissed') === '1');
+  // Local input state for the inline Client ID form
+  const [draftClientId, setDraftClientId] = useState(google?.clientId || '');
+  useEffect(() => { setDraftClientId(google?.clientId || ''); }, [google?.clientId]);
+  const gsiBtnRef = useRef(null);
+  // Render the live GIS "Continue with Google" pill into our ref'd container.
+  //
+  // Subtle race: `useGoogleAuth` initializes the GIS client in its own
+  // useEffect *after* this child component's effects run (React runs child
+  // effects before parent effects on each commit). On the very first Client
+  // ID save, our `renderButton` call would land before GIS is initialized
+  // and silently no-op. Fix: poll for a few ticks (200ms) until either the
+  // button mounts or we time out -- much shorter than a user notices, and
+  // self-healing if GIS is slow to load.
+  useEffect(() => {
+    if (dismissed || googleUser || !google?.clientId) return;
+    if (!gsiBtnRef.current) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tryRender = () => {
+      if (cancelled || !gsiBtnRef.current) return;
+      // If the GIS iframe is already in the container, we're done.
+      if (gsiBtnRef.current.querySelector('iframe')) return;
+      google.renderButton(gsiBtnRef.current);
+      attempts++;
+      if (!gsiBtnRef.current.querySelector('iframe') && attempts < 12) {
+        // Up to ~3 s of retries, 250 ms apart. After that, give up quietly.
+        setTimeout(tryRender, 250);
+      }
+    };
+    tryRender();
+    return () => { cancelled = true; };
+  }, [dismissed, googleUser, google?.clientId, google?.renderButton]);
+
   if (dismissed) return null;
-  // If the user already has at least one real integration AND isn't in demo,
-  // they're past onboarding -- hide the banner without requiring a click.
-  if (!demoMode && anyRealIntegration) return null;
+  if (!demoMode && anyRealIntegration && googleUser) return null;
+
   const dismiss = () => {
     localStorage.setItem('hdg-onboarding-dismissed', '1');
     setDismissed(true);
   };
-  const goSettings = () => onNavigate('settings');
+  const saveClientId = () => google?.setClientId?.(draftClientId.trim());
 
-  // Decide which step to show. We surface the first incomplete step only;
-  // never a list. Choice is the enemy of premium (the Outsider).
-  let title, sub, primary;
+  // STEP 1 -- not signed in. The richest of the three states because it
+  // either renders the live GSI button or guides the user to a Client ID.
   if (!googleUser) {
-    title = 'This is a demo house.';
-    sub = 'Sign in with Google or email to make it yours -- the demo turns into your actual home.';
-    primary = { label: 'Sign in', onClick: goSettings };
-  } else if (!spotifyConnected) {
+    return (
+      <div className="first-run-banner" role="region" aria-label="Get started">
+        <div className="first-run-text">
+          <div className="first-run-title">This is a demo house.</div>
+          <div className="first-run-sub">
+            Sign in with your Google account to make it yours — the demo turns into your actual home. No password, just one tap.
+          </div>
+          {!google?.clientId && (
+            <div className="first-run-clientid-row">
+              <input
+                className="settings-input"
+                type="text"
+                autoComplete="off"
+                spellCheck="false"
+                placeholder="Paste your Google OAuth Client ID (xxx.apps.googleusercontent.com)"
+                value={draftClientId}
+                onChange={(e) => setDraftClientId(e.target.value)}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              <button className="group-toggle" onClick={saveClientId} disabled={!draftClientId.trim()}>Save</button>
+            </div>
+          )}
+          {!google?.clientId && (
+            <div className="first-run-hint">
+              No Client ID yet? <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Create one at console.cloud.google.com</a> → APIs &amp; Services → Credentials → Create OAuth Client ID (Web). Add <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins". Paste the resulting ID above.
+            </div>
+          )}
+          {google?.clientId && !googleUser && (
+            <div className="first-run-gsi-row">
+              {/* Real GIS-rendered button. Click → Google consent → land back here signed in. */}
+              <div ref={gsiBtnRef} className="first-run-gsi-target" />
+              <button
+                type="button"
+                className="first-run-link"
+                onClick={() => google.setClientId('')}
+                title="Forget the saved Client ID so you can paste a different one"
+              >
+                Use a different Client ID
+              </button>
+            </div>
+          )}
+          {google?.error && (
+            <div className="first-run-hint" style={{ color: 'var(--destructive)' }}>{google.error}</div>
+          )}
+        </div>
+        <div className="first-run-actions">
+          <button className="group-toggle" onClick={dismiss} title="Hide this banner. You can still add devices later in Settings.">Skip</button>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP 2 / 3 -- straightforward CTA after sign-in.
+  let title, sub, primary;
+  if (!spotifyConnected) {
     title = `Welcome, ${googleUser.given_name || googleUser.name || 'friend'}.`;
     sub = 'Connect your music account next so the dashboard plays for real, not from the demo iframe.';
-    primary = { label: 'Connect music', onClick: goSettings };
+    primary = { label: 'Connect music', onClick: () => onNavigate('settings') };
   } else if (!anyRealIntegration && demoMode) {
     title = 'Demo data is on.';
     sub = "Ready to add real lights, outlets, or speakers? They take 5 minutes to wire and you'll see them appear here.";
-    primary = { label: 'Add real devices', onClick: goSettings };
+    primary = { label: 'Add real devices', onClick: () => onNavigate('settings') };
   } else {
     // All complete -- auto-dismiss so the banner doesn't linger.
     if (localStorage.getItem('hdg-onboarding-dismissed') !== '1') {
@@ -1829,12 +1905,11 @@ function App() {
           <LanLostBanner />
           <FirstRunBanner
             demoMode={demoMode}
-            googleUser={google.user}
+            google={google}
             spotifyConnected={!!spotify.token}
             anyRealIntegration={
               !!(integrations.config.plejd?.url || integrations.config.sonos?.url || (integrations.config.shelly?.devices?.length))
             }
-            onClearDemo={clearDemoData}
             onNavigate={navigate}
           />
           {route === 'home' && (
