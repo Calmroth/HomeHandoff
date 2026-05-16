@@ -3,6 +3,10 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useHomeStore, STATUS } from './store/useHomeStore.js';
+import { usePageVisible, useWakeLock } from './lib/tabLifecycle.js';
+import { pickBackdrop } from './lib/sunPhase.js';
+import { useMediaSession } from './lib/mediaSession.js';
+import { useHaEntities } from './lib/haEntities.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Icons (inline SVG, 1.5 stroke — matches lucide weight)
@@ -895,22 +899,11 @@ const WEATHER_OPTIONS = [
   { id: 'snow',   label: 'Snow',          temp: '-2°',  icon: 'Cloud' },
 ];
 
-function pickBackdrop(now, weather) {
-  const h = now.getHours();
-  // Night (21–5)
-  if (h >= 21 || h < 5) return '/assets/backdrop-night.avif';
-  // Sunrise (5–9)
-  if (h < 9) return '/assets/backdrop-sunrise.avif';
-  // Day (9–17) — weather decides
-  if (h < 17) {
-    if (weather === 'rain') return '/assets/backdrop-rain.avif';
-    if (weather === 'snow') return '/assets/backdrop-winter.avif';
-    if (weather === 'cloudy') return '/assets/backdrop-cabin.avif';
-    return '/assets/backdrop-day.avif';
-  }
-  // Sunset (17–21)
-  return '/assets/backdrop-sunset.avif';
-}
+// pickBackdrop is now in src/lib/sunPhase.js -- it uses suncalc + the saved
+// lat/lon to pick the real solar phase ("sun is 4 degrees below the horizon")
+// rather than the wall clock ("h < 9"). Stockholm in December has sunrise at
+// 08:45; the old hour-bucket version showed a daytime photo when the sky
+// outside was still pitch black.
 
 function timeSlotLabel(now) {
   const h = now.getHours();
@@ -1349,6 +1342,39 @@ function App() {
   const spotify = useSpotify();
   const google = useGoogleAuth();
   const integrations = useIntegrations();
+  // Tab-lifecycle primitives -- foundation of an "appliance" feel.
+  // pageVisible is the gate for every polling effect: when nobody is looking
+  // (tab hidden, switched to another app on the kitchen iPad, OS turned the
+  // screen off), we stop talking to integrations. They re-poll the moment
+  // the tab comes back into view.
+  const pageVisible = usePageVisible();
+  // Keep the screen on while this tab is foreground. Silent no-op on browsers
+  // without Wake Lock support (Safari < 16.4, locked-down kiosks).
+  useWakeLock(true);
+  // Bridge MediaSession <-> Spotify Connect. Lockscreen art + hardware play
+  // keys (AirPods, BT headsets, car BT) control whatever Connect target is
+  // currently playing. Reads playback from the home store (which gets it
+  // from /me/player/currently-playing every 8 s).
+  const playbackForSession = useHomeStore(s => s.playback);
+  useMediaSession(playbackForSession, useMemo(() => ({
+    play: () => {
+      if (!spotify.token) return;
+      // Resume on the active device (no device_id -> Spotify's choice).
+      spotify.api('/me/player/play', { method: 'PUT' }).catch(() => {});
+    },
+    pause: () => {
+      if (!spotify.token) return;
+      spotify.api('/me/player/pause', { method: 'PUT' }).catch(() => {});
+    },
+    next: () => {
+      if (!spotify.token) return;
+      spotify.api('/me/player/next', { method: 'POST' }).catch(() => {});
+    },
+    previous: () => {
+      if (!spotify.token) return;
+      spotify.api('/me/player/previous', { method: 'POST' }).catch(() => {});
+    },
+  }), [spotify.token, spotify.api]));
   const [plejdErr, setPlejdErr] = useState(null);
   const [sonosErr, setSonosErr] = useState(null);
   const [newsTab, setNewsTab] = useState('sr');
@@ -1398,18 +1424,61 @@ function App() {
     setMusicCustom(null);
   }, []);
 
-  // Time + weather → backdrop photo. Crossfade by swapping background-image.
+  // Geolocation one-shot. The Contrarian's rule: ask ONCE at onboarding,
+  // store the lat/lon as a config value, never call the API again. The user
+  // can still re-prompt manually from Settings -> Local weather -> "Use my
+  // location". This effect runs once per browser after the first session
+  // is set up; a localStorage latch prevents re-prompting on every reload.
   useEffect(() => {
-    const url = pickBackdrop(now, weather);
+    if (localStorage.getItem('hdg-geo-prompted') === '1') return;
+    if (!google.user) return; // wait until the user has signed in
+    if (integrations.config.weather?.lat && integrations.config.weather?.lon) {
+      localStorage.setItem('hdg-geo-prompted', '1');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    localStorage.setItem('hdg-geo-prompted', '1');
+    // The Contrarian: wifi-triangulation lands the wrong town often. We
+    // request high-accuracy mode and a wide timeout so the device prefers
+    // GPS where available, then quietly fall back to whatever it produces.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude.toFixed(4);
+        const lon = pos.coords.longitude.toFixed(4);
+        const cfg = integrations.config.weather || {};
+        integrations.setIntegration('weather', {
+          lat: String(lat),
+          lon: String(lon),
+          city: cfg.city || '', // user can edit later in Settings
+        });
+      },
+      () => {
+        // Denied / failed: leave the existing defaults alone. The Settings
+        // form is the manual fallback.
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  }, [google.user, integrations.config.weather?.lat, integrations.config.weather?.lon, integrations.setIntegration]);
+
+  // Time + weather + solar phase → backdrop photo. Crossfade by swapping
+  // background-image. Now driven by actual sunrise/sunset from the user's
+  // lat/lon rather than arbitrary hour buckets (council Q2 ship list, item
+  // 5). Falls back to the old hour heuristic when no location is saved yet.
+  useEffect(() => {
+    const lat = integrations.config.weather?.lat;
+    const lon = integrations.config.weather?.lon;
+    const url = pickBackdrop(now, weather, lat, lon);
     const el = document.querySelector('.bg-photo');
     if (el) el.style.backgroundImage = `url('${url}')`;
-  }, [now, weather]);
+  }, [now, weather, integrations.config.weather?.lat, integrations.config.weather?.lon]);
 
   // Poll Spotify "currently playing" every 8 seconds while connected. Writes
   // straight into store.playback so NowPlaying, the header mini-player, and
   // any future widget all render from the same source of truth instead of a
-  // hardcoded album the audit flagged as dead chrome.
+  // hardcoded album the audit flagged as dead chrome. Pauses while tab is
+  // hidden to spare API quota.
   useEffect(() => {
+    if (!pageVisible) return;
     if (!spotify.token) {
       useHomeStore.getState().setPlayback({ track: null, artist: null, art: null, uri: null, deviceId: null, isPlaying: false });
       return;
@@ -1453,7 +1522,7 @@ function App() {
     load();
     const t = setInterval(load, 8_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [spotify.token, spotify.api]);
+  }, [pageVisible, spotify.token, spotify.api]);
 
   // Publish Spotify auth status to the home store.  The token's presence is
   // ground truth; the error string upgrades the dot to degraded.
@@ -1491,7 +1560,9 @@ function App() {
   // Publishes status to the home store -- the section eyebrow dot reads from
   // there, so a 401 / network error becomes a glanceable amber dot, not a
   // toast or console line.
+  // Suspends entirely when the page is hidden (council Q2 ship list, item 2).
   useEffect(() => {
+    if (!pageVisible) return;
     const { lat, lon } = integrations.config.weather || {};
     if (!lat || !lon) {
       useHomeStore.getState().setStatus('weather', { state: STATUS.EMPTY, label: 'Using defaults', detail: null });
@@ -1515,13 +1586,14 @@ function App() {
     load();
     const t = setInterval(load, 30 * 60 * 1000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [integrations.config.weather?.lat, integrations.config.weather?.lon, integrations.config.weather?.city]);
+  }, [pageVisible, integrations.config.weather?.lat, integrations.config.weather?.lon, integrations.config.weather?.city]);
 
   // Fetch live Plejd state (via Home Assistant) when configured. Poll 30s.
   // Errors surface in `plejdErr` AND in store.status.plejd so Settings can
   // show a connection problem AND the section eyebrow dot turns amber.
   useEffect(() => {
     if (demoMode) return; // demo fixtures take precedence over live bridges
+    if (!pageVisible) return; // pause polling while tab is hidden
     const cfg = integrations.config.plejd;
     if (!cfg?.url || !cfg?.token) {
       setPlejdErr(null);
@@ -1544,12 +1616,13 @@ function App() {
     load();
     const t = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [integrations.config.plejd?.url, integrations.config.plejd?.token, demoMode]);
+  }, [pageVisible, integrations.config.plejd?.url, integrations.config.plejd?.token, demoMode]);
 
   // Fetch live Sonos state when configured. Poll 15s — playback changes
   // faster than light state so the UI feels responsive.
   useEffect(() => {
     if (demoMode) return; // demo fixtures take precedence over live bridges
+    if (!pageVisible) return; // pause polling while tab is hidden
     const cfg = integrations.config.sonos;
     if (!cfg?.url) {
       setSonosErr(null);
@@ -1572,7 +1645,7 @@ function App() {
     load();
     const t = setInterval(load, 15_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [integrations.config.sonos?.url, demoMode]);
+  }, [pageVisible, integrations.config.sonos?.url, demoMode]);
 
   // When Spotify is connected AND there is no node-sonos-http-api bridge,
   // synthesize the speakers list from Spotify Connect devices. This is how
@@ -1605,6 +1678,7 @@ function App() {
   // is what the Power section's "live draw" tile reads. Hardcoded
   // 0.84 SEK/kWh fallback removed.
   useEffect(() => {
+    if (!pageVisible) return; // pause hourly poll while tab is hidden
     const token = integrations.config.tibber?.token;
     const setPriceStore = useHomeStore.getState().setPrice;
     if (!token) {
@@ -1642,7 +1716,7 @@ function App() {
     load();
     const t = setInterval(load, 60 * 60 * 1000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [integrations.config.tibber?.token]);
+  }, [pageVisible, integrations.config.tibber?.token]);
 
   // Live clock — slow tick (30s) for the wall clock; fast tick (15s) only
   // while a scene timer is showing so the "Active 12m" stays fresh.
@@ -2132,6 +2206,8 @@ function HomePage({
         </div>
       </Section>
 
+      <SensorsSection />
+
       <Section
         title="Activity"
         source="local"
@@ -2140,6 +2216,63 @@ function HomePage({
         <ActivityLog items={activity} now={now} />
       </Section>
     </>
+  );
+}
+
+// SensorsSection -- generic Home Assistant entity tiles. The user lists
+// entity IDs in Settings -> Integrations -> Plejd / HA sensors; the section
+// hides entirely when nothing is pinned. Each tile shows label, current
+// state, unit, and a "fresh / stale" tint based on lastChanged age. No
+// vendor jargon ("HA", "entity_id") on the home page; that's Settings turf.
+function SensorsSection() {
+  // Read HA creds (reusing the plejd config block -- they're the same auth
+  // pair) and the user's pinned entity list straight from localStorage.
+  let entitiesCfg = [];
+  let haCreds = null;
+  try {
+    const raw = localStorage.getItem('hdg-integrations');
+    if (raw) {
+      const cfg = JSON.parse(raw);
+      haCreds = cfg.plejd; // reuse Plejd's HA URL + token
+      entitiesCfg = cfg.ha?.entities || [];
+    }
+  } catch (e) {}
+  const entityIds = useMemo(() => entitiesCfg.map(e => e.id), [JSON.stringify(entitiesCfg)]);
+  const pageVisible = usePageVisible();
+  const rows = useHaEntities(entityIds, haCreds, { pollMs: 20_000, pageVisible });
+
+  if (!entitiesCfg.length) return null; // section disappears entirely
+
+  return (
+    <Section
+      title="Sensors"
+      statusId="plejd" /* same auth = same status dot */
+      source={entitiesCfg.length ? `${entitiesCfg.length} pinned` : 'none pinned'}
+      summary={<>Live state from the home network. Pin more in <b>Settings</b>.</>}
+    >
+      <div className="sensors-grid">
+        {entitiesCfg.map((meta) => {
+          const row  = rows.get(meta.id);
+          const Ic   = I[meta.icon] ?? I.Home;
+          const stale = row && !row.err && row.lastChanged
+            ? (Date.now() - new Date(row.lastChanged).getTime()) > 6 * 60 * 60_000
+            : false;
+          return (
+            <div key={meta.id} className="sensor-tile" data-stale={stale} data-err={!!row?.err}>
+              <div className="sensor-tile-head">
+                <span className="sensor-tile-icon"><Ic size={14} /></span>
+                <div className="sensor-tile-label">{meta.label || meta.id}</div>
+              </div>
+              <div className="sensor-tile-value mono">
+                {row?.err ? '—' : (row?.state ?? '…')}
+                {meta.unit && row?.state != null && !row.err && <span className="sensor-tile-unit">{meta.unit}</span>}
+              </div>
+              {row?.err && <div className="sensor-tile-err">{row.err.slice(0, 50)}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 

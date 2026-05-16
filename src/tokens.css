@@ -392,6 +392,63 @@ img.avatar { display: block; }
 .section-summary { font-size: 12px; color: var(--muted-foreground); }
 .section-summary b { color: var(--foreground); font-weight: 500; }
 
+/* Sensors -- generic HA entity tiles. 4-up grid that follows the same
+   card-stack signature (2px gaps, no border-radius, popover surface) so it
+   reads as part of the appliance, not a separate dashboard. Tiles dim when
+   their backing entity hasn't reported in 6h (sensor battery probably
+   dead) and turn destructive when an outright fetch error came back. */
+.sensors-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+}
+@media (max-width: 1100px) { .sensors-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 720px)  { .sensors-grid { grid-template-columns: 1fr; } }
+.sensor-tile {
+  background-color: var(--popover);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  padding: 18px;
+  min-height: 116px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  transition: background-color var(--motion-duration-base);
+}
+.sensor-tile[data-stale="true"] { opacity: 0.55; }
+.sensor-tile[data-err="true"]   { box-shadow: inset 2px 0 0 0 var(--destructive); }
+.sensor-tile-head {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--muted-foreground);
+}
+.sensor-tile-icon {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--clay-50) 4%, transparent);
+}
+.sensor-tile-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.sensor-tile-value {
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+.sensor-tile-unit {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin-left: 4px;
+}
+.sensor-tile-err {
+  font-size: 9px;
+  color: var(--destructive);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-top: 6px;
+}
+
 /* LAN-lost banner -- the watchdog's only UI. Top-bleed amber strip, sits
    above the first-run banner. Distinctly heavier than the first-run banner
    (heavier border, breath animation borrowed from the integration dot) so it
