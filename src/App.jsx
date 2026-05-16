@@ -1300,6 +1300,141 @@ function FirstRunBanner({ demoMode, google, spotifyConnected, anyRealIntegration
   );
 }
 
+// StartupScreen -- the front door. Full-viewport gate that mounts when nobody
+// is signed in; unmounts (and never re-mounts unless the user signs out) the
+// moment google.user is set. This is the single visual surface that the user
+// sees on every fresh browser load until they have an identity. The photo
+// backdrop + clock stay visible behind it through the translucent card so
+// "the house" reads as already alive.
+//
+// Two sign-in paths:
+//   - Google -- real GIS-rendered "Continue with Google" pill. Pre-seeded
+//     Client ID from .env.local (VITE_GOOGLE_CLIENT_ID) means most users
+//     just tap once.
+//   - Email -- local-only profile, no password, no sync. Useful for guests
+//     and for households that don't use Google at all.
+//
+// Why this is a hard gate and not the old soft FirstRunBanner step 1: the
+// user asked for "when logged in do not show that screen again." That's a
+// gate semantic, not a banner-dismiss semantic.
+function StartupScreen({ google }) {
+  const gsiBtnRef = useRef(null);
+  const [signupName, setSignupName] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [draftClientId, setDraftClientId] = useState(google?.clientId || '');
+  useEffect(() => { setDraftClientId(google?.clientId || ''); }, [google?.clientId]);
+
+  // Render the live GIS button. Same self-healing retry pattern as the old
+  // FirstRunBanner -- useGoogleAuth's `initialize` may not have run yet on
+  // first commit, so we re-attempt for up to 3 s.
+  useEffect(() => {
+    if (!google?.clientId || !gsiBtnRef.current) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tryRender = () => {
+      if (cancelled || !gsiBtnRef.current) return;
+      if (gsiBtnRef.current.querySelector('iframe')) return;
+      google.renderButton(gsiBtnRef.current);
+      attempts++;
+      if (!gsiBtnRef.current.querySelector('iframe') && attempts < 12) {
+        setTimeout(tryRender, 250);
+      }
+    };
+    tryRender();
+    return () => { cancelled = true; };
+  }, [google?.clientId, google?.renderButton]);
+
+  const saveClientId = () => google?.setClientId?.(draftClientId.trim());
+  const submitSignup = () => {
+    if (google?.signUpLocal?.({ name: signupName, email: signupEmail })) {
+      setSignupName(''); setSignupEmail('');
+    }
+  };
+
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 5)  return 'Working late';
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  })();
+
+  return (
+    <div className="startup-screen" role="dialog" aria-modal="true" aria-labelledby="startup-title">
+      <div className="startup-card">
+        <div className="startup-eyebrow">{greeting}.</div>
+        <h1 id="startup-title" className="startup-title">Home Domain</h1>
+        <p className="startup-sub">
+          Sign in to take ownership of this household. The dashboard reads your lights, music, energy use,
+          and weather, then quietly gets out of the way.
+        </p>
+
+        {!google?.clientId ? (
+          <div className="startup-form">
+            <label className="catalog-label">Google OAuth Client ID</label>
+            <input
+              className="settings-input"
+              type="text"
+              autoComplete="off"
+              spellCheck="false"
+              placeholder="xxxxxxxxxxxx.apps.googleusercontent.com"
+              value={draftClientId}
+              onChange={(e) => setDraftClientId(e.target.value)}
+            />
+            <div className="startup-actions">
+              <button className="group-toggle" data-active="true" onClick={saveClientId} disabled={!draftClientId.trim()}>
+                Save Client ID
+              </button>
+            </div>
+            <p className="startup-hint">
+              Create one at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">console.cloud.google.com</a> → Credentials → Create OAuth Client ID (Web). Add <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins".
+            </p>
+          </div>
+        ) : (
+          <div className="startup-gsi">
+            <div ref={gsiBtnRef} className="startup-gsi-target" />
+            <button type="button" className="startup-link" onClick={() => google.setClientId('')}>
+              Use a different Client ID
+            </button>
+          </div>
+        )}
+
+        {google?.error && <div className="startup-error">{google.error}</div>}
+
+        <div className="startup-divider"><span>or</span></div>
+
+        <div className="startup-form">
+          <label className="catalog-label">Sign up with email (local profile)</label>
+          <div className="startup-email-grid">
+            <input
+              className="settings-input"
+              type="text"
+              autoComplete="name"
+              placeholder="Your name"
+              value={signupName}
+              onChange={(e) => setSignupName(e.target.value)}
+            />
+            <input
+              className="settings-input"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={signupEmail}
+              onChange={(e) => setSignupEmail(e.target.value)}
+            />
+            <button className="group-toggle" onClick={submitSignup} disabled={!signupName.trim() || !signupEmail.trim()}>
+              Create
+            </button>
+          </div>
+          <p className="startup-hint">
+            Local profile, this browser only. No password, no recovery. Useful if you don't want a Google account or you're just trying the dashboard.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // Demo mode persists in localStorage so reloads keep the demo state alive.
   // First-run heuristic: if neither demo nor any integration nor any user has
@@ -2018,6 +2153,16 @@ function App() {
   // header player and the Music page can read playback state and drive it.
   const embed = useSpotifyEmbed(musicUri);
   const oembed = useSpotifyOEmbed(musicType, musicId);
+
+  // Gate: no signed-in user => render only the startup screen. Skips the
+  // sidebar, persistent player, and main column entirely so the user can't
+  // tab into them. As soon as google.user lands, this branch falls away and
+  // the app boots normally. Once signed in, this branch is never reached
+  // again until the user explicitly signs out -- which is the "do not show
+  // that screen again" semantic the user asked for.
+  if (!google.user) {
+    return <StartupScreen google={google} />;
+  }
 
   return (
     <div className="app">
