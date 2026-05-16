@@ -151,8 +151,17 @@ function decodeJwtPayload(jwt) {
   } catch (e) { return null; }
 }
 
+// VITE_GOOGLE_CLIENT_ID from .env.local is the authoritative source. If the
+// user has manually saved a different ID to localStorage, that takes
+// precedence (lets them override without touching the env). If localStorage
+// is empty, we fall back to the env value so the GIS button appears on the
+// startup screen without any extra steps.
+const ENV_GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
 function useGoogleAuth() {
-  const [clientId, setClientIdState] = useState(() => localStorage.getItem('hdg-g-clientid') || '');
+  const [clientId, setClientIdState] = useState(
+    () => localStorage.getItem('hdg-g-clientid') || ENV_GOOGLE_CLIENT_ID
+  );
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('hdg-g-user') || 'null'); } catch (e) { return null; }
   });
