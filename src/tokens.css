@@ -692,11 +692,21 @@ img.avatar { display: block; }
   margin-top: 12px;
 }
 
+/* ─── z-index stacking ladder (complete) ───────────────────────────────────
+   0   .bg-photo           photo backdrop
+   1   .bg-wash            dark gradient wash over photo
+   2   default app shell   sidebar, main content, cards
+  20   .startup-screen     full-viewport sign-in gate
+  30   .persistent-player  sticky music bar (off=0, on-music=40)
+  40   .persistent-player  [active, on music page]
+  60   .np-picker          speaker-picker popover
+  70   .env-seed-prompt    one-time credential seed banner
+  80   .music-picker       add-to-playlist modal
+  ──────────────────────────────────────────────────────────────────────── */
+
 /* Startup screen -- the gate. Full-viewport overlay until the user signs in.
-   Photo backdrop and wash stay behind it (z-index ladder: .bg-photo=0,
-   .bg-wash=1, .startup-screen=20, default app shell=2). The card is centered
-   vertically and horizontally, capped at 460 px wide for readability, sized
-   down on phone-width screens. */
+   The card is centered vertically and horizontally, capped at 460 px wide
+   for readability, sized down on phone-width screens. */
 .startup-screen {
   position: fixed; inset: 0;
   z-index: 20;
@@ -722,7 +732,7 @@ img.avatar { display: block; }
   border-radius: 16px;
   box-shadow:
     0 1px 0 color-mix(in oklch, var(--clay-50) 6%, transparent) inset,
-    0 24px 48px -16px rgba(0, 0, 0, 0.5);
+    0 24px 48px -16px oklch(0 0 0 / 0.5);
 }
 .startup-eyebrow {
   font-size: 11px;
@@ -1087,7 +1097,7 @@ img.avatar { display: block; }
   background: var(--foreground);
   border-radius: 999px;
   transform: translate(-50%, -50%);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  box-shadow: 0 1px 4px oklch(0 0 0 / 0.4);
   transition: left var(--motion-duration-fast) var(--motion-ease-out-quart);
 }
 
@@ -1393,6 +1403,15 @@ img.avatar { display: block; }
   border-color: color-mix(in oklch, var(--destructive) 40%, var(--border));
   color: var(--muted-foreground);
   cursor: pointer;
+  transition: border-color var(--motion-duration-fast) ease, color var(--motion-duration-fast) ease;
+}
+.wifi-pill[data-lost="true"]:hover {
+  border-color: var(--destructive);
+  color: var(--foreground);
+}
+.wifi-pill[data-lost="true"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 .wifi-pill[data-lost="true"] .wifi-dot {
   background: var(--destructive);
@@ -2017,7 +2036,7 @@ img.avatar { display: block; }
   display: grid; place-items: center;
   color: var(--foreground);
   transition: transform var(--motion-duration-fast), border-color var(--motion-duration-fast);
-  box-shadow: 0 4px 18px rgba(0,0,0,0.25);
+  box-shadow: 0 4px 18px oklch(0 0 0 / 0.25);
 }
 .header-music-art:hover {
   transform: scale(1.04);
@@ -2042,7 +2061,7 @@ img.avatar { display: block; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 12px rgba(0,0,0,0.35);
+  text-shadow: 0 1px 12px oklch(0 0 0 / 0.35);
 }
 .header-music-artist {
   font-size: 11px;
@@ -2051,7 +2070,7 @@ img.avatar { display: block; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 10px rgba(0,0,0,0.3);
+  text-shadow: 0 1px 10px oklch(0 0 0 / 0.3);
 }
 .header-music-controls {
   display: flex;
@@ -2068,7 +2087,7 @@ img.avatar { display: block; }
   border: 0;
   opacity: 0.78;
   transition: opacity var(--motion-duration-fast), transform var(--motion-duration-fast);
-  filter: drop-shadow(0 1px 6px rgba(0,0,0,0.35));
+  filter: drop-shadow(0 1px 6px oklch(0 0 0 / 0.35));
   position: relative;
 }
 .header-music-btn::before {

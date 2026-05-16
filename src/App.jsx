@@ -187,8 +187,14 @@ function useGoogleAuth() {
     setError(null);
   }, []);
 
+  // Track `user` in a ref so initialize() can read it for auto_select without
+  // re-running on every sign-in/sign-out cycle (which was the source of the
+  // GSI "initialize() called multiple times" console warning).
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
+
   // Initialize GIS as soon as both the script and a client_id are available.
-  // Idempotent — google.accounts.id.initialize can be called multiple times.
+  // Stable deps: only re-runs if clientId or the callback changes.
   useEffect(() => {
     if (!clientId) return;
     const init = () => {
@@ -196,7 +202,7 @@ function useGoogleAuth() {
       window.google.accounts.id.initialize({
         client_id: clientId,
         callback: handleCredential,
-        auto_select: !!user, // re-auth silently if we already have a user
+        auto_select: !!userRef.current,
         cancel_on_tap_outside: false,
       });
       return true;
@@ -204,7 +210,7 @@ function useGoogleAuth() {
     if (init()) return;
     const t = setInterval(() => { if (init()) clearInterval(t); }, 300);
     return () => clearInterval(t);
-  }, [clientId, handleCredential, user]);
+  }, [clientId, handleCredential]);
 
   const promptSignIn = useCallback(() => {
     if (!clientId) { setError('Set a Google Client ID in Settings first.'); return; }
@@ -1807,9 +1813,13 @@ function App() {
     if (cfg?.cloudSession && cfg?.cloudSiteId) {
       setPlejdErr(null);
       let cancelled = false;
+      let backoffMs = 30_000;   // doubles on consecutive errors, cap 5 min
+      let timer;
+      const schedule = () => { timer = setTimeout(load, backoffMs); };
       const load = () => plejdFetchDevices({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId })
         .then(({ devices }) => {
           if (cancelled) return;
+          backoffMs = 30_000; // reset on success
           // Map Plejd cloud devices onto the dashboard's Room shape. The
           // `type` field from Plejd tells us whether a device is dimmable
           // (Light/Dimmer) or just on/off (Relay/Switch).
@@ -1838,16 +1848,18 @@ function App() {
             return [...shellyOrHaOnly, ...plugs];
           });
           useHomeStore.getState().markOk('plejd', `${lights.length} lights · ${plugs.length} plugs · ${cfg.cloudSiteTitle || 'Plejd cloud'}`);
+          schedule();
         })
         .catch(e => {
           if (cancelled) return;
           const msg = String(e.message || e);
           setPlejdErr(msg);
           useHomeStore.getState().markFailed('plejd', msg);
+          backoffMs = Math.min(backoffMs * 2, 5 * 60_000); // exp backoff, cap 5 min
+          schedule();
         });
       load();
-      const t = setInterval(load, 30_000);
-      return () => { cancelled = true; clearInterval(t); };
+      return () => { cancelled = true; clearTimeout(timer); };
     }
     if (!cfg?.url || !cfg?.token) {
       setPlejdErr(null);
@@ -1855,13 +1867,16 @@ function App() {
       return;
     }
     let cancelled = false;
+    let backoffMs = 30_000;   // doubles on consecutive HA errors, cap 5 min
+    let timer;
+    const schedule = () => { timer = setTimeout(load, backoffMs); };
     // Both lights and switches come from the same HA /api/states call --
     // we fire them in parallel so the home page populates rooms AND plugs
-    // in one round-trip. The user explicitly asked for plugs alongside
-    // lights from the Plejd / HA gateway.
+    // in one round-trip.
     const load = () => Promise.all([plejdFetchRooms(cfg), plejdFetchOutlets(cfg)])
       .then(([rs, outs]) => {
         if (cancelled) return;
+        backoffMs = 30_000; // reset on success
         setRooms(rs);
         // Merge HA switches with any existing Shelly outlets the user has
         // configured manually. HA-backed outlets get an `_entity` field;
@@ -1873,16 +1888,18 @@ function App() {
         });
         setPlejdErr(null);
         useHomeStore.getState().markOk('plejd', `${rs.length} rooms · ${outs.length} plugs`);
+        schedule();
       })
       .catch(e => {
         if (cancelled) return;
         const msg = String(e.message || e);
         setPlejdErr(msg);
         useHomeStore.getState().markFailed('plejd', msg);
+        backoffMs = Math.min(backoffMs * 2, 5 * 60_000); // exp backoff, cap 5 min
+        schedule();
       });
     load();
-    const t = setInterval(load, 30_000);
-    return () => { cancelled = true; clearInterval(t); };
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [pageVisible, integrations.config.plejd?.url, integrations.config.plejd?.token, integrations.config.plejd?.cloudSession, integrations.config.plejd?.cloudSiteId, demoMode]);
 
   // Fetch live Sonos state when configured. Poll 15s — playback changes
@@ -2635,7 +2652,7 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
   // the page below isn't the dashboard.
   const subByRoute = {
     home:     `${onCount} rooms lit · ${totalW} W now`,
-    rooms:    `Plejd · ${onCount} on now`,
+    rooms:    `Lights · ${onCount} on now`,
     music:    `Streaming to home · ${deviceCount} devices online`,
     energy:   `${totalW} W now · live`,
     weather:  `${condLabel} · ${city}`,
@@ -2938,7 +2955,7 @@ function SpeakerPicker({ speakers, onToggle, onClose }) {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [onClose]);
   return (
-    <div className="np-picker" ref={ref} role="dialog" aria-label="Choose rooms">
+    <div className="np-picker" ref={ref} role="dialog" aria-modal="true" aria-label="Choose rooms">
       {speakers.length === 0 && (
         <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--muted-foreground)' }}>
           No speakers configured
@@ -3370,7 +3387,7 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene,
 
   if (rooms.length === 0) {
     return (
-      <Section title="Rooms" source="plejd not configured" summary={<>Add a Plejd bridge to surface your room setup.</>}>
+      <Section title="Rooms" summary={<>Add a Plejd bridge to surface your room setup.</>}>
         <EmptyIntegration
           title="No Plejd rooms found"
           sub="Add a Home Assistant URL + long-lived token in Settings → Integrations. Your Plejd rooms will appear here exactly as you've set them up in the Plejd app."
@@ -3383,7 +3400,7 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene,
     <>
       <Section
         title="Rooms"
-        source="plejd · live"
+        source="lights · live"
         summary={<><b>{onCount}</b> of <b>{rooms.length}</b> rooms · <b>{litBulbs}</b> of <b>{totalBulbs}</b> bulbs lit</>}
       >
         <div className="stack">
@@ -3403,7 +3420,7 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene,
                     <div className="rooms-room-name">{r.name}</div>
                     <span className="bulb-pill">
                       <span className="dot-on" />
-                      {r.bulbs} {r.bulbs === 1 ? 'bulb' : 'bulbs'} · Plejd
+                      {r.bulbs} {r.bulbs === 1 ? 'bulb' : 'bulbs'}
                     </span>
                   </div>
                   <Toggle on={r.on} onToggle={() => toggleRoom(r.id)} ariaLabel={`Turn ${r.on ? 'off' : 'on'} ${r.name}`} />
@@ -3741,7 +3758,7 @@ function MusicPage({
 
         {/* Modal: pick a playlist to add the selected track to */}
         {picker && (
-          <div className="music-picker" role="dialog" aria-label="Add to playlist">
+          <div className="music-picker" role="dialog" aria-modal="true" aria-label="Add to playlist">
             <div className="music-picker-card">
               <div className="music-picker-head">
                 <div>
@@ -4195,7 +4212,7 @@ function NewsPage({ tab, setTab }) {
     <Section
       title="Nyheter"
       source="sverigesradio.se · tt.se"
-      summary={<>Källa <b>{active.label}</b> · {stories.length} senaste rubriker</>}
+      summary={<>Källa <b>{active.label}</b>{stories.length > 0 ? <> · {stories.length} senaste rubriker</> : null}</>}
     >
       <div className="news-page">
         <div className="news-frame">
@@ -4244,7 +4261,11 @@ function NewsPage({ tab, setTab }) {
         </div>
         <div className="news-side">
           <div className="micro-label">Senaste</div>
-          {stories.map((s, i) => (
+          {stories.length === 0 ? (
+            <p className="music-empty" style={{ marginTop: 12 }}>
+              Headlines show in the reader on the left. The sidebar updates when the embedded page shares its content with this origin.
+            </p>
+          ) : stories.map((s, i) => (
             <a
               key={i}
               className="news-item"
