@@ -387,9 +387,32 @@ img.avatar { display: block; }
   text-transform: uppercase; letter-spacing: 0.18em;
   color: var(--muted-foreground);
   margin: 0;
+  display: inline-flex; align-items: center; gap: 8px;
 }
 .section-summary { font-size: 12px; color: var(--muted-foreground); }
 .section-summary b { color: var(--foreground); font-weight: 500; }
+
+/* IntegrationStatusDot -- one component, four states, no toasts ever.
+   The dot is a 6px circle. "degraded" gets a slow breath; "down" gets a
+   firmer pulse plus red color. We never show the dot at all when the
+   integration is healthy (the absence of failure is the absence of UI). */
+.integration-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+  background: var(--muted-foreground);
+  transition: background var(--motion-duration-base) var(--motion-ease-out-quart);
+}
+.integration-dot[data-state="empty"]    { background: color-mix(in oklch, var(--clay-50) 22%, transparent); }
+.integration-dot[data-state="ok"]       { background: var(--green-500); box-shadow: 0 0 6px color-mix(in oklch, var(--green-500) 50%, transparent); }
+.integration-dot[data-state="degraded"] { background: var(--amber-400); animation: int-breath 2.4s ease-in-out infinite; }
+.integration-dot[data-state="down"]     { background: var(--destructive); animation: int-pulse 1.4s ease-in-out infinite; box-shadow: 0 0 8px color-mix(in oklch, var(--destructive) 55%, transparent); }
+
+@keyframes int-breath { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes int-pulse  { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.35); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .integration-dot { animation: none !important; }
+}
 
 /* Scene chips */
 .scenes {

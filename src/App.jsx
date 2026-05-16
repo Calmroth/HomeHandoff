@@ -2,6 +2,7 @@
 // Match DESIGN.md exactly: dark, clay/amber, flat translucent cards, 2px stack.
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useHomeStore, STATUS } from './store/useHomeStore.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Icons (inline SVG, 1.5 stroke — matches lucide weight)
@@ -1186,32 +1187,142 @@ function App() {
     if (el) el.style.backgroundImage = `url('${url}')`;
   }, [now, weather]);
 
+  // Poll Spotify "currently playing" every 8 seconds while connected. Writes
+  // straight into store.playback so NowPlaying, the header mini-player, and
+  // any future widget all render from the same source of truth instead of a
+  // hardcoded album the audit flagged as dead chrome.
+  useEffect(() => {
+    if (!spotify.token) {
+      useHomeStore.getState().setPlayback({ track: null, artist: null, art: null, uri: null, deviceId: null, isPlaying: false });
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      spotify.api('/me/player/currently-playing?market=from_token')
+        .then(j => {
+          if (cancelled) return;
+          if (!j || !j.item) {
+            // 204 (nothing playing) -- clear the slice but keep token state.
+            useHomeStore.getState().setPlayback({ track: null, artist: null, art: null, uri: null, deviceId: null, isPlaying: false });
+            return;
+          }
+          const item = j.item;
+          const art = item.album?.images?.[0]?.url || item.album?.images?.[1]?.url || null;
+          const artist = (item.artists || []).map(a => a.name).join(', ');
+          useHomeStore.getState().setPlayback({
+            track: item.name,
+            artist,
+            art,
+            uri: item.uri || null,
+            albumUri: item.album?.uri || null,
+            deviceId: j.device?.id || null,
+            deviceName: j.device?.name || null,
+            isPlaying: !!j.is_playing,
+            progressMs: j.progress_ms || 0,
+            durationMs: item.duration_ms || 0,
+          });
+        })
+        .catch(e => {
+          if (cancelled) return;
+          // A 401 here means the access token died; the spotify hook handles
+          // refresh internally. Just don't spam the dot on a transient miss.
+          const msg = String(e?.message || e);
+          if (!/401|429/.test(msg)) {
+            useHomeStore.getState().setStatus('spotify', { detail: msg });
+          }
+        });
+    };
+    load();
+    const t = setInterval(load, 8_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [spotify.token, spotify.api]);
+
+  // Publish Spotify auth status to the home store.  The token's presence is
+  // ground truth; the error string upgrades the dot to degraded.
+  useEffect(() => {
+    const s = useHomeStore.getState();
+    if (spotify.error) {
+      s.markFailed('spotify', spotify.error);
+    } else if (spotify.token) {
+      s.markOk('spotify', spotify.me ? `as ${spotify.me.display_name}` : 'connected');
+    } else if (spotify.clientId) {
+      s.setStatus('spotify', { state: STATUS.EMPTY, label: 'Not connected', detail: 'Click Connect in Settings' });
+    } else {
+      s.setStatus('spotify', { state: STATUS.EMPTY, label: 'Not connected', detail: null });
+    }
+  }, [spotify.token, spotify.me, spotify.error, spotify.clientId]);
+
+  // Publish Google sign-in status. Local-email signups are also tracked here
+  // (provider:'local') so the dot reflects "household account set up" generally.
+  useEffect(() => {
+    const s = useHomeStore.getState();
+    if (google.error) {
+      s.markFailed('google', google.error);
+    } else if (google.user) {
+      const provider = google.user.provider === 'local' ? 'local profile' : 'Google';
+      s.markOk('google', `as ${google.user.name} (${provider})`);
+    } else if (google.clientId) {
+      s.setStatus('google', { state: STATUS.EMPTY, label: 'Not signed in', detail: 'Tap account in sidebar' });
+    } else {
+      s.setStatus('google', { state: STATUS.EMPTY, label: 'Not signed in', detail: null });
+    }
+  }, [google.user, google.error, google.clientId]);
+
   // Fetch live weather from open-meteo. Re-fetch every 30 min so the dashboard
   // stays current even on long sessions, and on config change (lat/lon).
+  // Publishes status to the home store -- the section eyebrow dot reads from
+  // there, so a 401 / network error becomes a glanceable amber dot, not a
+  // toast or console line.
   useEffect(() => {
     const { lat, lon } = integrations.config.weather || {};
-    if (!lat || !lon) return;
+    if (!lat || !lon) {
+      useHomeStore.getState().setStatus('weather', { state: STATUS.EMPTY, label: 'Using defaults', detail: null });
+      return;
+    }
     let cancelled = false;
     const load = () => {
       fetchWeather(lat, lon)
-        .then(d => { if (!cancelled) { setWeatherData(d); setWeatherErr(null); } })
-        .catch(e => { if (!cancelled) setWeatherErr(String(e.message || e)); });
+        .then(d => {
+          if (cancelled) return;
+          setWeatherData(d); setWeatherErr(null);
+          useHomeStore.getState().markOk('weather', `${integrations.config.weather?.city || `${lat},${lon}`}`);
+        })
+        .catch(e => {
+          if (cancelled) return;
+          const msg = String(e.message || e);
+          setWeatherErr(msg);
+          useHomeStore.getState().markFailed('weather', msg);
+        });
     };
     load();
     const t = setInterval(load, 30 * 60 * 1000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [integrations.config.weather?.lat, integrations.config.weather?.lon]);
+  }, [integrations.config.weather?.lat, integrations.config.weather?.lon, integrations.config.weather?.city]);
 
   // Fetch live Plejd state (via Home Assistant) when configured. Poll 30s.
-  // Errors surface in `plejdErr` so Settings can show a connection problem.
+  // Errors surface in `plejdErr` AND in store.status.plejd so Settings can
+  // show a connection problem AND the section eyebrow dot turns amber.
   useEffect(() => {
     if (demoMode) return; // demo fixtures take precedence over live bridges
     const cfg = integrations.config.plejd;
-    if (!cfg?.url || !cfg?.token) { setPlejdErr(null); return; }
+    if (!cfg?.url || !cfg?.token) {
+      setPlejdErr(null);
+      useHomeStore.getState().setStatus('plejd', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
+      return;
+    }
     let cancelled = false;
     const load = () => plejdFetchRooms(cfg)
-      .then(rs => { if (!cancelled) { setRooms(rs); setPlejdErr(null); } })
-      .catch(e => { if (!cancelled) setPlejdErr(String(e.message || e)); });
+      .then(rs => {
+        if (cancelled) return;
+        setRooms(rs); setPlejdErr(null);
+        useHomeStore.getState().markOk('plejd', `${rs.length} rooms`);
+      })
+      .catch(e => {
+        if (cancelled) return;
+        const msg = String(e.message || e);
+        setPlejdErr(msg);
+        useHomeStore.getState().markFailed('plejd', msg);
+      });
     load();
     const t = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(t); };
@@ -1222,11 +1333,24 @@ function App() {
   useEffect(() => {
     if (demoMode) return; // demo fixtures take precedence over live bridges
     const cfg = integrations.config.sonos;
-    if (!cfg?.url) { setSonosErr(null); return; }
+    if (!cfg?.url) {
+      setSonosErr(null);
+      useHomeStore.getState().setStatus('sonos', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
+      return;
+    }
     let cancelled = false;
     const load = () => sonosFetchSpeakers(cfg)
-      .then(sp => { if (!cancelled) { setSpeakers(sp); setSonosErr(null); } })
-      .catch(e => { if (!cancelled) setSonosErr(String(e.message || e)); });
+      .then(sp => {
+        if (cancelled) return;
+        setSpeakers(sp); setSonosErr(null);
+        useHomeStore.getState().markOk('sonos', `${sp.length} zones`);
+      })
+      .catch(e => {
+        if (cancelled) return;
+        const msg = String(e.message || e);
+        setSonosErr(msg);
+        useHomeStore.getState().markFailed('sonos', msg);
+      });
     load();
     const t = setInterval(load, 15_000);
     return () => { cancelled = true; clearInterval(t); };
@@ -1258,15 +1382,44 @@ function App() {
     setSpeakers(mapped);
   }, [spotify.token, spotify.devices, integrations.config.sonos?.url, demoMode]);
 
-  // Fetch live Tibber prices when configured. Refresh hourly.
+  // Fetch live Tibber prices when configured. Refresh hourly. Drives both
+  // the local prices state and the home store's `price` slice -- the latter
+  // is what the Power section's "live draw" tile reads. Hardcoded
+  // 0.84 SEK/kWh fallback removed.
   useEffect(() => {
     const token = integrations.config.tibber?.token;
-    if (!token) { setTibberPrices(null); return; }
+    const setPriceStore = useHomeStore.getState().setPrice;
+    if (!token) {
+      setTibberPrices(null);
+      setPriceStore({ current: null, today: null, err: null });
+      useHomeStore.getState().setStatus('tibber', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
+      return;
+    }
     let cancelled = false;
     const load = () => {
       fetchTibberPrices(token)
-        .then(p => { if (!cancelled) { setTibberPrices(p); setTibberErr(null); } })
-        .catch(e => { if (!cancelled) setTibberErr(String(e.message || e)); });
+        .then(p => {
+          if (cancelled) return;
+          setTibberPrices(p); setTibberErr(null);
+          // Compute "current" price -- pick the slot whose [startsAt, +1h] window
+          // contains now. Tibber returns 24 hourly slots ordered by startsAt.
+          const nowMs = Date.now();
+          const slot = (p || []).find(row => {
+            const t0 = new Date(row.startsAt).getTime();
+            return nowMs >= t0 && nowMs < t0 + 3_600_000;
+          });
+          const currentPrice = slot?.total ?? p?.[0]?.total ?? null;
+          const currency = slot?.currency || p?.[0]?.currency || 'SEK';
+          setPriceStore({ current: currentPrice, today: p, currency, err: null });
+          useHomeStore.getState().markOk('tibber', `${currentPrice != null ? currentPrice.toFixed(2) + ' ' + currency + '/kWh' : 'live'}`);
+        })
+        .catch(e => {
+          if (cancelled) return;
+          const msg = String(e.message || e);
+          setTibberErr(msg);
+          setPriceStore({ err: msg });
+          useHomeStore.getState().markFailed('tibber', msg);
+        });
     };
     load();
     const t = setInterval(load, 60 * 60 * 1000);
@@ -1365,13 +1518,45 @@ function App() {
     }
   };
 
-  // Outlet handlers — no Shelly direct integration wired yet; just local for now.
+  // Outlet handlers. Optimistic UI first (the toggle moves immediately),
+  // then a real HTTP call to the Shelly device when an IP is configured.
+  // Audit flagged the previous version as "theatre" -- the local state
+  // changed but the device never saw the command. Now:
+  //   1. Flip local state immediately for sub-100ms feedback.
+  //   2. If the outlet has an `ip`, send the command to Shelly (Gen1 path
+  //      `/relay/0?turn=on`, Gen2 path `/rpc/Switch.Set?id=0&on=true` -- we
+  //      try Gen2 first since it's the current platform).
+  //   3. On HTTP failure, revert + mark the Shelly status degraded so the
+  //      section dot turns amber. Premium feel = the lie of an apparent
+  //      success is worse than the honest revert.
   const toggleOutlet = (id) => {
     breakScene();
     const o = outlets.find(oo => oo.id === id);
     if (!o || o.alwaysOn) return;
-    setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: !oo.on } : oo));
-    logActivity('outlet', `${o.name} **${o.on ? 'off' : 'on'}**`);
+    const next = !o.on;
+    // (1) optimistic
+    setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: next } : oo));
+    logActivity('outlet', `${o.name} **${next ? 'on' : 'off'}**`);
+    // (2) real device call -- only when we have an IP. Demo data has no IPs.
+    if (!o.ip || demoMode) return;
+    const ip = o.ip;
+    const tryGen2 = fetch(`http://${ip}/rpc/Switch.Set?id=0&on=${next}`, { method: 'GET' });
+    const tryGen1 = (resp) => (resp && resp.ok) ? resp : fetch(`http://${ip}/relay/0?turn=${next ? 'on' : 'off'}`, { method: 'GET' });
+    tryGen2
+      .then(tryGen1, () => tryGen1(null))
+      .then(r => {
+        if (r && r.ok) {
+          useHomeStore.getState().markOk('shelly', `${outlets.filter(x => x.ip).length} device(s)`);
+        } else {
+          throw new Error(`Shelly ${ip} responded ${r?.status || 'unreachable'}`);
+        }
+      })
+      .catch(err => {
+        // (3) revert + surface
+        setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: !next } : oo));
+        logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
+        useHomeStore.getState().markFailed('shelly', String(err.message || err));
+      });
   };
 
   // Speaker handlers -- three sources, dispatched in order of preference:
@@ -1578,18 +1763,33 @@ function HomePage({
   applyScene, breakScene,
   activity,
 }) {
+  // Cast-to-room handler for the NowPlaying hero. Two cases:
+  // (1) a speaker is already active -> reassert it (no-op behavioral, but the
+  //     button visibly confirms what's happening). Helpful UX when a guest
+  //     wonders "did I tap it or not?"
+  // (2) no active speaker but at least one is off -> turn the first off
+  //     speaker ON (toggleSpeaker routes to Spotify Connect transferTo or
+  //     Sonos bridge under the hood). Hero now reflects the change next poll.
+  const handleCastToggle = useCallback((activeSpeaker) => {
+    if (!speakers.length) return;
+    const target = activeSpeaker || speakers.find(s => !s.on) || speakers[0];
+    toggleSpeaker(target.id);
+  }, [speakers, toggleSpeaker]);
+
   return (
     <>
       <Section
         title="Music"
+        statusId="spotify"
         source="open.spotify.com/embed"
         summary={<>Streaming to <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> rooms</>}
       >
-        <NowPlaying speakers={speakers} />
+        <NowPlaying speakers={speakers} onCastToggle={handleCastToggle} />
       </Section>
 
       <Section
         title="Sound"
+        statusId="sonos"
         source={speakers.length ? 'sonos · live' : 'sonos not configured'}
         summary={
           speakers.length ? (
@@ -1615,6 +1815,7 @@ function HomePage({
 
       <Section
         title="Lights"
+        statusId="plejd"
         source={rooms.length ? 'plejd · live' : 'plejd not configured'}
         summary={rooms.length
           ? <><b>{onCount}</b> of <b>{rooms.length}</b> rooms · <b>{Math.round(litWatts)} W</b> drawn</>
@@ -1645,6 +1846,7 @@ function HomePage({
 
       <Section
         title="Power"
+        statusId="shelly"
         source={outlets.length ? 'shelly · live' : 'shelly not configured'}
         summary={outlets.length
           ? <>Live load <b className="mono">{outletWatts} W</b> across {outlets.filter(o=>o.on).length} outlets</>
@@ -1791,18 +1993,51 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
   );
 }
 
-function Section({ title, summary, source, children }) {
+function Section({ title, summary, source, statusId, children }) {
   return (
     <section className="section">
       <div className="section-head">
         <div className="section-head-left">
-          <h2 className="section-title">{title}</h2>
+          <h2 className="section-title">
+            {statusId && <IntegrationStatusDot id={statusId} />}
+            {title}
+          </h2>
           {source && <span className="section-source mono">{source}</span>}
         </div>
         <div className="section-summary">{summary}</div>
       </div>
       {children}
     </section>
+  );
+}
+
+// IntegrationStatusDot -- the breathing dot the council unanimously wanted.
+// Reads `state` for a given integration id from the home store. Reactive: the
+// dot re-renders only when *its own* status row changes (selector-scoped).
+//
+// Semantics:
+//   empty    -- not configured. Faint grey. Hidden by default unless the
+//               caller explicitly wants "you haven't set this up" surfaced.
+//   ok       -- healthy. Solid amber-green.
+//   degraded -- last call failed. Amber with breathing animation.
+//   down     -- 3+ consecutive failures. Red. Click goes to Settings.
+function IntegrationStatusDot({ id, showWhenEmpty = false }) {
+  // Lazy import to avoid hoisting issues: useHomeStore lives in src/store/.
+  // React rules say hooks must be called unconditionally, so we always run
+  // the subscription; the early return below is post-hook.
+  const status = useHomeStore(s => s.status[id]);
+  if (!status) return null;
+  if (status.state === 'empty' && !showWhenEmpty) return null;
+  const title = status.detail
+    ? `${status.label} -- ${status.detail}`
+    : status.label;
+  return (
+    <span
+      className="integration-dot"
+      data-state={status.state}
+      title={title}
+      aria-label={`${id} status: ${status.label}`}
+    />
   );
 }
 
@@ -1902,23 +2137,73 @@ function PowerLive({ outlets, totalW, litWatts, outletWatts, speakerWatts }) {
       </div>
 
       <div className="live-meta">
-        <span>Tibber · <b className="mono">0.84 SEK/kWh</b></span>
+        <TibberPriceCell totalW={totalW} />
         <span>This hour <b className="mono">{(totalW * 0.001).toFixed(2)} kWh</b></span>
       </div>
     </div>
   );
 }
 
-function NowPlaying({ speakers }) {
-  // Spotify Web Embed — square aspect triggers the LARGE layout (full album
-  // art + scrollable tracklist). Paired with a right-side meta panel so the
-  // whole hero fills the section width.
+// Real Tibber price cell. Reads from the home store; falls back to a dash
+// with an amber dot when no price is available (token missing, network
+// failed, or the API returned an unexpected shape). The previous version
+// hardcoded "0.84 SEK/kWh" regardless of state -- the audit flagged it as a
+// trust-collapse lie on the most data-sensitive tile.
+function TibberPriceCell({ totalW }) {
+  const price = useHomeStore(s => s.price);
+  const status = useHomeStore(s => s.status.tibber);
+  const hasPrice = price.current != null && Number.isFinite(price.current);
+  if (hasPrice) {
+    return (
+      <span title={`Tibber · ${price.current.toFixed(4)} ${price.currency}/kWh`}>
+        Tibber · <b className="mono">{price.current.toFixed(2)} {price.currency}/kWh</b>
+      </span>
+    );
+  }
+  // No price: render the dash + a glanceable hint. The IntegrationStatusDot
+  // inside the section header already shows the dot; we keep this cell quiet.
+  return (
+    <span title={status?.detail || 'Tibber not configured'} style={{ opacity: 0.7 }}>
+      Tibber · <b className="mono">— {price.currency}/kWh</b>
+    </span>
+  );
+}
+
+function NowPlaying({ speakers, onCastToggle }) {
+  // Reads live Spotify state from the home store. The hero now reflects what
+  // is *actually* playing on the user's Spotify Connect target instead of a
+  // hardcoded Carly Rae Jepsen album. When nothing is playing or Spotify is
+  // not connected, the iframe stays as a curated discovery surface and the
+  // side panel says so honestly.
+  const playback     = useHomeStore(s => s.playback);
+  const spotifyState = useHomeStore(s => s.status.spotify);
+  const isConnected  = spotifyState.state === 'ok';
+  const onCount      = speakers.filter(s => s.on).length;
+  const activeSpeaker = speakers.find(s => s.primary || s.on);
+
+  // The embed URL prefers the album of what's currently playing (so the user
+  // sees their album art at full size). Falls back to a curated "Discover
+  // Weekly" placeholder when no track is selected.
+  const embedSrc = useMemo(() => {
+    if (playback.albumUri) {
+      const id = String(playback.albumUri).split(':').pop();
+      return `https://open.spotify.com/embed/album/${id}?utm_source=generator&theme=0`;
+    }
+    if (playback.uri && playback.uri.startsWith('spotify:track:')) {
+      const id = playback.uri.split(':').pop();
+      return `https://open.spotify.com/embed/track/${id}?utm_source=generator&theme=0`;
+    }
+    // Editorial fallback -- a public Spotify-curated playlist that doesn't
+    // require auth. Replace with a household-saved playlist later.
+    return 'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator&theme=0';
+  }, [playback.albumUri, playback.uri]);
+
   return (
     <div className="music-hero">
       <div className="music-hero-embed">
         <iframe
           className="np-embed"
-          src="https://open.spotify.com/embed/album/1DFixLWuPkv3KT3TnV35m3?utm_source=generator&theme=0"
+          src={embedSrc}
           title="Spotify Web Player"
           allow="autoplay; clipboard-write; encrypted-media; picture-in-picture"
           loading="lazy"
@@ -1927,19 +2212,32 @@ function NowPlaying({ speakers }) {
       </div>
       <div className="music-hero-side">
         <div>
-          <div className="np-label">Now playing</div>
-          <div className="np-title-big">Living room is leading</div>
-          <div className="np-source mono">open.spotify.com/embed</div>
+          <div className="np-label">{playback.isPlaying ? 'Now playing' : (isConnected ? 'Paused' : 'Discover')}</div>
+          <div className="np-title-big">
+            {playback.track ? playback.track : (isConnected ? 'Nothing playing' : 'Connect Spotify to see live')}
+          </div>
+          <div className="np-source mono">
+            {playback.artist
+              ? <>{playback.artist}{playback.deviceName ? <> · {playback.deviceName}</> : null}</>
+              : 'open.spotify.com/embed'}
+          </div>
         </div>
 
         <div className="hero-rooms">
           <div className="hero-rooms-head">
             <span className="micro-label">Streaming to</span>
             <span className="mono" style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
-              {speakers.filter(s => s.on).length}/{speakers.length}
+              {onCount}/{speakers.length}
             </span>
           </div>
           <div className="hero-rooms-list">
+            {speakers.length === 0 && (
+              <div className="hero-room-row" data-on={false}>
+                <span className="hero-room-dot" />
+                <span className="hero-room-name">No speakers found</span>
+                <span className="hero-room-state mono">—</span>
+              </div>
+            )}
             {speakers.map(sp => (
               <div key={sp.id} className="hero-room-row" data-on={sp.on}>
                 <span className="hero-room-dot" />
@@ -1951,10 +2249,22 @@ function NowPlaying({ speakers }) {
         </div>
 
         <div className="hero-actions">
-          <button className="group-toggle" data-active="true">
-            <I.Speaker size={11} /> Cast to room
+          <button
+            className="group-toggle"
+            data-active={!!activeSpeaker}
+            disabled={!speakers.length}
+            onClick={() => onCastToggle?.(activeSpeaker)}
+            title={activeSpeaker ? `Active target: ${activeSpeaker.name}` : 'No speaker selected'}
+          >
+            <I.Speaker size={11} /> {activeSpeaker ? `Casting · ${activeSpeaker.name}` : 'Cast to room'}
           </button>
-          <button className="group-toggle"><I.Music size={11} /> Switch source</button>
+          <button
+            className="group-toggle"
+            onClick={() => { window.location.hash = '#music'; }}
+            title="Open Music page for full player + search"
+          >
+            <I.Music size={11} /> Open Music
+          </button>
         </div>
       </div>
     </div>
