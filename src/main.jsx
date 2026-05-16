@@ -9,14 +9,18 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './tokens.css';
 import { installCrossTabSync } from './store/sync.js';
+import { installLanWatchdog } from './store/lanWatchdog.js';
 import { migrateFromLocalStorage } from './lib/secureStore.js';
 
-// Cross-tab state sync. Returns a teardown function we hold onto so Vite HMR
-// can drop the old listener before the new module instance installs a new
-// one (otherwise we'd accumulate listeners on every save).
-let teardownSync = installCrossTabSync();
+// Cross-tab state sync + LAN watchdog. Both return teardown functions held
+// for HMR so we don't accumulate listeners across hot reloads.
+let teardownSync     = installCrossTabSync();
+let teardownWatchdog = installLanWatchdog();
 if (import.meta.hot) {
-  import.meta.hot.dispose(() => { try { teardownSync?.(); } catch (e) {} });
+  import.meta.hot.dispose(() => {
+    try { teardownSync?.(); } catch (e) {}
+    try { teardownWatchdog?.(); } catch (e) {}
+  });
 }
 
 // Best-effort migration of legacy localStorage tokens into the secure IDB

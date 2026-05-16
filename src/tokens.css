@@ -392,6 +392,36 @@ img.avatar { display: block; }
 .section-summary { font-size: 12px; color: var(--muted-foreground); }
 .section-summary b { color: var(--foreground); font-weight: 500; }
 
+/* LAN-lost banner -- the watchdog's only UI. Top-bleed amber strip, sits
+   above the first-run banner. Distinctly heavier than the first-run banner
+   (heavier border, breath animation borrowed from the integration dot) so it
+   reads as "real-time alarm" not "marketing nudge". */
+.lan-lost-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  margin-top: 8px;
+  background-color: color-mix(in oklch, var(--destructive) 18%, var(--popover));
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid color-mix(in oklch, var(--destructive) 40%, transparent);
+  box-shadow: inset 4px 0 0 0 var(--destructive);
+}
+.lan-lost-banner .integration-dot { width: 8px; height: 8px; }
+.lan-lost-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.lan-lost-sub {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
 /* First-run banner -- sits directly under the page header. Three states (sign
    in / connect music / add real devices) progress automatically as the user
    ticks each prerequisite. Visual weight: tinted-glass card matching the

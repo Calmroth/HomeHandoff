@@ -97,4 +97,10 @@ export const useHomeStore = create(subscribeWithSelector((set, get) => ({
   // -------- Demo mode --------
   demoMode: false,
   setDemoMode: (v) => set({ demoMode: !!v }),
+
+  // -------- LAN watchdog -------- (see ./lanWatchdog.js)
+  // True when at least one LAN integration was previously reachable and none
+  // has been within the watchdog window. The UI surfaces this as a top-bleed
+  // amber strip with a "Retry now" action.
+  lanLost: false,
 })));

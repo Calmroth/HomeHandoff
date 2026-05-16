@@ -1125,6 +1125,30 @@ function usePrefersReducedMotion() {
   return reduced;
 }
 
+// LanLostBanner -- the watchdog's only UI. Renders a top-bleed amber strip
+// (full width inside the main column) when no LAN integration has been
+// reachable in the past 5 minutes despite the user having configured one.
+// Reviewer 4: "premium feel is really a 24/7 uptime question." This is the
+// affordance that puts an honest amber breath in the user's face when the
+// router reboots at 3am.
+function LanLostBanner() {
+  const lanLost = useHomeStore(s => s.lanLost);
+  if (!lanLost) return null;
+  const retry = () => { window.location.reload(); };
+  return (
+    <div className="lan-lost-banner" role="alert" aria-live="polite">
+      <span className="integration-dot" data-state="down" aria-hidden="true" />
+      <div className="lan-lost-text">
+        <div className="lan-lost-title">Can't reach your home network.</div>
+        <div className="lan-lost-sub">
+          Your lights, speakers, and outlets stopped answering. Usually a router or bridge restart fixes it.
+        </div>
+      </div>
+      <button className="group-toggle" onClick={retry} title="Reload the dashboard and try every integration again">Retry now</button>
+    </div>
+  );
+}
+
 // FirstRunBanner -- the council's "demo first, make this yours" affordance.
 // Renders a single full-width strip immediately under the PageHeader. Three
 // progressive states:
@@ -1802,6 +1826,7 @@ function App() {
             musicSub={musicNowSub}
             onOpenMusic={() => navigate('music')}
           />
+          <LanLostBanner />
           <FirstRunBanner
             demoMode={demoMode}
             googleUser={google.user}
