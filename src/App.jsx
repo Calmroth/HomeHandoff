@@ -44,8 +44,15 @@ const I = {
   Fan:     (p) => <Icon {...p}><circle cx="12" cy="12" r="2"/><path d="M12 10c-2-4-1-7 1-7s3 3 1 7M12 14c2 4 1 7-1 7s-3-3-1-7M10 12c-4-2-7-1-7 1s3 3 7 1M14 12c4 2 7 1 7-1s-3-3-7-1"/></Icon>,
   Lamp:    (p) => <Icon {...p}><path d="M9 2h6l3 7H6l3-7Z"/><path d="M12 9v9M9 18h6"/></Icon>,
   Bulb:    (p) => <Icon {...p}><circle cx="12" cy="9" r="5"/><path d="M9 18h6M10 21h4"/></Icon>,
-  Search:  (p) => <Icon {...p}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></Icon>,
-  Disc:    (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></Icon>,
+  Search:      (p) => <Icon {...p}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></Icon>,
+  Disc:        (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></Icon>,
+  ChevronDown: (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>,
+  X:           (p) => <Icon {...p}><path d="M18 6 6 18M6 6l12 12"/></Icon>,
+  Wifi:        (p) => <Icon {...p}><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></Icon>,
+  Bell:        (p) => <Icon {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></Icon>,
+  Shield:      (p) => <Icon {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Icon>,
+  Check:       (p) => <Icon {...p}><path d="M20 6 9 17l-5-5"/></Icon>,
+  Radio:       (p) => <Icon {...p}><path d="M2 7h20M10 7V4M14 7V4M6 13h12M6 17h12"/><rect x="2" y="7" width="20" height="14" rx="2"/></Icon>,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,11 +63,15 @@ const I = {
 // ─────────────────────────────────────────────────────────────────────────────
 const DEFAULT_INTEGRATIONS = {
   // Stockholm fallback; Settings lets the user change this.
-  weather: { lat: '59.3293', lon: '18.0686', city: 'Stockholm' },
-  plejd:   { url: '', token: '' },          // Home Assistant REST base URL + long-lived token
-  sonos:   { url: '' },                     // node-sonos-http-api base URL
-  shelly:  { devices: [] },                 // [{ id, name, room, ip, icon, alwaysOn }]
-  tibber:  { token: '' },                   // Tibber personal access token (api.tibber.com)
+  weather:    { lat: '59.3293', lon: '18.0686', city: 'Stockholm' },
+  plejd:      { url: '', token: '' },          // Home Assistant REST base URL + long-lived token
+  sonos:      { url: '' },                     // node-sonos-http-api base URL
+  shelly:     { devices: [] },                 // [{ id, name, room, ip, icon, alwaysOn }]
+  tibber:     { token: '' },                   // Tibber personal access token (api.tibber.com)
+  // Network discovery: each item = { id, ip?, entityId?, name, type, protocol, model, assignedTo }
+  // type: 'speaker'|'lights'|'outlet'|'tv'|'alarm'
+  // assignedTo: 'music'|'lights'|'outlets'|'tv'|'security'|'ignore'
+  discovered: { devices: [], lastScan: null },
 };
 
 function useIntegrations() {
@@ -2036,6 +2047,28 @@ function App() {
     () => speakers.filter(sp => sp.on).reduce((a, sp) => a + 6 + sp.volume * 0.15, 0),
     [speakers]
   );
+
+  // Merge live speakers (Sonos bridge / Spotify Connect) with any discovered
+  // speakers the user has assigned to the Music page. Discovered entries that
+  // already appear in the live list (same id) are skipped to avoid duplicates.
+  const effectiveSpeakers = useMemo(() => {
+    const discovered = (integrations.config.discovered?.devices || [])
+      .filter(d => d.assignedTo === 'music')
+      .filter(d => !speakers.some(s => s.id === d.id))
+      .map(d => ({
+        id: d.id,
+        name: d.name,
+        // Show last known playback state from HA, or fall back to protocol name.
+        source: (d.state && d.state !== 'off' && d.state !== 'unavailable')
+          ? d.state : (d.model || d.protocol || 'discovered'),
+        on: d.state === 'playing' || d.state === 'on',
+        paused: d.state === 'paused' || d.state === 'idle',
+        volume: 0, primary: false,
+        _discovered: true, _protocol: d.protocol,
+        _entityId: d.entityId, _ip: d.ip,
+      }));
+    return [...speakers, ...discovered];
+  }, [speakers, integrations.config.discovered?.devices]);
   const totalW = Math.round(litWatts + outletWatts + speakerWatts);
 
   // Clear active scene whenever the user adjusts anything manually — the
@@ -2337,7 +2370,7 @@ function App() {
           />
           {route === 'home' && (
             <HomePage
-              rooms={rooms} outlets={outlets} speakers={speakers}
+              rooms={rooms} outlets={outlets} speakers={effectiveSpeakers}
               onCount={onCount} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts} totalW={totalW}
               groupAll={groupAll} setGroup={setGroup}
               toggleRoom={toggleRoom} setBrightness={setBrightness} setAllLights={setAllLights}
@@ -2357,7 +2390,7 @@ function App() {
           )}
           {route === 'music' && (
             <MusicPage
-              speakers={speakers}
+              speakers={effectiveSpeakers}
               toggleSpeaker={toggleSpeaker}
               setVolume={setVolume}
               musicSource={musicSource}
@@ -2386,7 +2419,7 @@ function App() {
           )}
           {route === 'settings' && (
             <SettingsPage
-              rooms={rooms} outlets={outlets} speakers={speakers} activity={activity}
+              rooms={rooms} outlets={outlets} speakers={effectiveSpeakers} activity={activity}
               spotify={spotify} google={google} integrations={integrations}
               demoMode={demoMode} onLoadDemo={loadDemoData} onClearDemo={clearDemoData}
             />
@@ -4474,6 +4507,420 @@ async function scanShellySubnet(subnet, onProgress) {
   return found;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Network Device Discovery
+// Multi-protocol LAN sweep + Home Assistant entity discovery.
+// Browser constraints: only CORS-open endpoints can have their bodies read
+// (Shelly ships CORS headers; others may not). For non-CORS hosts we still
+// get a connection signal from the fetch rejection type. HA and Sonos bridge
+// are queried via their existing credentials so full metadata is available.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Detect the local /24 via WebRTC ICE gathering. Returns e.g. "192.168.1".
+async function getLocalSubnet() {
+  return new Promise(resolve => {
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('');
+      pc.createOffer().then(o => pc.setLocalDescription(o));
+      pc.addEventListener('icecandidate', ({ candidate }) => {
+        if (!candidate?.candidate) return;
+        const m = candidate.candidate.match(/(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d+/);
+        if (m) { try { pc.close(); } catch {} resolve(m[1]); }
+      });
+      setTimeout(() => { try { pc.close(); } catch {} resolve('192.168.1'); }, 4000);
+    } catch { resolve('192.168.1'); }
+  });
+}
+
+const PROBE_MS = 1400; // per-endpoint timeout
+
+async function probeSonosLAN(ip) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PROBE_MS);
+    const r = await fetch(`http://${ip}:1400/xml/device_description.xml`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const text = await r.text();
+    if (!text.toLowerCase().includes('sonos') && !text.includes('rincon')) return null;
+    const name  = text.match(/<friendlyName>(.*?)<\/friendlyName>/i)?.[1] || 'Sonos';
+    const model = text.match(/<modelName>(.*?)<\/modelName>/i)?.[1]       || '';
+    const uuid  = text.match(/<UDN>uuid:(.*?)<\/UDN>/i)?.[1]              || ip;
+    return { id: `sonos-${uuid}`, ip, name, type: 'speaker', protocol: 'sonos', model, assignedTo: 'music' };
+  } catch { return null; }
+}
+
+async function probeChromecast(ip) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PROBE_MS);
+    const r = await fetch(`http://${ip}:8008/setup/eureka_info?options=detail`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    if (!d) return null;
+    const name     = d.name || d.device_info?.friendly_name || 'Google device';
+    const isAudio  = d.build_info?.cast_type === 2 ||
+                     d.build_info?.board_name?.toLowerCase().includes('audio');
+    return {
+      id: `cast-${d.device_info?.mac_address?.replace(/:/g, '') || ip}`,
+      ip, name, type: isAudio ? 'speaker' : 'tv',
+      protocol: 'chromecast', model: d.build_info?.model_name || '',
+      assignedTo: isAudio ? 'music' : 'tv',
+    };
+  } catch { return null; }
+}
+
+async function probeHueBridge(ip) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PROBE_MS);
+    const r = await fetch(`http://${ip}/description.xml`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const text = await r.text();
+    if (!text.includes('Philips') && !text.toLowerCase().includes('hue')) return null;
+    const name = text.match(/<friendlyName>(.*?)<\/friendlyName>/i)?.[1] || 'Philips Hue';
+    return { id: `hue-${ip}`, ip, name: `${name} bridge`, type: 'lights', protocol: 'hue', model: 'Hue Bridge', assignedTo: 'lights' };
+  } catch { return null; }
+}
+
+async function probeSamsungTV(ip) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PROBE_MS);
+    const r = await fetch(`http://${ip}:8001/api/v2/`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    if (!d?.device) return null;
+    return {
+      id: `samsung-${d.device?.wifiMac?.replace(/:/g, '') || ip}`,
+      ip, name: d.device?.name || 'Samsung TV', type: 'tv',
+      protocol: 'samsung', model: d.device?.modelName || '',
+      assignedTo: 'tv',
+    };
+  } catch { return null; }
+}
+
+// Probe one IP against all known LAN protocols simultaneously.
+async function probeIP(ip) {
+  const results = await Promise.allSettled([
+    // Shelly: reuse existing prober (CORS-open)
+    (async () => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), PROBE_MS);
+      let r = await fetch(`http://${ip}/rpc/Shelly.GetDeviceInfo`, { signal: ctrl.signal }).catch(() => null);
+      if (!r?.ok) r = await fetch(`http://${ip}/shelly`, { signal: ctrl.signal }).catch(() => null);
+      clearTimeout(t);
+      if (!r?.ok) return null;
+      const j = await r.json().catch(() => null);
+      if (!j || (!j.id && !j.mac && !j.type)) return null;
+      return {
+        id: `shelly-${(j.mac || j.id || ip).replace(/[^a-zA-Z0-9]/g, '')}`,
+        ip, name: j.name || j.id || j.type || ip,
+        type: 'outlet', protocol: 'shelly', model: j.model || j.type || 'Shelly',
+        gen: j.gen || 1, assignedTo: 'outlets',
+      };
+    })(),
+    probeSonosLAN(ip),
+    probeChromecast(ip),
+    probeHueBridge(ip),
+    probeSamsungTV(ip),
+  ]);
+  return results
+    .filter(r => r.status === 'fulfilled' && r.value !== null)
+    .map(r => r.value);
+}
+
+// Full /24 LAN sweep. onProgress(done, total) and onDevice(device) fire
+// progressively so the UI can stream results in real time.
+async function scanLAN(subnet, { onProgress, onDevice } = {}) {
+  const ips = Array.from({ length: 254 }, (_, i) => `${subnet}.${i + 1}`);
+  const CONCURRENCY = 16;
+  let cursor = 0, done = 0;
+  const worker = async () => {
+    while (cursor < ips.length) {
+      const ip = ips[cursor++];
+      const devices = await probeIP(ip).catch(() => []);
+      devices.forEach(d => onDevice?.(d));
+      done++;
+      onProgress?.(done, ips.length);
+    }
+  };
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+}
+
+// Map HA entity domains to device types used by this dashboard.
+const HA_DOMAIN_MAP = {
+  light:                { type: 'lights',  assignedTo: 'lights'    },
+  media_player:         { type: 'speaker', assignedTo: 'music'     },
+  switch:               { type: 'outlet',  assignedTo: 'outlets'   },
+  input_boolean:        { type: 'outlet',  assignedTo: 'outlets'   },
+  alarm_control_panel:  { type: 'alarm',   assignedTo: 'security'  },
+};
+
+async function discoverFromHA(haUrl, haToken) {
+  const base = haUrl.replace(/\/$/, '');
+  const r = await fetch(`${base}/api/states`, { headers: { Authorization: `Bearer ${haToken}` } });
+  if (!r.ok) throw new Error(`HA ${r.status}`);
+  const states = await r.json();
+  return states
+    .filter(s => s.entity_id.split('.')[0] in HA_DOMAIN_MAP)
+    .map(s => {
+      const domain = s.entity_id.split('.')[0];
+      const { type, assignedTo } = HA_DOMAIN_MAP[domain];
+      return {
+        id: `ha-${s.entity_id}`,
+        entityId: s.entity_id,
+        name: s.attributes?.friendly_name || s.entity_id,
+        type, protocol: 'home-assistant',
+        model: s.attributes?.device_class || domain,
+        state: s.state,
+        assignedTo,
+      };
+    });
+}
+
+async function discoverFromSonosBridge(url) {
+  const base = url.replace(/\/$/, '');
+  const r = await fetch(`${base}/zones`);
+  if (!r.ok) throw new Error(`Sonos bridge ${r.status}`);
+  const zones = await r.json();
+  const devices = [];
+  zones.forEach(zone => {
+    (zone.members || [zone]).forEach(m => {
+      devices.push({
+        id: `sonos-${m.uuid || m.roomName}`,
+        name: m.roomName || zone.roomName || 'Sonos',
+        type: 'speaker', protocol: 'sonos', model: 'Sonos',
+        assignedTo: 'music', state: zone.state?.playbackState || '',
+      });
+    });
+  });
+  return devices;
+}
+
+// ─── Discovery Modal ─────────────────────────────────────────────────────────
+
+const DEVICE_TYPE_META = {
+  speaker: { label: 'Speakers', Icon: I.Speaker, assign: ['music', 'ignore'] },
+  lights:  { label: 'Lights',   Icon: I.Light,   assign: ['lights', 'ignore'] },
+  outlet:  { label: 'Outlets',  Icon: I.Plug,    assign: ['outlets', 'ignore'] },
+  tv:      { label: 'TVs',      Icon: I.TV,      assign: ['tv', 'ignore'] },
+  alarm:   { label: 'Security', Icon: I.Bell,    assign: ['security', 'ignore'] },
+};
+const ASSIGN_LABEL = {
+  music: 'Music page', lights: 'Lights page', outlets: 'Outlets page',
+  tv: 'TV page', security: 'Security', ignore: 'Skip',
+};
+const PROTOCOL_LABEL = {
+  'shelly': 'Shelly', 'sonos': 'Sonos', 'chromecast': 'Cast', 'hue': 'Hue',
+  'samsung': 'Samsung', 'home-assistant': 'HA',
+};
+
+function DeviceTypeIcon({ type }) {
+  const icons = { speaker: I.Speaker, lights: I.Light, outlet: I.Plug, tv: I.TV, alarm: I.Bell };
+  const Ic = icons[type] || I.Router;
+  return <span className="disc-type-icon"><Ic size={13} /></span>;
+}
+
+function DiscoveryModal({ integrations, onClose }) {
+  const [phase, setPhase]     = useState('idle');
+  const [progress, setProgress] = useState(0);
+  const [label, setLabel]     = useState('');
+  const [found, setFound]     = useState([]);
+  const [assigns, setAssigns] = useState({});
+  const [err, setErr]         = useState(null);
+  const haUrl   = integrations.config.plejd?.url;
+  const haToken = integrations.config.plejd?.token;
+  const sonosUrl = integrations.config.sonos?.url;
+
+  const addDevice = useCallback(d => {
+    setFound(prev => {
+      if (prev.some(x => x.id === d.id)) return prev;
+      return [...prev, d];
+    });
+    setAssigns(prev => prev[d.id] !== undefined ? prev : { ...prev, [d.id]: d.assignedTo ?? 'ignore' });
+  }, []);
+
+  const scan = useCallback(async () => {
+    setPhase('scanning'); setFound([]); setAssigns([]); setErr(null); setProgress(0);
+
+    // 1. Home Assistant
+    if (haUrl && haToken) {
+      setLabel('Querying Home Assistant…');
+      try { (await discoverFromHA(haUrl, haToken)).forEach(addDevice); } catch {}
+    }
+    setProgress(0.08);
+
+    // 2. Sonos bridge
+    if (sonosUrl) {
+      setLabel('Querying Sonos bridge…');
+      try { (await discoverFromSonosBridge(sonosUrl)).forEach(addDevice); } catch {}
+    }
+    setProgress(0.14);
+
+    // 3. LAN sweep
+    setLabel('Detecting subnet…');
+    const subnet = await getLocalSubnet().catch(() => '192.168.1');
+    setLabel(`Scanning ${subnet}.0/24…`);
+    try {
+      await scanLAN(subnet, {
+        onProgress: (done, total) => {
+          setProgress(0.14 + (done / total) * 0.86);
+          setLabel(`${done} / ${total} addresses…`);
+        },
+        onDevice: addDevice,
+      });
+    } catch (e) { setErr(String(e.message || e)); }
+
+    setPhase('done'); setLabel('');
+  }, [haUrl, haToken, sonosUrl, addDevice]);
+
+  const save = () => {
+    const toSave = found
+      .map(d => ({ ...d, assignedTo: assigns[d.id] ?? d.assignedTo ?? 'ignore' }))
+      .filter(d => d.assignedTo !== 'ignore');
+    const existing = integrations.config.discovered?.devices || [];
+    const merged = [...existing.filter(e => !toSave.some(n => n.id === e.id)), ...toSave];
+    integrations.setIntegration('discovered', { devices: merged, lastScan: new Date().toISOString() });
+    onClose();
+  };
+
+  const activeAssigns = Object.values(assigns).filter(a => a !== 'ignore').length;
+  const types = Object.keys(DEVICE_TYPE_META).filter(t => found.some(d => d.type === t));
+
+  // Close on Escape
+  useEffect(() => {
+    const h = e => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  return (
+    <div className="disc-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="disc-modal" role="dialog" aria-modal="true" aria-label="Scan for devices">
+
+        {/* Header */}
+        <div className="disc-hdr">
+          <span className="disc-hdr-title"><I.Wifi size={14} /> Scan for devices</span>
+          <button className="disc-close" onClick={onClose} aria-label="Close"><I.X size={15} /></button>
+        </div>
+
+        {/* Idle */}
+        {phase === 'idle' && (
+          <div className="disc-idle">
+            <p className="disc-desc">
+              Finds speakers, lights, outlets, TVs, and more across your local network and connected services.
+              Speakers are added to the Music page automatically — you choose where everything else goes.
+            </p>
+            <div className="disc-sources">
+              {haUrl && haToken && <span className="disc-source-pill"><I.Home size={10} /> Home Assistant</span>}
+              {sonosUrl        && <span className="disc-source-pill"><I.Speaker size={10} /> Sonos bridge</span>}
+              <span className="disc-source-pill"><I.Wifi size={10} /> LAN scan</span>
+            </div>
+            <button className="disc-scan-btn" onClick={scan}><I.Search size={13} /> Scan now</button>
+          </div>
+        )}
+
+        {/* Scanning */}
+        {phase === 'scanning' && (
+          <div className="disc-scanning">
+            <div className="disc-progress-bar"><div className="disc-progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
+            <div className="disc-progress-label mono">{label || 'Scanning…'}</div>
+            {found.length > 0 && (
+              <div className="disc-live-list">
+                {found.map(d => (
+                  <div key={d.id} className="disc-live-row">
+                    <DeviceTypeIcon type={d.type} />
+                    <span className="disc-live-name">{d.name}</span>
+                    <span className="disc-proto-pill">{PROTOCOL_LABEL[d.protocol] || d.protocol}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Done — no results */}
+        {phase === 'done' && found.length === 0 && (
+          <div className="disc-empty">
+            <I.Wifi size={28} style={{ opacity: 0.2, display: 'block', margin: '0 auto 12px' }} />
+            <p>No devices found.</p>
+            <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 4 }}>
+              Check that devices are powered on and on the same network.
+            </p>
+            {err && <p style={{ color: 'var(--destructive)', fontSize: 11, marginTop: 8 }}>{err}</p>}
+            <button className="disc-scan-btn" style={{ marginTop: 16 }} onClick={scan}>Try again</button>
+          </div>
+        )}
+
+        {/* Done — with results */}
+        {phase === 'done' && found.length > 0 && (
+          <>
+            <div className="disc-results">
+              {types.map(type => {
+                const meta = DEVICE_TYPE_META[type];
+                const group = found.filter(d => d.type === type);
+                return (
+                  <div key={type} className="disc-group">
+                    <div className="disc-group-hdr">
+                      <meta.Icon size={11} />
+                      <span>{meta.label}</span>
+                      <span className="disc-group-count">{group.length}</span>
+                    </div>
+                    {group.map(d => (
+                      <div key={d.id} className="disc-device-card">
+                        <div className="disc-device-info">
+                          <DeviceTypeIcon type={d.type} />
+                          <div className="disc-device-text">
+                            <div className="disc-device-name">{d.name}</div>
+                            <div className="disc-device-sub">
+                              {d.entityId
+                                ? <span className="mono">{d.entityId}</span>
+                                : d.ip ? <span className="mono">{d.ip}</span> : null}
+                              {d.model ? <span> · {d.model}</span> : null}
+                            </div>
+                          </div>
+                          <span className="disc-proto-pill">{PROTOCOL_LABEL[d.protocol] || d.protocol}</span>
+                        </div>
+                        <select
+                          className="disc-assign-select"
+                          value={assigns[d.id] ?? d.assignedTo ?? 'ignore'}
+                          onChange={e => setAssigns(prev => ({ ...prev, [d.id]: e.target.value }))}
+                          aria-label={`Add ${d.name} to`}
+                        >
+                          {meta.assign.map(v => (
+                            <option key={v} value={v}>{ASSIGN_LABEL[v]}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="disc-footer">
+              <button className="group-toggle" onClick={scan}>Scan again</button>
+              <button
+                className="group-toggle"
+                data-active={activeAssigns > 0 || undefined}
+                onClick={save}
+              >
+                {activeAssigns > 0
+                  ? `Add ${activeAssigns} ${activeAssigns === 1 ? 'device' : 'devices'}`
+                  : 'Nothing selected'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Per-integration inline action: what one-tap button shows on the catalog
 // row header so the user can sign in / sign out without expanding details.
 // Returns { label, onClick, primary?, title? } or null if the integration
@@ -4630,6 +5077,7 @@ function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
 function IntegrationCatalog({ integrations, spotify }) {
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(null);
+  const [showDiscovery, setShowDiscovery] = useState(false);
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return INTEGRATION_CATALOG;
@@ -4640,8 +5088,25 @@ function IntegrationCatalog({ integrations, spotify }) {
     );
   }, [query]);
 
+  const discoveredCount = (integrations.config.discovered?.devices || []).length;
+
   return (
     <div className="settings-page">
+      {/* Scan action — prominent above search so first-time users see it */}
+      <div className="catalog-scan-bar">
+        <button className="catalog-scan-trigger" onClick={() => setShowDiscovery(true)}>
+          <I.Wifi size={13} />
+          Scan for devices
+          {discoveredCount > 0 && <span className="catalog-scan-badge">{discoveredCount} found</span>}
+        </button>
+        <span className="catalog-scan-hint">
+          Discovers speakers, lights, outlets, and TVs on your network.
+          Speakers go to Music automatically.
+        </span>
+      </div>
+      {showDiscovery && (
+        <DiscoveryModal integrations={integrations} onClose={() => setShowDiscovery(false)} />
+      )}
       <div className="catalog-search">
         <I.Search size={14} />
         <input
@@ -5220,6 +5685,81 @@ function HaSensorsConfig({ integrations }) {
   );
 }
 
+// List + management UI for devices found via the network scan.
+// Shows each discovered device with its assigned destination, a reassign
+// dropdown, and a remove button. Groups by type for scannability.
+function DiscoveredDevicesList({ integrations }) {
+  const devices = integrations.config.discovered?.devices || [];
+  const lastScan = integrations.config.discovered?.lastScan;
+  if (devices.length === 0) return null;
+
+  const removeDevice = (id) => {
+    const next = devices.filter(d => d.id !== id);
+    integrations.setIntegration('discovered', { devices: next, lastScan });
+  };
+
+  const reassign = (id, to) => {
+    const next = devices.map(d => d.id === id ? { ...d, assignedTo: to } : d);
+    integrations.setIntegration('discovered', { devices: next, lastScan });
+  };
+
+  const types = Object.keys(DEVICE_TYPE_META).filter(t => devices.some(d => d.type === t));
+  const scanDate = lastScan ? new Date(lastScan).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="micro-label" style={{ padding: '0 0 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Discovered devices</span>
+        {scanDate && <span style={{ opacity: 0.5, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>Last scan: {scanDate}</span>}
+      </div>
+      {types.map(type => {
+        const meta = DEVICE_TYPE_META[type];
+        const group = devices.filter(d => d.type === type);
+        return (
+          <div key={type} style={{ marginBottom: 8 }}>
+            <div className="settings-section">
+              {group.map(d => {
+                const options = meta.assign;
+                return (
+                  <div key={d.id} className="settings-row">
+                    <span className="settings-row-icon"><meta.Icon size={14} /></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="settings-row-name">{d.name}</div>
+                      <div className="settings-row-sub">
+                        {d.ip && <span className="mono">{d.ip}</span>}
+                        {d.entityId && <span className="mono">{d.entityId}</span>}
+                        {d.model ? ` · ${d.model}` : ''}
+                        {' '}· <span className="disc-proto-pill" style={{ display: 'inline' }}>{PROTOCOL_LABEL[d.protocol] || d.protocol}</span>
+                      </div>
+                    </div>
+                    <select
+                      className="disc-assign-select"
+                      value={d.assignedTo || 'ignore'}
+                      onChange={e => reassign(d.id, e.target.value)}
+                      aria-label={`Assign ${d.name}`}
+                    >
+                      {options.map(v => <option key={v} value={v}>{ASSIGN_LABEL[v]}</option>)}
+                      <option value="ignore">Skip</option>
+                    </select>
+                    <button
+                      className="group-toggle"
+                      style={{ marginLeft: 6, flexShrink: 0 }}
+                      onClick={() => removeDevice(d.id)}
+                      title={`Remove ${d.name}`}
+                    >
+                      <I.X size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, integrations, demoMode, onLoadDemo, onClearDemo }) {
   const deviceTotal = rooms.length + outlets.length + speakers.length;
   // MaskedSecret handles its own draft/save for both Spotify and Google Client
@@ -5392,6 +5932,8 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
               <span className="settings-row-state">{sonosActive ? 'Online' : 'Not set up'}</span>
             </div>
           </div>
+          {/* Discovered devices — populated by the network scan */}
+          <DiscoveredDevicesList integrations={integrations} />
         </div>
       </Section>
 
