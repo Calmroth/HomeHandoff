@@ -7,6 +7,7 @@ import { usePageVisible, useWakeLock } from './lib/tabLifecycle.js';
 import { pickBackdrop } from './lib/sunPhase.js';
 import { useMediaSession } from './lib/mediaSession.js';
 import { useHaEntities } from './lib/haEntities.js';
+import { plejdLogin, plejdFetchSites, plejdFetchDevices, plejdSetDeviceState } from './lib/plejdCloud.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Icons (inline SVG, 1.5 stroke — matches lucide weight)
@@ -1889,6 +1890,55 @@ function App() {
     if (demoMode) return; // demo fixtures take precedence over live bridges
     if (!pageVisible) return; // pause polling while tab is hidden
     const cfg = integrations.config.plejd;
+    // Cloud session takes priority over HA bridge when both are present.
+    // Cloud fetch gives the real device tree from Plejd's app; toggling is
+    // attempted via the Hub-cloud path and gracefully degrades if there's
+    // no Hub paired.
+    if (cfg?.cloudSession && cfg?.cloudSiteId) {
+      setPlejdErr(null);
+      let cancelled = false;
+      const load = () => plejdFetchDevices({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId })
+        .then(({ devices }) => {
+          if (cancelled) return;
+          // Map Plejd cloud devices onto the dashboard's Room shape. The
+          // `type` field from Plejd tells us whether a device is dimmable
+          // (Light/Dimmer) or just on/off (Relay/Switch).
+          const isPlug = (d) => /relay|outlet|plug|switch/i.test(d.type || '');
+          const lights = devices.filter(d => !isPlug(d)).map(d => ({
+            id: d.id,
+            name: d.title,
+            bulbs: 1,
+            on: !!d.isOn,
+            brightness: typeof d.dim === 'number' ? Math.round((d.dim / 255) * 100) : (d.isOn ? 100 : 0),
+            _cloudDevice: d, // discriminator for toggleRoom dispatch
+          }));
+          const plugs = devices.filter(isPlug).map(d => ({
+            id: d.id,
+            name: d.title,
+            room: d.room || '',
+            watts: 0,
+            on: !!d.isOn,
+            alwaysOn: false,
+            icon: 'Plug',
+            _cloudDevice: d,
+          }));
+          setRooms(lights);
+          setOutlets((prev) => {
+            const shellyOrHaOnly = (prev || []).filter(o => (o.ip || o._entity) && !o._cloudDevice);
+            return [...shellyOrHaOnly, ...plugs];
+          });
+          useHomeStore.getState().markOk('plejd', `${lights.length} lights · ${plugs.length} plugs · ${cfg.cloudSiteTitle || 'Plejd cloud'}`);
+        })
+        .catch(e => {
+          if (cancelled) return;
+          const msg = String(e.message || e);
+          setPlejdErr(msg);
+          useHomeStore.getState().markFailed('plejd', msg);
+        });
+      load();
+      const t = setInterval(load, 30_000);
+      return () => { cancelled = true; clearInterval(t); };
+    }
     if (!cfg?.url || !cfg?.token) {
       setPlejdErr(null);
       useHomeStore.getState().setStatus('plejd', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
@@ -1923,7 +1973,7 @@ function App() {
     load();
     const t = setInterval(load, 30_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [pageVisible, integrations.config.plejd?.url, integrations.config.plejd?.token, demoMode]);
+  }, [pageVisible, integrations.config.plejd?.url, integrations.config.plejd?.token, integrations.config.plejd?.cloudSession, integrations.config.plejd?.cloudSiteId, demoMode]);
 
   // Fetch live Sonos state when configured. Poll 15s — playback changes
   // faster than light state so the UI feels responsive.
@@ -2089,6 +2139,18 @@ function App() {
     setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: next } : rr));
     logActivity('light', `${r.name} lights turned **${next ? 'on' : 'off'}**`);
     const cfg = integrations.config.plejd;
+    // Plejd cloud path: works only if the user has a Plejd Hub paired. If
+    // sendStateToDevice fails, revert + surface "needs Hub" honestly.
+    if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
+      plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: next })
+        .catch(e => {
+          setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
+          logActivity('light', `**Needs Plejd Hub** — toggle reverted (${String(e.message || e).slice(0, 40)})`);
+          useHomeStore.getState().setStatus('plejd', { detail: 'Cloud control needs a Plejd Hub. Discovery still works.' });
+        });
+      return;
+    }
+    // HA bridge path (fallback / advanced).
     if (cfg?.url && cfg?.token && r._entity) {
       plejdCallService(cfg, next ? 'turn_on' : 'turn_off', r._entity)
         .catch(e => logActivity('light', `Plejd error: ${e.message || e}`));
@@ -2099,7 +2161,17 @@ function App() {
     setRooms(rs => rs.map(r => r.id === id ? { ...r, brightness: b, on: b > 0 ? true : r.on } : r));
     const r = rooms.find(rr => rr.id === id);
     const cfg = integrations.config.plejd;
-    if (r && cfg?.url && cfg?.token && r._entity) {
+    if (!r) return;
+    if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
+      const dim255 = Math.round((b / 100) * 255);
+      plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: b > 0, dim: dim255 })
+        .catch(e => {
+          logActivity('light', `**Needs Plejd Hub** — dim reverted (${String(e.message || e).slice(0, 40)})`);
+          useHomeStore.getState().setStatus('plejd', { detail: 'Cloud dim needs a Plejd Hub.' });
+        });
+      return;
+    }
+    if (cfg?.url && cfg?.token && r._entity) {
       const ha255 = Math.round((b / 100) * 255);
       plejdCallService(cfg, b > 0 ? 'turn_on' : 'turn_off', r._entity, b > 0 ? { brightness: ha255 } : {})
         .catch(e => logActivity('light', `Plejd error: ${e.message || e}`));
@@ -2142,6 +2214,21 @@ function App() {
       logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
       useHomeStore.getState().markFailed(statusId, String(err.message || err));
     };
+    // Plejd cloud plug: route via the cloud sendStateToDevice endpoint.
+    // Same Hub-required caveat as lights -- discovery works without a Hub
+    // but actuation requires one. The _cloudDevice discriminator is the
+    // signal that this plug came from plejdFetchDevices.
+    if (o._cloudDevice) {
+      const cfg = integrations.config.plejd;
+      if (!cfg?.cloudSession || !cfg?.cloudSiteId) return;
+      plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: o._cloudDevice.id, on: next })
+        .then(() => useHomeStore.getState().markOk('plejd', `cloud control ok`))
+        .catch(err => {
+          revert(err, 'plejd');
+          useHomeStore.getState().setStatus('plejd', { detail: 'Plug control needs a Plejd Hub.' });
+        });
+      return;
+    }
     // Plejd / HA switch entity: route via the HA service endpoint. The
     // _entity field is the discriminator -- when present, this outlet came
     // from the plejdFetchOutlets call and the Shelly HTTP path doesn't apply.
@@ -4017,10 +4104,10 @@ function NewsPage({ tab, setTab }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const INTEGRATION_CATALOG = [
   {
-    id: 'plejd', name: 'Plejd lights', icon: 'Light', kind: 'LAN bridge',
-    tagline: 'Swedish smart-bulb network. Needs a Home Assistant bridge on your LAN.',
-    keywords: ['plejd', 'lights', 'bulbs', 'home assistant', 'ha', 'lighting'],
-    status: (i) => i.config.plejd?.url && i.config.plejd?.token ? 'configured' : 'not-configured',
+    id: 'plejd', name: 'Plejd lights', icon: 'Light', kind: 'Plejd account',
+    tagline: 'Sign in with your Plejd app credentials — same email + password.',
+    keywords: ['plejd', 'lights', 'bulbs', 'lighting', 'sign in', 'account'],
+    status: (i) => (i.config.plejd?.cloudSession || (i.config.plejd?.url && i.config.plejd?.token)) ? 'configured' : 'not-configured',
   },
   {
     id: 'sonos', name: 'Sonos speakers', icon: 'Speaker', kind: 'LAN bridge',
@@ -4303,57 +4390,138 @@ function IntegrationConfig({ id, integrations, spotify }) {
 }
 
 function PlejdConfig({ integrations }) {
-  const cfg = integrations.config.plejd || { url: '', token: '' };
-  const hasUrl   = !!cfg.url;
-  const hasToken = !!cfg.token;
-  const hostedTokenHref = hasUrl ? cfg.url.replace(/\/$/, '') + '/profile/security' : 'https://www.home-assistant.io/';
+  const cfg = integrations.config.plejd || {};
+  const cloudConnected = !!cfg.cloudSession;
+  const haConnected    = !!cfg.url && !!cfg.token;
+
+  // Local state for the email/password form -- never persisted.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  // Multi-site picker state (most homes have 1 site, occasionally 2+).
+  const [sites, setSites] = useState(null);
+  const [pendingSession, setPendingSession] = useState(null);
+
+  const doLogin = async () => {
+    setErr(null); setLoading(true);
+    try {
+      const { sessionToken, userId, email: e } = await plejdLogin(email.trim(), password);
+      const fetched = await plejdFetchSites(sessionToken);
+      if (fetched.length === 0) throw new Error('No Plejd sites found on this account');
+      if (fetched.length === 1) {
+        integrations.setIntegration('plejd', {
+          cloudSession: sessionToken,
+          cloudUserId: userId,
+          cloudEmail: e || email.trim(),
+          cloudSiteId: fetched[0].objectId,
+          cloudSiteTitle: fetched[0].title,
+        });
+        setPassword('');
+      } else {
+        setSites(fetched);
+        setPendingSession({ sessionToken, userId, email: e || email.trim() });
+      }
+    } catch (e2) {
+      setErr(String(e2.message || e2));
+    } finally {
+      setLoading(false);
+    }
+  };
+  const pickSite = (s) => {
+    if (!pendingSession) return;
+    integrations.setIntegration('plejd', {
+      cloudSession: pendingSession.sessionToken,
+      cloudUserId: pendingSession.userId,
+      cloudEmail: pendingSession.email,
+      cloudSiteId: s.objectId,
+      cloudSiteTitle: s.title,
+    });
+    setSites(null); setPendingSession(null);
+    setEmail(''); setPassword('');
+  };
+  const disconnectCloud = () => {
+    integrations.setIntegration('plejd', {
+      cloudSession: '', cloudUserId: '', cloudEmail: '', cloudSiteId: '', cloudSiteTitle: '',
+    });
+  };
+
+  if (cloudConnected) {
+    return (
+      <div className="catalog-form">
+        <p className="catalog-help">
+          Signed in to Plejd as <b>{cfg.cloudEmail}</b> — site <b>{cfg.cloudSiteTitle || cfg.cloudSiteId}</b>.
+          Your real rooms, devices, and names appear on the home page automatically.
+        </p>
+        <p className="catalog-help" style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>
+          <b>Heads up:</b> cloud sign-in lets the dashboard <i>see</i> your devices. Toggling lights/plugs from this dashboard works only if you have a <b>Plejd Hub</b> paired to your installation (the dashboard tries; if it fails, the tile reverts and an amber dot appears). Without a Hub, you'd need a tiny Node bridge on your LAN. Use the Plejd app on your phone for control in the meantime.
+        </p>
+        <div className="catalog-actions" style={{ marginTop: 12 }}>
+          <button className="group-toggle" onClick={disconnectCloud}>Sign out of Plejd</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (sites) {
+    return (
+      <div className="catalog-form">
+        <p className="catalog-help">Pick which Plejd installation you want this dashboard to show.</p>
+        <div className="catalog-list">
+          {sites.map(s => (
+            <div key={s.objectId} className="catalog-list-row">
+              <span><b>{s.title}</b></span>
+              <button className="group-toggle" data-active="true" onClick={() => pickSite(s)}>Use this one</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="catalog-form">
-      {/* Friendly-state callout. Three states the user can actually be in:
-            - both set      -> quiet success line (no jargon)
-            - URL set, token missing  -> the most common case; big "almost there" with deep link to HA's token page
-            - nothing set   -> short setup blurb */}
-      {hasUrl && hasToken && (
-        <p className="catalog-help">Connected. Your lights and plugs will appear on the home page automatically.</p>
-      )}
-      {hasUrl && !hasToken && (
-        <p className="catalog-help" style={{ color: 'var(--primary)', borderLeft: '2px solid var(--primary)', paddingLeft: 10 }}>
-          <b>Almost there.</b> Your Home Assistant address is set. The dashboard needs an <b>access token</b> from your Home Assistant profile so it can read your lights. <a href={hostedTokenHref} target="_blank" rel="noreferrer">Open my Home Assistant profile</a> → scroll to <b>Long-Lived Access Tokens</b> → <b>Create Token</b> → paste it below.
-        </p>
-      )}
-      {!hasUrl && (
-        <p className="catalog-help">
-          You'll need <a href="https://www.home-assistant.io/" target="_blank" rel="noreferrer">Home Assistant</a> running on your LAN (Pi, NAS, Docker — any always-on box). Paste its address and an access token below.
-        </p>
-      )}
-
-      <label className="catalog-label">Home Assistant address</label>
-      <MaskedSecret
-        value={cfg.url || ''}
-        onSave={(v) => integrations.setIntegration('plejd', { url: v, token: cfg.token || '' })}
-        placeholder="http://homeassistant.local:8123"
-        type="text"
-        autoComplete="url"
-      />
-
-      <label className="catalog-label" style={{ marginTop: 10 }}>Access token</label>
-      <MaskedSecret
-        value={cfg.token || ''}
-        onSave={(v) => integrations.setIntegration('plejd', { url: cfg.url || '', token: v })}
-        placeholder="eyJhbGciOi..."
-      />
-
-      {(hasUrl || hasToken) && (
-        <div className="catalog-actions" style={{ marginTop: 12 }}>
-          <button className="group-toggle" onClick={() => integrations.setIntegration('plejd', { url: '', token: '' })}>Disconnect</button>
-        </div>
-      )}
+      <p className="catalog-help">
+        Sign in with your Plejd account — same email and password as the Plejd mobile app.
+      </p>
+      <label className="catalog-label">Plejd email</label>
+      <input className="settings-input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
+      <label className="catalog-label" style={{ marginTop: 10 }}>Password</label>
+      <input className="settings-input" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+      {err && <div className="catalog-help" style={{ color: 'var(--destructive)', marginTop: 8 }}>{err}</div>}
+      <div className="catalog-actions" style={{ marginTop: 12 }}>
+        <button className="group-toggle" data-active="true" onClick={doLogin} disabled={loading || !email.trim() || !password}>
+          {loading ? 'Signing in…' : 'Sign in to Plejd'}
+        </button>
+      </div>
+      <p className="catalog-help" style={{ fontSize: 11, marginTop: 10 }}>
+        Your credentials go straight to Plejd's API; the dashboard only keeps the resulting session token. The password is never stored.
+      </p>
 
       <details className="settings-advanced">
-        <summary>Advanced — what runs on my LAN?</summary>
+        <summary>Advanced — Home Assistant instead</summary>
         <p className="catalog-help">
-          The dashboard talks to Plejd through Home Assistant via the <span className="mono">hassio-plejd</span> add-on. HA's <span className="mono">configuration.yaml</span> must include this site's origin under <span className="mono">http.cors_allowed_origins</span>: <span className="mono">{window.location.origin}</span>.
+          If you already run Home Assistant with the <span className="mono">hassio-plejd</span> add-on, point the dashboard at HA directly instead. HA's <span className="mono">configuration.yaml</span> must include <span className="mono">{window.location.origin}</span> under <span className="mono">http.cors_allowed_origins</span>.
         </p>
+        <label className="catalog-label">Home Assistant address</label>
+        <MaskedSecret
+          value={cfg.url || ''}
+          onSave={(v) => integrations.setIntegration('plejd', { url: v, token: cfg.token || '' })}
+          placeholder="http://homeassistant.local:8123"
+          type="text"
+          autoComplete="url"
+        />
+        <label className="catalog-label" style={{ marginTop: 10 }}>Access token</label>
+        <MaskedSecret
+          value={cfg.token || ''}
+          onSave={(v) => integrations.setIntegration('plejd', { url: cfg.url || '', token: v })}
+          placeholder="eyJhbGciOi..."
+        />
+        {haConnected && (
+          <div className="catalog-actions" style={{ marginTop: 12 }}>
+            <button className="group-toggle" onClick={() => integrations.setIntegration('plejd', { url: '', token: '' })}>Disconnect Home Assistant</button>
+          </div>
+        )}
       </details>
     </div>
   );

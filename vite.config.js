@@ -45,6 +45,25 @@ export default defineConfig({
     host,
     port: 5183,
     strictPort: true,
+    // Dev-time CORS workaround for Plejd's cloud API.
+    // Plejd's parse-server endpoints at api.plejd.com don't send CORS headers,
+    // so a browser fetch hits a wall. Vite's proxy intercepts /api/plejd/* and
+    // forwards to api.plejd.com, returning the response back to the browser
+    // with same-origin semantics. The X-Parse-Application-Id is the public
+    // Plejd Parse app ID -- it's effectively a constant from their mobile app,
+    // not a secret.
+    //
+    // For production deployment you'll need an equivalent reverse-proxy (one
+    // Netlify Function / Cloudflare Worker / nginx location block) -- see
+    // SETUP_CERT.md.
+    proxy: {
+      '/api/plejd': {
+        target: 'https://api.plejd.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/plejd/, ''),
+      },
+    },
   },
   build: {
     outDir: 'dist',
