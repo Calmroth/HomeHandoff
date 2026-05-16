@@ -729,11 +729,6 @@ function Sidebar({ route, onNavigate, google }) {
         <div className="brand-name">Home Domain</div>
       </div>
 
-      <button className="search-trigger">
-        <span>Search & go</span>
-        <kbd>⌘ K</kbd>
-      </button>
-
       <nav className="nav">
         {NAV_ITEMS.map(item => {
           const Ic = item.Icon;
@@ -1237,123 +1232,25 @@ function LanLostBanner() {
   );
 }
 
-// FirstRunBanner -- the council's "demo first, make this yours" affordance.
-// Renders a single full-width strip immediately under the PageHeader and
-// embeds the real Google sign-in button inline (no journey through Settings)
-// the moment a Client ID is present. If no Client ID is set yet, the banner
-// inline-renders a one-input + "Save" form plus a direct link to create one
-// at console.cloud.google.com -- the goal is "click here, sign in" with the
-// minimum possible side-trip.
+// FirstRunBanner -- post-sign-in setup nudge. Step 1 ("sign in") is handled
+// by StartupScreen and never reached here. This component only covers:
+//   step 2 ("connect"): Google user signed in, no Spotify token yet
+//   step 3 ("real"):    Spotify connected, no real LAN integrations yet
 //
-// Three progressive states:
-//   step 1 ("welcome"):  demo is live, no Google user yet
-//                        -> Embedded GSI button (or Client ID setup if needed)
-//   step 2 ("connect"):  Google user signed in, no Spotify token yet
-//                        -> "Welcome <name>. Connect Spotify..."   [Connect music]
-//   step 3 ("real"):     Spotify connected, no real LAN integrations yet
-//                        -> "Add real lights..."   [Add real devices]
-//
-//   hidden when: dismissed via the Skip button, OR the user has any real
-//   integration + demoMode off, OR all 3 steps complete.
+// Hidden when dismissed, or when the user has a real integration with demo off,
+// or when all steps are complete.
 function FirstRunBanner({ demoMode, google, spotifyConnected, anyRealIntegration, onNavigate }) {
   const googleUser = google?.user;
   const [dismissed, setDismissed] = useState(() => localStorage.getItem('hdg-onboarding-dismissed') === '1');
-  // Local input state for the inline Client ID form
-  const [draftClientId, setDraftClientId] = useState(google?.clientId || '');
-  useEffect(() => { setDraftClientId(google?.clientId || ''); }, [google?.clientId]);
-  const gsiBtnRef = useRef(null);
-  // Render the live GIS "Continue with Google" pill into our ref'd container.
-  //
-  // Subtle race: `useGoogleAuth` initializes the GIS client in its own
-  // useEffect *after* this child component's effects run (React runs child
-  // effects before parent effects on each commit). On the very first Client
-  // ID save, our `renderButton` call would land before GIS is initialized
-  // and silently no-op. Fix: poll for a few ticks (200ms) until either the
-  // button mounts or we time out -- much shorter than a user notices, and
-  // self-healing if GIS is slow to load.
-  useEffect(() => {
-    if (dismissed || googleUser || !google?.clientId) return;
-    if (!gsiBtnRef.current) return;
-    let cancelled = false;
-    let attempts = 0;
-    const tryRender = () => {
-      if (cancelled || !gsiBtnRef.current) return;
-      // If the GIS iframe is already in the container, we're done.
-      if (gsiBtnRef.current.querySelector('iframe')) return;
-      google.renderButton(gsiBtnRef.current);
-      attempts++;
-      if (!gsiBtnRef.current.querySelector('iframe') && attempts < 12) {
-        // Up to ~3 s of retries, 250 ms apart. After that, give up quietly.
-        setTimeout(tryRender, 250);
-      }
-    };
-    tryRender();
-    return () => { cancelled = true; };
-  }, [dismissed, googleUser, google?.clientId, google?.renderButton]);
 
   if (dismissed) return null;
+  if (!googleUser) return null;           // StartupScreen handles signed-out state
   if (!demoMode && anyRealIntegration && googleUser) return null;
 
   const dismiss = () => {
     localStorage.setItem('hdg-onboarding-dismissed', '1');
     setDismissed(true);
   };
-  const saveClientId = () => google?.setClientId?.(draftClientId.trim());
-
-  // STEP 1 -- not signed in. The richest of the three states because it
-  // either renders the live GSI button or guides the user to a Client ID.
-  if (!googleUser) {
-    return (
-      <div className="first-run-banner" role="region" aria-label="Get started">
-        <div className="first-run-text">
-          <div className="first-run-title">This is a demo house.</div>
-          <div className="first-run-sub">
-            Sign in with your Google account to make it yours — the demo turns into your actual home. No password, just one tap.
-          </div>
-          {!google?.clientId && (
-            <div className="first-run-clientid-row">
-              <input
-                className="settings-input"
-                type="text"
-                autoComplete="off"
-                spellCheck="false"
-                placeholder="Paste your Google OAuth Client ID (xxx.apps.googleusercontent.com)"
-                value={draftClientId}
-                onChange={(e) => setDraftClientId(e.target.value)}
-                style={{ flex: 1, minWidth: 0 }}
-              />
-              <button className="group-toggle" onClick={saveClientId} disabled={!draftClientId.trim()}>Save</button>
-            </div>
-          )}
-          {!google?.clientId && (
-            <div className="first-run-hint">
-              No Client ID yet? <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Create one at console.cloud.google.com</a> → APIs &amp; Services → Credentials → Create OAuth Client ID (Web). Add <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins". Paste the resulting ID above.
-            </div>
-          )}
-          {google?.clientId && !googleUser && (
-            <div className="first-run-gsi-row">
-              {/* Real GIS-rendered button. Click → Google consent → land back here signed in. */}
-              <div ref={gsiBtnRef} className="first-run-gsi-target" />
-              <button
-                type="button"
-                className="first-run-link"
-                onClick={() => google.setClientId('')}
-                title="Forget the saved Client ID so you can paste a different one"
-              >
-                Use a different Client ID
-              </button>
-            </div>
-          )}
-          {google?.error && (
-            <div className="first-run-hint" style={{ color: 'var(--destructive)' }}>{google.error}</div>
-          )}
-        </div>
-        <div className="first-run-actions">
-          <button className="group-toggle" onClick={dismiss} title="Hide this banner. You can still add devices later in Settings.">Skip</button>
-        </div>
-      </div>
-    );
-  }
 
   // STEP 2 / 3 -- straightforward CTA after sign-in.
   let title, sub, primary;
@@ -1452,46 +1349,12 @@ function StartupScreen({ google }) {
         <div className="startup-eyebrow">{greeting}.</div>
         <h1 id="startup-title" className="startup-title">Home Domain</h1>
         <p className="startup-sub">
-          Sign in to take ownership of this household. The dashboard reads your lights, music, energy use,
-          and weather, then quietly gets out of the way.
+          Sign in to take ownership of this household. The dashboard reads your lights, music,
+          energy use, and weather — then quietly gets out of the way.
         </p>
 
-        {!google?.clientId ? (
-          <div className="startup-form">
-            <label className="catalog-label">Google OAuth Client ID</label>
-            <input
-              className="settings-input"
-              type="text"
-              autoComplete="off"
-              spellCheck="false"
-              placeholder="xxxxxxxxxxxx.apps.googleusercontent.com"
-              value={draftClientId}
-              onChange={(e) => setDraftClientId(e.target.value)}
-            />
-            <div className="startup-actions">
-              <button className="group-toggle" data-active="true" onClick={saveClientId} disabled={!draftClientId.trim()}>
-                Save Client ID
-              </button>
-            </div>
-            <p className="startup-hint">
-              Create one at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">console.cloud.google.com</a> → Credentials → Create OAuth Client ID (Web). Add <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins".
-            </p>
-          </div>
-        ) : (
-          <div className="startup-gsi">
-            <div ref={gsiBtnRef} className="startup-gsi-target" />
-            <button type="button" className="startup-link" onClick={() => google.setClientId('')}>
-              Use a different Client ID
-            </button>
-          </div>
-        )}
-
-        {google?.error && <div className="startup-error">{google.error}</div>}
-
-        <div className="startup-divider"><span>or</span></div>
-
+        {/* Primary path: email / local profile. No Google Cloud console required. */}
         <div className="startup-form">
-          <label className="catalog-label">Sign up with email (local profile)</label>
           <div className="startup-email-grid">
             <input
               className="settings-input"
@@ -1509,14 +1372,50 @@ function StartupScreen({ google }) {
               value={signupEmail}
               onChange={(e) => setSignupEmail(e.target.value)}
             />
-            <button className="group-toggle" onClick={submitSignup} disabled={!signupName.trim() || !signupEmail.trim()}>
-              Create
+            <button className="group-toggle" data-active="true" onClick={submitSignup} disabled={!signupName.trim() || !signupEmail.trim()}>
+              Sign in
             </button>
           </div>
           <p className="startup-hint">
-            Local profile, this browser only. No password, no recovery. Useful if you don't want a Google account or you're just trying the dashboard.
+            Local profile, this browser only. No password required.
           </p>
         </div>
+
+        {/* Secondary path: Google sign-in. Needs a Client ID; shown in Advanced. */}
+        <details className="startup-advanced">
+          <summary>Sign in with Google instead</summary>
+          <div className="startup-form" style={{ marginTop: 12 }}>
+            {google?.clientId ? (
+              <>
+                <div ref={gsiBtnRef} className="startup-gsi-target" />
+                <button type="button" className="startup-link" onClick={() => google.setClientId('')}>
+                  Use a different Client ID
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  className="settings-input"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck="false"
+                  placeholder="Paste your Google OAuth Client ID"
+                  value={draftClientId}
+                  onChange={(e) => setDraftClientId(e.target.value)}
+                />
+                <div className="startup-actions" style={{ marginTop: 8 }}>
+                  <button className="group-toggle" onClick={saveClientId} disabled={!draftClientId.trim()}>
+                    Save
+                  </button>
+                </div>
+                <p className="startup-hint">
+                  <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Create a Client ID</a> at Google Cloud Console → Credentials → OAuth Client ID (Web). Add <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins".
+                </p>
+              </>
+            )}
+            {google?.error && <div className="startup-error">{google.error}</div>}
+          </div>
+        </details>
       </div>
     </div>
   );
@@ -2393,7 +2292,6 @@ function App() {
             onOpenMusic={() => navigate('music')}
             user={google.user}
           />
-          <LanLostBanner />
           <EnvSeedPrompt
             items={pendingEnvCreds}
             onApply={applyPendingEnv}
@@ -2703,6 +2601,7 @@ function SensorsSection() {
 // Pieces
 // ─────────────────────────────────────────────────────────────────────────────
 function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, city, route, playback, togglePlay, seekRel, oembed, musicLabel, musicSub, onOpenMusic, user }) {
+  const lanLost = useHomeStore(s => s.lanLost);
   const greeting = (() => {
     const h = now.getHours();
     if (h < 5) return 'Working late';
@@ -2753,10 +2652,16 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
         />
         <div className="header-right">
           <div className="header-controls">
-            <span className="wifi-pill">
+            <span
+              className="wifi-pill"
+              data-lost={lanLost || undefined}
+              onClick={lanLost ? () => window.location.reload() : undefined}
+              title={lanLost ? 'Network lost — tap to retry' : undefined}
+            >
               <span className="wifi-dot" />
-              {deviceCount} on Wi‑Fi
-              <span className="wifi-sub mono">home.local</span>
+              {lanLost
+                ? 'Network lost'
+                : <>{deviceCount} on Wi‑Fi<span className="wifi-sub mono">home.local</span></>}
             </span>
           </div>
           <div className="weather-hero">
@@ -2951,11 +2856,12 @@ function PowerLive({ outlets, totalW, litWatts, outletWatts, speakerWatts }) {
           {history.map((v, i) => (
             <div key={i} style={{
               flex: 1,
-              height: `${(v / max) * 100}%`,
+              height: '100%',
               background: i === history.length - 1 ? 'var(--primary)' : 'color-mix(in oklch, var(--clay-50) 16%, transparent)',
               borderRadius: 1,
-              transition: 'height 600ms var(--motion-ease-out-quart)',
-              minHeight: 2,
+              transform: `scaleY(${Math.max(v / max, 0.056)})`,
+              transformOrigin: 'bottom',
+              transition: 'transform 600ms var(--motion-ease-out-quart)',
             }} />
           ))}
         </div>
@@ -4821,6 +4727,22 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
     }
   };
 
+  // Two-step destructive confirmations. First click arms; second click commits.
+  // Auto-disarms after 3 s so an accidental tap doesn't leave the button in
+  // a charged state the user doesn't notice.
+  const [signOutArmed, setSignOutArmed] = useState(false);
+  const [clearDemoArmed, setClearDemoArmed] = useState(false);
+  useEffect(() => {
+    if (!signOutArmed) return;
+    const t = setTimeout(() => setSignOutArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [signOutArmed]);
+  useEffect(() => {
+    if (!clearDemoArmed) return;
+    const t = setTimeout(() => setClearDemoArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [clearDemoArmed]);
+
   return (
     <>
       <Section
@@ -4861,7 +4783,12 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                 )}
               </div>
               {google?.user ? (
-                <button className="group-toggle" onClick={google.signOut}>Sign out</button>
+                signOutArmed
+                  ? <>
+                      <button className="group-toggle" style={{ color: 'var(--destructive)' }} onClick={google.signOut}>Confirm sign out</button>
+                      <button className="group-toggle" onClick={() => setSignOutArmed(false)} style={{ marginLeft: 6 }}>Cancel</button>
+                    </>
+                  : <button className="group-toggle" onClick={() => setSignOutArmed(true)}>Sign out</button>
               ) : null}
             </div>
             {!google?.user && (
@@ -4973,7 +4900,12 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                 </div>
               </div>
               {demoMode
-                ? <button className="group-toggle" onClick={onClearDemo}>Clear</button>
+                ? (clearDemoArmed
+                    ? <>
+                        <button className="group-toggle" style={{ color: 'var(--destructive)' }} onClick={() => { onClearDemo(); setClearDemoArmed(false); }}>Confirm clear</button>
+                        <button className="group-toggle" onClick={() => setClearDemoArmed(false)} style={{ marginLeft: 6 }}>Cancel</button>
+                      </>
+                    : <button className="group-toggle" onClick={() => setClearDemoArmed(true)}>Clear</button>)
                 : <button className="group-toggle" data-active="true" onClick={onLoadDemo}>Load demo data</button>}
             </div>
           </div>
