@@ -4429,7 +4429,7 @@ const INTEGRATION_CATALOG = [
   },
 ];
 
-const STATUS_LABEL = { configured: 'Connected', partial: 'Half set up', 'not-configured': 'Not set up', default: 'Using defaults' };
+const STATUS_LABEL = { configured: 'Connected', partial: 'Partial', 'not-configured': 'Not set up', default: 'Using defaults' };
 
 // Shelly device discovery -- best-effort HTTP probe of a /24 subnet. Browser
 // can't do mDNS/BLE, but Shelly's HTTP server speaks CORS, so we can read the
@@ -4580,7 +4580,10 @@ function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
             <div className="catalog-head-sub">{it.tagline}</div>
           </div>
           <span className="catalog-kind">{it.kind}</span>
-          <span className="catalog-status" data-status={status}> · {STATUS_LABEL[status]}</span>
+          <span className="catalog-status" data-status={status}>
+            <span className="catalog-status-dot" aria-hidden="true" />
+            {STATUS_LABEL[status]}
+          </span>
         </button>
         {/* Inline action: non-destructive fires directly; destructive arms first. */}
         {action && (
@@ -4612,7 +4615,7 @@ function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
           onClick={onToggle}
           aria-label={isOpen ? 'Collapse details' : 'Expand details'}
         >
-          {isOpen ? '−' : '+'}
+          <I.ChevronDown size={14} />
         </button>
       </div>
       {isOpen && (
@@ -4650,6 +4653,16 @@ function IntegrationCatalog({ integrations, spotify }) {
           autoComplete="off"
           spellCheck="false"
         />
+        {query && (
+          <button
+            type="button"
+            className="catalog-search-clear"
+            onClick={() => setQuery('')}
+            aria-label="Clear search"
+          >
+            <I.X size={12} />
+          </button>
+        )}
       </div>
       <div className="settings-section">
         {items.length === 0 && (
