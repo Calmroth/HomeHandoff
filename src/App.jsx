@@ -1444,6 +1444,7 @@ function App() {
   // Per-card command-send feedback (amber pulse while sending, red outline on failure).
   const [sendingIds, setSendingIds] = useState(new Set());
   const [failedIds, setFailedIds] = useState(new Set());
+  const [failedCommands, setFailedCommands] = useState(new Map());
 
   // Tab-lifecycle primitives -- foundation of an "appliance" feel.
   // pageVisible is the gate for every polling effect: when nobody is looking
@@ -1490,10 +1491,14 @@ function App() {
     setTimeout(() => setSendingIds(s => { const n = new Set(s); n.delete(cardId); return n; }), 800);
   }, []);
 
-  const setCardFailed = useCallback((cardId) => {
+  const setCardFailed = useCallback((cardId, retryFn) => {
     setSendingIds(s => { const n = new Set(s); n.delete(cardId); return n; });
     setFailedIds(s => new Set([...s, cardId]));
-    setTimeout(() => setFailedIds(s => { const n = new Set(s); n.delete(cardId); return n; }), 3000);
+    if (retryFn) setFailedCommands(m => new Map([...m, [cardId, retryFn]]));
+    setTimeout(() => {
+      setFailedIds(s => { const n = new Set(s); n.delete(cardId); return n; });
+      setFailedCommands(m => { const n = new Map(m); n.delete(cardId); return n; });
+    }, 3000);
   }, []);
 
   const [plejdErr, setPlejdErr] = useState(null);
@@ -2078,7 +2083,7 @@ function App() {
       setCardSending(r.id);
       plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: next })
         .catch(e => {
-          setCardFailed(r.id);
+          setCardFailed(r.id, () => toggleRoom(id));
           setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
           logActivity('light', `**Needs Plejd Hub** — toggle reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud control needs a Plejd Hub. Discovery still works.' });
@@ -2154,7 +2159,7 @@ function App() {
     if (demoMode) return;
     setCardSending(o.id);
     const revert = (err, statusId) => {
-      setCardFailed(o.id);
+      setCardFailed(o.id, () => toggleOutlet(id));
       setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: !next } : oo));
       logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
       useHomeStore.getState().markFailed(statusId, String(err.message || err));
@@ -2269,25 +2274,8 @@ function App() {
   //   Esc  → clear active scene (return to free-form)
   //   g    → go to Home (the global default)
   // We bail when focus is inside an input/textarea/contenteditable so the
-  // shortcuts don't fight form input.
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const tgt = e.target;
-      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) return;
-      if (e.key === 'Escape' && activeScene) { breakScene(); e.preventDefault(); return; }
-      if (e.key === 'g' || e.key === 'G') { navigate('home'); e.preventDefault(); return; }
-      // Scene shortcuts only matter on the Home page where scenes are visible.
-      if (route !== 'home') return;
-      const idx = (e.key === '0') ? 4 : (parseInt(e.key, 10) - 1);
-      if (Number.isInteger(idx) && idx >= 0 && idx < SCENES.length) {
-        applyScene(SCENES[idx]);
-        e.preventDefault();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [applyScene, breakScene, activeScene, route, navigate]);
+  // shortcuts don't fight form input. (Handler registered after embed so
+  // embed.togglePlay is in scope when the dependency array is evaluated.)
 
   // Per-page sub-headers share a thinner version of the welcome row from Home
   // — the photo + clock makes everything feel like one product.
@@ -2308,6 +2296,27 @@ function App() {
   // header player and the Music page can read playback state and drive it.
   const embed = useSpotifyEmbed(musicUri);
   const oembed = useSpotifyOEmbed(musicType, musicId);
+
+  // Keyboard shortcuts — registered here so embed.togglePlay is available.
+  const togglePlay = embed.togglePlay;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tgt = e.target;
+      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable)) return;
+      if (e.key === 'Escape' && activeScene) { breakScene(); e.preventDefault(); return; }
+      if (e.key === 'g' || e.key === 'G') { navigate('home'); e.preventDefault(); return; }
+      if (e.key === ' ' && route === 'music') { togglePlay(); e.preventDefault(); return; }
+      if (route !== 'home') return;
+      const idx = (e.key === '0') ? 4 : (parseInt(e.key, 10) - 1);
+      if (Number.isInteger(idx) && idx >= 0 && idx < SCENES.length) {
+        applyScene(SCENES[idx]);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [applyScene, breakScene, activeScene, route, navigate, togglePlay]);
 
   // Gate: no signed-in user => render only the startup screen. Skips the
   // sidebar, persistent player, and main column entirely so the user can't
@@ -2370,7 +2379,7 @@ function App() {
               applyScene={applyScene} breakScene={breakScene}
               activity={activity}
               spotify={spotify}
-              sendingIds={sendingIds} failedIds={failedIds}
+              sendingIds={sendingIds} failedIds={failedIds} failedCommands={failedCommands}
             />
           )}
           {route === 'rooms' && (
@@ -2433,6 +2442,18 @@ function App() {
           }}>Undo</button>
         </div>
       )}
+      {route === 'home' && (
+        <div className="key-hints">
+          <span><kbd>1–5</kbd>scenes</span>
+          <span><kbd>G</kbd>home</span>
+          <span><kbd>Esc</kbd>clear scene</span>
+        </div>
+      )}
+      {route === 'music' && (
+        <div className="key-hints">
+          <span><kbd>Space</kbd>play/pause</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -2451,7 +2472,7 @@ function HomePage({
   applyScene, breakScene,
   activity,
   spotify,
-  sendingIds, failedIds,
+  sendingIds, failedIds, failedCommands,
 }) {
   // Cast-to-room handler for the NowPlaying hero. Two cases:
   // (1) a speaker is already active -> reassert it (no-op behavioral, but the
@@ -2519,14 +2540,14 @@ function HomePage({
                 <div className="master-sub">{rooms.reduce((a,r) => a + (r.on ? r.bulbs : 0), 0)} of {rooms.reduce((a,r)=>a+r.bulbs,0)} bulbs lit</div>
               </div>
               <div className="master-count mono">{onCount}/{rooms.length}</div>
-              <Toggle
+              <HoldToggle
                 on={onCount > 0}
                 onToggle={() => setAllLights(onCount === 0)}
                 ariaLabel="Toggle all lights"
               />
             </div>
             <div className="lights-grid">
-              {rooms.map(r => <RoomCard key={r.id} room={r} onToggle={() => toggleRoom(r.id)} onBrightness={(b) => setBrightness(r.id, b)} sending={sendingIds.has(r.id)} failed={failedIds.has(r.id)} />)}
+              {rooms.map(r => <RoomCard key={r.id} room={r} onToggle={() => toggleRoom(r.id)} onBrightness={(b) => setBrightness(r.id, b)} sending={sendingIds.has(r.id)} failed={failedIds.has(r.id)} retryFn={failedCommands.get(r.id)} />)}
             </div>
           </div>
         ) : (
@@ -2545,7 +2566,7 @@ function HomePage({
         {outlets.length ? (
           <div className="power-grid">
             <div className="outlets">
-              {outlets.map(o => <OutletRow key={o.id} outlet={o} onToggle={() => toggleOutlet(o.id)} sending={sendingIds.has(o.id)} failed={failedIds.has(o.id)} />)}
+              {outlets.map(o => <OutletRow key={o.id} outlet={o} onToggle={() => toggleOutlet(o.id)} sending={sendingIds.has(o.id)} failed={failedIds.has(o.id)} retryFn={failedCommands.get(o.id)} />)}
             </div>
             <PowerLive outlets={outlets} totalW={totalW} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts} />
           </div>
@@ -2599,7 +2620,7 @@ function HomePage({
       <Section
         title="Activity"
         source="local"
-        summary={<>Last <b>{activity.length}</b> {activity.length === 1 ? 'action' : 'actions'} · <b className="mono">1–5</b> apply scenes · <b className="mono">G</b> back to Home</>}
+        summary={<>Last <b>{activity.length}</b> {activity.length === 1 ? 'action' : 'actions'}</>}
       >
         <ActivityLog items={activity} now={now} />
       </Section>
@@ -2733,7 +2754,7 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
           </div>
           <div className="weather-hero">
             <a className="weather-hero-icon" href="#weather" title="Open Weather" aria-label="Open Weather">
-              <WIcon size={72} />
+              <span key={code ?? 'init'} className="weather-icon-mount"><WIcon size={72} /></span>
             </a>
             <div>
               <div className="weather-hero-temp"><span className="mono">{tempStr}</span></div>
@@ -2848,7 +2869,58 @@ function IntegrationStatusDot({ id, showWhenEmpty = false }) {
   );
 }
 
-function RoomCard({ room, onToggle, onBrightness, sending, failed }) {
+// HoldToggle: safe version of the master power toggle. Normal toggles (turn
+// everything ON) work immediately. The destructive direction (turn everything
+// OFF) requires a 500ms press-and-hold, shown as a red fill animation. This
+// prevents one-handed accidental taps from killing all lights mid-dinner.
+function HoldToggle({ on, onToggle, ariaLabel, holdMs = 500 }) {
+  const [progress, setProgress] = useState(0);
+  const rafRef = useRef(null);
+  const startRef = useRef(null);
+
+  const startHold = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    startRef.current = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - startRef.current;
+      const pct = Math.min(1, elapsed / holdMs);
+      setProgress(pct);
+      if (pct < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setProgress(0);
+        onToggle();
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  };
+
+  const cancelHold = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+    startRef.current = null;
+    setProgress(0);
+  };
+
+  if (!on) return <Toggle on={on} onToggle={onToggle} ariaLabel={ariaLabel} />;
+
+  return (
+    <button
+      className="hold-btn"
+      onPointerDown={startHold}
+      onPointerUp={cancelHold}
+      onPointerLeave={cancelHold}
+      onPointerCancel={cancelHold}
+      aria-label="Hold to turn all lights off"
+      title="Hold 0.5 s to turn all lights off"
+    >
+      <div className="hold-btn-fill" style={{ transform: `scaleX(${progress})` }} />
+      <I.PowerOff size={16} />
+    </button>
+  );
+}
+
+function RoomCard({ room, onToggle, onBrightness, sending, failed, retryFn }) {
   const flick = useFlicker([room.on]);
   // CSS variable controls the warm glow opacity inside the card
   const glow = room.on ? 0.04 + (room.brightness / 100) * 0.18 : 0;
@@ -2873,11 +2945,14 @@ function RoomCard({ room, onToggle, onBrightness, sending, failed }) {
         </div>
         <Slider value={room.on ? room.brightness : 0} onChange={onBrightness} disabled={!room.on} />
       </div>
+      {failed && retryFn && (
+        <button className="card-retry" onClick={retryFn} aria-label="Retry command">Retry</button>
+      )}
     </div>
   );
 }
 
-function OutletRow({ outlet, onToggle, sending, failed }) {
+function OutletRow({ outlet, onToggle, sending, failed, retryFn }) {
   const Ic = I[outlet.icon] ?? I.Plug;
   return (
     <div className="outlet" data-on={outlet.on} data-sending={sending ? 'true' : undefined} data-failed={failed ? 'true' : undefined}>
@@ -2888,6 +2963,9 @@ function OutletRow({ outlet, onToggle, sending, failed }) {
           {outlet.room}
           {outlet.alwaysOn && <span style={{ marginLeft: 8, color: 'var(--primary)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Always on</span>}
         </div>
+        {failed && retryFn && (
+          <button className="card-retry" onClick={retryFn} aria-label="Retry command" style={{ marginTop: 4 }}>Retry</button>
+        )}
       </div>
       <div className="outlet-watts">
         {outlet.on ? <>{outlet.watts}<span style={{ fontSize: 10, color: 'var(--muted-foreground)', marginLeft: 3 }}>W</span></> : '—'}
@@ -3445,7 +3523,7 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene,
               <div className="master-sub">{litBulbs} bulbs lit across {onCount} rooms</div>
             </div>
             <div className="master-count mono">{onCount}/{rooms.length}</div>
-            <Toggle on={onCount > 0} onToggle={() => setAllLights(onCount === 0)} ariaLabel="Toggle every room" />
+            <HoldToggle on={onCount > 0} onToggle={() => setAllLights(onCount === 0)} ariaLabel="Toggle every room" />
           </div>
           <div className="rooms-grid">
             {rooms.map(r => (
@@ -4156,7 +4234,7 @@ function WeatherPage({ weather, weatherData, weatherErr, city, now }) {
     >
       <div className="weather-page">
         <div className="weather-current">
-          <div className="weather-current-icon"><WIcon size={132} /></div>
+          <div className="weather-current-icon"><span key={code ?? 'init'} className="weather-icon-mount"><WIcon size={132} /></span></div>
           <div>
             <div className="weather-current-temp mono">{tempStr}</div>
             <div className="weather-current-feels">Feels like <span className="mono">{feelsStr}</span></div>
@@ -5633,7 +5711,7 @@ function TibberConfig({ integrations }) {
         </p>
       )}
       {testResult?.ok && (
-        <p className="catalog-help" style={{ color: 'oklch(0.70 0.14 145)', marginTop: 8 }}>
+        <p className="catalog-help" style={{ color: 'oklch(0.78 0.14 70)', marginTop: 8 }}>
           Connected as {testResult.name}{testResult.homes.length ? ` · ${testResult.homes.join(', ')}` : ''}
         </p>
       )}

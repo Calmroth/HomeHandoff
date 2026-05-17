@@ -99,6 +99,32 @@
   --row-gap: 0.75rem;
 }
 
+/* Safari < 16.4 doesn't support color-mix(in oklch, ...). These static
+   values land first (last :root declaration wins in cascade); the @supports
+   block overrides them in browsers that do support it. */
+:root {
+  --amber-tint-4:     oklch(0.78 0.14 70 / 0.04);
+  --amber-tint-10:    oklch(0.78 0.14 70 / 0.10);
+  --amber-tint-24:    oklch(0.78 0.14 70 / 0.24);
+  --muted-foreground: oklch(0.62 0.012 65);
+  --border:           oklch(0.97 0.005 65 / 0.08);
+  --border-strong:    oklch(0.97 0.005 65 / 0.14);
+  --sidebar:          oklch(0.13 0.008 65 / 0.92);
+  --popover:          oklch(0.19 0.01 65);
+}
+@supports (color: color-mix(in oklch, red, blue)) {
+  :root {
+    --amber-tint-4:     color-mix(in oklch, var(--primary) 4%, transparent);
+    --amber-tint-10:    color-mix(in oklch, var(--primary) 10%, transparent);
+    --amber-tint-24:    color-mix(in oklch, var(--primary) 24%, transparent);
+    --muted-foreground: color-mix(in oklch, var(--clay-400) 100%, transparent);
+    --border:           color-mix(in oklch, var(--clay-50) 8%, transparent);
+    --border-strong:    color-mix(in oklch, var(--clay-50) 14%, transparent);
+    --sidebar:          color-mix(in oklch, var(--clay-950) 92%, transparent);
+    --popover:          color-mix(in oklch, var(--clay-850) 92%, transparent);
+  }
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 
@@ -290,7 +316,7 @@ img.avatar { display: block; }
 }
 .clock-hero-time {
   font-family: var(--font-mono);
-  font-size: clamp(72px, 9vw, 132px);
+  font-size: clamp(48px, 8vw, 120px);
   font-weight: 100;
   letter-spacing: -0.06em;
   line-height: 0.9;
@@ -1262,6 +1288,76 @@ img.avatar { display: block; }
   transition: opacity 120ms;
 }
 .undo-btn:hover { opacity: 0.7; }
+
+/* ── Hold-to-commit master toggle ──────────────────────────────────────────── */
+.hold-btn {
+  position: relative;
+  width: 40px; height: 22px; border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid oklch(0.65 0.18 25 / 0.45);
+  background: oklch(0.65 0.18 25 / 0.12);
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: none;
+}
+.hold-btn-fill {
+  position: absolute; inset: 0;
+  background: oklch(0.65 0.18 25 / 0.55);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.hold-btn > svg {
+  position: absolute; inset: 0; margin: auto;
+  color: oklch(0.65 0.18 25);
+  pointer-events: none;
+}
+.hold-btn:active .hold-btn-fill { /* fill progresses via JS — no CSS transition needed */ }
+
+/* ── Card retry button ─────────────────────────────────────────────────────── */
+.card-retry {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: oklch(0.65 0.18 25);
+  background: oklch(0.65 0.18 25 / 0.12);
+  border: 1px solid oklch(0.65 0.18 25 / 0.4);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background var(--motion-duration-fast);
+  margin-top: 6px;
+  align-self: flex-start;
+}
+.card-retry:hover { background: oklch(0.65 0.18 25 / 0.22); }
+
+/* ── Route-conditional keyboard hints footer ───────────────────────────────── */
+.key-hints {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  right: 18px;
+  display: flex; gap: 14px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 10;
+  user-select: none;
+}
+.key-hints kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: oklch(0.97 0.005 65 / 0.06);
+  border: 1px solid oklch(0.97 0.005 65 / 0.14);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 3px;
+}
+
+/* ── Weather icon entrance animation ───────────────────────────────────────── */
+@keyframes weather-icon-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.weather-icon-mount { animation: weather-icon-in 220ms ease-out; display: contents; }
 
 /* Power live panel */
 .power-live {
@@ -2386,8 +2482,17 @@ img.avatar { display: block; }
   padding: 8px 4px;
 }
 
-/* Music side cards -- shared head */
-.music-side-head { display: flex; justify-content: space-between; align-items: baseline; }
+/* Music side cards -- shared head (sticky within each card) */
+.music-side-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  position: sticky; top: 0; z-index: 1;
+  background: var(--popover);
+  margin: -12px -12px 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+}
 
 /* Add-to-playlist modal */
 .music-picker {
