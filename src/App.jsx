@@ -1500,13 +1500,18 @@ function App() {
   // Real-time hub — WebSocket to server/index.js running on the LAN.
   // Falls back gracefully (hubConnected=false) when the hub isn't running;
   // the rest of the app uses direct polling in that case, unchanged.
-  const hubStateRef = useRef({});
-  const { connected: hubConnected } = useWebSocketHub({
+  // hubDispatchRef lets the callbacks (defined here) call state setters that
+  // are declared later in the component — the ref is assigned each render so
+  // it always has the freshest setters without causing re-renders.
+  const hubStateRef    = useRef({});
+  const hubDispatchRef = useRef(null);
+  const { connected: hubConnected, sendCommand: hubCommand } = useWebSocketHub({
     onSnapshot: useCallback((state) => {
       hubStateRef.current = state.integrations || {};
     }, []),
     onDeviceUpdate: useCallback((integration, payload) => {
       hubStateRef.current[integration] = payload;
+      hubDispatchRef.current?.(integration, payload);
     }, []),
     onError: useCallback((integration, message) => {
       console.warn(`[hub:${integration || 'general'}]`, message);
@@ -1558,6 +1563,37 @@ function App() {
   // Live Tibber prices when token is configured.
   const [tibberPrices, setTibberPrices] = useState(null);
   const [tibberErr, setTibberErr] = useState(null);
+
+  // Hub state dispatch — updated every render so the hub callbacks always
+  // have stable access to the latest state setters without stale closures.
+  // Called by onDeviceUpdate when the server pushes an integration update.
+  hubDispatchRef.current = (integration, payload) => {
+    switch (integration) {
+      case 'ha_lights':
+        // Replace rooms list with HA-sourced light entities.
+        // If we're in demo mode, ignore hub updates so the demo stays coherent.
+        if (!demoMode) setRooms(payload);
+        break;
+      case 'sonos':
+        // Replace Sonos speakers. Non-Sonos speakers (discovered, Spotify) are
+        // preserved by the effectiveSpeakers memo downstream.
+        if (!demoMode) setSpeakers(payload);
+        break;
+      case 'shelly':
+        // Merge: replace only Shelly entries (those with an ip field),
+        // keep any HA-backed outlets that don't have an IP.
+        if (!demoMode) setOutlets(prev => {
+          const nonShelly = prev.filter(o => !o.ip);
+          return [...nonShelly, ...payload];
+        });
+        break;
+      case 'tibber':
+        setTibberPrices(payload);
+        break;
+      default:
+        break;
+    }
+  };
 
   // Push a single entry into the activity log; we cap at 8 so the panel
   // never grows unbounded — the rest live in History (future surface).
@@ -2117,6 +2153,13 @@ function App() {
     setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: next } : rr));
     logActivity('light', `${r.name} lights turned **${next ? 'on' : 'off'}**`);
     const cfg = integrations.config.plejd;
+    // Hub path (preferred when server is running — no CORS, instant push to all tabs).
+    if (hubConnected && r._entity && !r._cloudDevice) {
+      hubCommand('ha', 'call_service', {
+        domain: 'light', service: next ? 'turn_on' : 'turn_off', entity_id: r._entity,
+      });
+      return;
+    }
     // Plejd cloud path: works only if the user has a Plejd Hub paired. If
     // sendStateToDevice fails, revert + surface "needs Hub" honestly.
     if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
@@ -2128,7 +2171,7 @@ function App() {
         });
       return;
     }
-    // HA bridge path (fallback / advanced).
+    // HA bridge path (fallback when hub offline).
     if (cfg?.url && cfg?.token && r._entity) {
       plejdCallService(cfg, next ? 'turn_on' : 'turn_off', r._entity)
         .catch(e => logActivity('light', `Plejd error: ${e.message || e}`));
@@ -2140,6 +2183,17 @@ function App() {
     const r = rooms.find(rr => rr.id === id);
     const cfg = integrations.config.plejd;
     if (!r) return;
+    // Hub path for HA-backed lights (no CORS, all tabs see the update).
+    if (hubConnected && r._entity && !r._cloudDevice) {
+      const ha255 = Math.round((b / 100) * 255);
+      hubCommand('ha', 'call_service', {
+        domain: 'light',
+        service: b > 0 ? 'turn_on' : 'turn_off',
+        entity_id: r._entity,
+        ...(b > 0 ? { brightness: ha255 } : {}),
+      });
+      return;
+    }
     if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
       const dim255 = Math.round((b / 100) * 255);
       plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: b > 0, dim: dim255 })
@@ -2207,6 +2261,13 @@ function App() {
         });
       return;
     }
+    // Hub path for HA switch entities (preferred when server is running).
+    if (hubConnected && o._entity && !o._cloudDevice) {
+      hubCommand('ha', 'call_service', {
+        domain: 'switch', service: next ? 'turn_on' : 'turn_off', entity_id: o._entity,
+      });
+      return;
+    }
     // Plejd / HA switch entity: route via the HA service endpoint. The
     // _entity field is the discriminator -- when present, this outlet came
     // from the plejdFetchOutlets call and the Shelly HTTP path doesn't apply.
@@ -2218,7 +2279,12 @@ function App() {
         .catch(err => revert(err, 'plejd'));
       return;
     }
-    // Shelly HTTP path: try Gen2 RPC first, fall back to Gen1 relay endpoint.
+    // Hub path for Shelly devices (no CORS, state updates reach all tabs).
+    if (hubConnected && o.ip) {
+      hubCommand('shelly', 'toggle', { ip: o.ip, on: next });
+      return;
+    }
+    // Shelly direct HTTP path: try Gen2 RPC first, fall back to Gen1 relay.
     if (!o.ip) return;
     const ip = o.ip;
     const tryGen2 = fetch(`http://${ip}/rpc/Switch.Set?id=0&on=${next}`, { method: 'GET' });
@@ -2257,6 +2323,11 @@ function App() {
       });
       return;
     }
+    // Hub path for Sonos speakers (hub-sourced rooms have _room or _zone).
+    if (hubConnected && s._room) {
+      hubCommand('sonos', next ? 'play' : 'pause', { room: s._room });
+      return;
+    }
     const cfg = integrations.config.sonos;
     if (cfg?.url && s._room) {
       sonosCmd(cfg, s._room, next ? 'play' : 'pause')
@@ -2270,6 +2341,11 @@ function App() {
     if (!s) return;
     if (s._spotify) {
       spotify.setDeviceVolume(id, v).catch(e => logActivity('speaker', `Spotify volume: ${e.message || e}`));
+      return;
+    }
+    // Hub path for Sonos volume.
+    if (hubConnected && s._room) {
+      hubCommand('sonos', 'volume', { room: s._room, value: Math.round(v) });
       return;
     }
     const cfg = integrations.config.sonos;

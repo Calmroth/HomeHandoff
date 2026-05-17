@@ -109,20 +109,40 @@ app.post('/scan', async (req, res) => {
   res.json({ ok: true, count: found.length, devices: found });
 });
 
-// ── Integration registration (Phase 2 — add here when ready) ─────────────
+// ── Integration registration ──────────────────────────────────────────────
 //
-// Example:
-//   import { startPlejdPoller } from './lib/integrations/ha.js';
-//   startPlejdPoller(hub, { url: process.env.HOME_ASSISTANT_URL, token: process.env.HOME_ASSISTANT_TOKEN });
+// Each integration polls its data source, calls hub.pushUpdate(name, payload)
+// when state changes, and registers hub.onCommand(name, handler) for commands.
 //
-// Each integration calls hub.pushUpdate(name, payload) whenever state changes
-// and hub.onCommand(name, handler) to handle command messages from clients.
-//
-// Integrations to add in Phase 2:
-//   lib/integrations/ha.js      — HA WebSocket (real-time state_changed events)
-//   lib/integrations/sonos.js   — Sonos bridge poller
-//   lib/integrations/shelly.js  — Shelly per-device poller
-//   lib/integrations/tibber.js  — Tibber price fetch (hourly)
+// Required .env.local vars (all optional — integrations skip gracefully if absent):
+//   HOME_ASSISTANT_URL    http://homeassistant.local:8123
+//   HOME_ASSISTANT_TOKEN  HA long-lived access token
+//   SONOS_URL             http://localhost:5005  (node-sonos-http-api)
+//   TIBBER_TOKEN          Tibber personal access token
+
+import { startHAPoller }     from './lib/integrations/ha.js';
+import { startSonosPoller }  from './lib/integrations/sonos.js';
+import { startShellyPoller } from './lib/integrations/shelly.js';
+import { startTibberPoller } from './lib/integrations/tibber.js';
+
+// Start after server is listening so any startup errors are easier to trace.
+server.once('listening', () => {
+  startHAPoller(hub, {
+    url:   process.env.HOME_ASSISTANT_URL,
+    token: process.env.HOME_ASSISTANT_TOKEN,
+  });
+
+  startSonosPoller(hub, {
+    url: process.env.SONOS_URL,
+  });
+
+  // Shelly device list comes from the frontend (Settings UI) via hub state cache.
+  startShellyPoller(hub, { state });
+
+  startTibberPoller(hub, {
+    token: process.env.TIBBER_TOKEN,
+  });
+});
 // ─────────────────────────────────────────────────────────────────────────
 
 // ── Start ─────────────────────────────────────────────────────────────────
