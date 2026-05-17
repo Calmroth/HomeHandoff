@@ -1288,7 +1288,9 @@ img.avatar { display: block; }
 }
 .live-bar-fill {
   background: var(--primary);
-  transition: width var(--motion-duration-base) var(--motion-ease-out-quart);
+  width: 100%;
+  transform-origin: left center;
+  transition: transform var(--motion-duration-base) var(--motion-ease-out-quart);
 }
 .live-legend {
   display: flex; flex-direction: column; gap: 6px;
@@ -1680,9 +1682,11 @@ img.avatar { display: block; }
 }
 .np-progress-fill {
   height: 100%;
+  width: 100%;
   background: var(--primary);
   border-radius: 99px;
-  transition: width 0.9s linear;
+  transform-origin: left center;
+  transition: transform 0.9s linear;
 }
 .np-progress-times {
   display: flex;
@@ -2540,7 +2544,9 @@ img.avatar { display: block; }
 }
 .energy-source-bar > div {
   height: 100%;
-  transition: width var(--motion-duration-base) var(--motion-ease-out-quart);
+  width: 100%;
+  transform-origin: left center;
+  transition: transform var(--motion-duration-base) var(--motion-ease-out-quart);
 }
 .energy-source-name { color: var(--muted-foreground); }
 .energy-source-val { font-family: var(--font-mono); font-size: 13px; min-width: 70px; text-align: right; }
@@ -3126,9 +3132,11 @@ img.avatar { display: block; }
 }
 .disc-progress-fill {
   height: 100%;
+  width: 100%;
   background: var(--primary);
   border-radius: 999px;
-  transition: width 300ms ease-out;
+  transform-origin: left center;
+  transition: transform 300ms ease-out;
 }
 .disc-progress-label {
   font-size: 11px;

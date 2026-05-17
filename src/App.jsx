@@ -3226,7 +3226,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
         {playback.durationMs > 0 && (
           <div className="np-progress">
             <div className="np-progress-track">
-              <div className="np-progress-fill" style={{ width: `${progress}%` }} />
+              <div className="np-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} />
             </div>
             <div className="np-progress-times">
               <span className="mono">{fmtTime(localMs)}</span>
@@ -4061,7 +4061,7 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
                   <div key={c.name} className="energy-source-row">
                     <span className="energy-source-name">{c.name}</span>
                     <div className="energy-source-bar">
-                      <div style={{ width: `${Math.round((c.val / catMax) * 100)}%`, background: c.color }} />
+                      <div style={{ transform: `scaleX(${catMax > 0 ? c.val / catMax : 0})`, background: c.color }} />
                     </div>
                     <span className="energy-source-val mono">{c.val} W</span>
                   </div>
@@ -4830,7 +4830,7 @@ function DiscoveryModal({ integrations, onClose }) {
         {/* Scanning */}
         {phase === 'scanning' && (
           <div className="disc-scanning">
-            <div className="disc-progress-bar"><div className="disc-progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
+            <div className="disc-progress-bar"><div className="disc-progress-fill" style={{ transform: `scaleX(${progress})` }} /></div>
             <div className="disc-progress-label mono">{label || 'Scanning…'}</div>
             {found.length > 0 && (
               <div className="disc-live-list">
