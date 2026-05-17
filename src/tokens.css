@@ -2320,6 +2320,7 @@ img.avatar { display: block; }
 }
 .music-speakers-row {
   grid-column: 1 / -1;
+  grid-row: 1;
   background-color: var(--popover);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
@@ -2328,6 +2329,8 @@ img.avatar { display: block; }
   flex-direction: column;
   gap: 12px;
 }
+.music-page-stage { grid-row: 2; }
+.music-side       { grid-row: 2; }
 .music-page-stage {
   background-color: var(--popover);
   backdrop-filter: blur(25px);

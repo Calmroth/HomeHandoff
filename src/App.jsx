@@ -984,12 +984,18 @@ function useSpotifyEmbed(uri) {
   const create = useCallback((api) => {
     const el = elementRef.current;
     if (!el || controllerRef.current) return;
-    api.createController(el, { uri, width: '100%', height: '100%' }, (controller) => {
+    // Use a safe default URI for the controller; loadUri() updates it once the
+    // user picks something. Passing null would cause the iFrame API to error.
+    const initUri = lastUriRef.current || 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M';
+    api.createController(el, { uri: initUri, width: '100%', height: '100%' }, (controller) => {
       controllerRef.current = controller;
       controller.addListener('playback_update', (e) => {
         if (e?.data) setState(prev => ({ ...prev, ...e.data }));
       });
-      controller.addListener('ready', () => {});
+      controller.addListener('ready', () => {
+        // If we launched with the fallback URI, immediately pause so nothing plays.
+        if (!lastUriRef.current) controller.pause?.();
+      });
     });
   }, []); // intentional: create only on initial attach; URI updates handled below
 
@@ -1409,7 +1415,7 @@ function App() {
   const [activity, setActivity] = useState([]); // newest-first; cap at 8
   const reducedMotion = usePrefersReducedMotion();
   const [route, navigate] = useRoute();
-  const [musicSource, setMusicSource] = useState('emotion');     // Curated source key (default fallback)
+  const [musicSource, setMusicSource] = useState(null);          // Curated source key; null = nothing selected yet
   const [musicCustom, setMusicCustom] = useState(null);          // { type, id, label } when playing a search/library pick
   const [musicFavs, setMusicFavs] = useState(() => {             // Local favourites — works without Spotify auth
     try { return JSON.parse(localStorage.getItem('hdg-music-favs') || '[]'); } catch (e) { return []; }
@@ -2338,12 +2344,14 @@ function App() {
   // favourite picks) wins over curated.
   const [musicType, musicId] = useMemo(() => {
     if (musicCustom) return [musicCustom.type, musicCustom.id];
+    if (!musicSource) return [null, null];
     const s = MUSIC_SOURCES.find(s => s.id === musicSource) ?? MUSIC_SOURCES[0];
     return s.embed.split('/');
   }, [musicSource, musicCustom]);
-  const musicUri = `spotify:${musicType}:${musicId}`;
-  const musicNowLabel = musicCustom?.label ?? (MUSIC_SOURCES.find(s => s.id === musicSource)?.name ?? 'Music');
-  const musicNowSub   = musicCustom?.sub   ?? (MUSIC_SOURCES.find(s => s.id === musicSource)?.sub  ?? '');
+  // null URI → embed stays blank; only loads when user explicitly picks something.
+  const musicUri = musicType && musicId ? `spotify:${musicType}:${musicId}` : null;
+  const musicNowLabel = musicCustom?.label ?? (musicSource ? (MUSIC_SOURCES.find(s => s.id === musicSource)?.name ?? 'Music') : 'Music');
+  const musicNowSub   = musicCustom?.sub   ?? (musicSource ? (MUSIC_SOURCES.find(s => s.id === musicSource)?.sub  ?? '') : '');
 
   // Wire the Spotify iFrame API + oEmbed metadata at App level so both the
   // header player and the Music page can read playback state and drive it.
@@ -3268,40 +3276,29 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
       );
     }
 
-    // No Sonos track and no Spotify — show the discovery embed.
-    const embedSrc = 'https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M?utm_source=generator&theme=0';
+    // Nothing playing — clean idle state, no demo iframe.
     return (
-      <div className="music-hero">
-        <div className="music-hero-embed">
-          <iframe
-            className="np-embed"
-            src={embedSrc}
-            title="Spotify Web Player"
-            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture"
-            loading="lazy"
-            frameBorder="0"
-          />
+      <div className="music-hero music-hero--live">
+        <div className="np-art-wrap">
+          <div className="np-art np-art--placeholder">
+            <BrandSpotify size={32} />
+          </div>
         </div>
         <div className="music-hero-side">
-          <div>
-            <div className="np-label">Discover</div>
+          <div className="np-meta">
+            <div className="np-label">Music</div>
             <div className="np-title-big" style={{ fontSize: 18 }}>
               {isConnected ? 'Nothing playing' : 'Connect Spotify'}
             </div>
             <div className="np-source mono">
-              {isConnected ? 'Start something on any device' : 'Sign in via Settings → Spotify'}
+              {isConnected ? 'Start something on any Spotify device' : 'Sign in via Settings → Spotify'}
             </div>
           </div>
-          {!hideNavActions && (
+          {!hideNavActions && !isConnected && (
             <div className="hero-actions">
-              <button className="group-toggle" onClick={() => { window.location.hash = '#music'; }}>
-                <I.Music size={11} /> Open Music
+              <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
+                <BrandSpotify size={11} /> Connect
               </button>
-              {!isConnected && (
-                <button className="group-toggle" data-active="true" onClick={() => { window.location.hash = '#settings'; }}>
-                  <BrandSpotify size={11} /> Connect
-                </button>
-              )}
             </div>
           )}
         </div>
