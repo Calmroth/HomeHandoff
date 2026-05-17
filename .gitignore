@@ -42,3 +42,7 @@ yarn-error.log*
 # Local screenshots / scratch
 screenshot*.png
 *.local.md
+
+# Skill output scratch files
+impeccable_stdout.txt
+impeccable_stderr.txt
