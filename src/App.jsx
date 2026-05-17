@@ -5734,7 +5734,16 @@ function PlejdConfig({ integrations }) {
       <input className="settings-input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
       <label className="catalog-label" style={{ marginTop: 10 }}>Password</label>
       <input className="settings-input" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
-      {err && <div className="catalog-help" style={{ color: 'var(--destructive)', marginTop: 8 }}>{err}</div>}
+      {err && (
+        <div style={{ marginTop: 8 }}>
+          <div className="catalog-help" style={{ color: 'var(--destructive)' }}>{err}</div>
+          {/unauthorized/i.test(err) && (
+            <div className="catalog-help" style={{ color: 'var(--muted-foreground)', marginTop: 4, fontSize: 11 }}>
+              If you signed up for Plejd via Google, you need a password set on your account — go to <b>Settings → Account</b> in the Plejd app and set one first.
+            </div>
+          )}
+        </div>
+      )}
       <div className="catalog-actions" style={{ marginTop: 12 }}>
         <button className="group-toggle" data-active="true" onClick={doLogin} disabled={loading || !email.trim() || !password}>
           {loading ? 'Signing in…' : 'Sign in to Plejd'}
