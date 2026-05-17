@@ -1,0 +1,15 @@
+{
+  "name": "home-domain-hub",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "WebSocket real-time hub for Home Domain dashboard",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
