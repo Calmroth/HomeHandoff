@@ -56,9 +56,10 @@ export default defineConfig({
     // For production deployment you'll need an equivalent reverse-proxy (one
     // Netlify Function / Cloudflare Worker / nginx location block) -- see
     // SETUP_CERT.md.
+    
     proxy: {
       '/api/plejd': {
-        target: 'https://api.plejd.com',
+        target: 'https://cloud.plejd.com',
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/plejd/, ''),
