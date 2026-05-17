@@ -115,9 +115,10 @@ app.post('/scan', async (req, res) => {
 // when state changes, and registers hub.onCommand(name, handler) for commands.
 //
 // Required .env.local vars (all optional — integrations skip gracefully if absent):
-//   PLEJD_EMAIL    Plejd account email
-//   PLEJD_PASSWORD Plejd account password
-//   PLEJD_SITE_ID  (optional) Plejd site ID; auto-discovered if absent
+//   PLEJD_EMAIL       Plejd account email
+//   PLEJD_PASSWORD    Plejd account password
+//   PLEJD_SITE_ID     (optional) Plejd site ID; auto-discovered if absent
+//   PLEJD_GATEWAY_IP  (optional) GWY-01 LAN IP; auto-discovered if absent
 //   SONOS_URL      http://localhost:5005  (node-sonos-http-api)
 //   TIBBER_TOKEN   Tibber personal access token
 
@@ -129,9 +130,10 @@ import { startTibberPoller } from './lib/integrations/tibber.js';
 // Start after server is listening so any startup errors are easier to trace.
 server.once('listening', () => {
   startPlejdPoller(hub, {
-    email:    process.env.PLEJD_EMAIL,
-    password: process.env.PLEJD_PASSWORD,
-    siteId:   process.env.PLEJD_SITE_ID,
+    email:      process.env.PLEJD_EMAIL,
+    password:   process.env.PLEJD_PASSWORD,
+    siteId:     process.env.PLEJD_SITE_ID,
+    gatewayIp:  process.env.PLEJD_GATEWAY_IP,
   });
 
   startSonosPoller(hub, {

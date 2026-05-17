@@ -1,16 +1,20 @@
 /**
- * Plejd cloud integration — polls Plejd's parse-server API directly.
- * No Home Assistant required: authenticates with Plejd credentials,
- * discovers devices, and pushes state updates to all connected tabs.
+ * Plejd integration — cloud auth for discovery + local TCP for control.
+ *
+ * Architecture:
+ *   1. Auth against Plejd cloud to get a session token, site ID, and crypto key.
+ *   2. Fetch the device list from the cloud (names, types, initial state).
+ *   3. Discover the GWY-01 gateway on the LAN (mDNS → TCP probe → env override).
+ *   4. Open a persistent TCP:9001 connection via PlejdGateway.
+ *   5. Route all commands through the local TCP socket — no cloud round-trips.
+ *   6. Receive real-time state updates from the TCP socket — no polling needed.
+ *   7. Fall back to cloud polling every FALLBACK_POLL_MS if local TCP is unavailable.
  *
  * Environment variables:
- *   PLEJD_EMAIL     Plejd account email
- *   PLEJD_PASSWORD  Plejd account password
- *   PLEJD_SITE_ID   (optional) Site ID; auto-discovers first site if absent
- *
- * Security: password is used once per session to obtain a parse session token.
- * The token is held in memory and never written to disk.
- * On 401 the poller re-authenticates automatically.
+ *   PLEJD_EMAIL        Plejd account email
+ *   PLEJD_PASSWORD     Plejd account password
+ *   PLEJD_SITE_ID      (optional) Site ID; auto-discovered if absent
+ *   PLEJD_GATEWAY_IP   (optional) LAN IP of GWY-01; auto-discovered if absent
  *
  * Pushes:
  *   hub.pushUpdate('plejd_lights',   Room[])   — dimmable / on-off lights
@@ -21,9 +25,15 @@
  *   action: 'dim'     params: { deviceId, brightness: 0–100 }
  */
 
-const PLEJD_BASE   = 'https://cloud.plejd.com';
-const PLEJD_APP_ID = 'zHduJF2dgQX2BFEN3QcXmF8x';
-const DEFAULT_POLL_MS = 30_000;
+import { createConnection } from 'net';
+import { PlejdGateway } from '../plejd-gateway.js';
+
+const PLEJD_BASE      = 'https://cloud.plejd.com';
+const PLEJD_APP_ID    = 'zHduJF2dgQX2BFEN3QcXmF8x';
+const GWY_TCP_PORT    = 9001;
+const FALLBACK_POLL_MS = 30_000;  // cloud fallback when local TCP is down
+const RECONNECT_MS    = 15_000;   // retry local TCP after disconnect
+const DISCOVERY_MS    = 10_000;   // TCP probe timeout during gateway scan
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -66,7 +76,14 @@ async function getFirstSiteId(sessionToken) {
   return first.siteId || first.objectId;
 }
 
-async function fetchSiteDevices(sessionToken, siteId) {
+/**
+ * Fetch site details — device list, crypto key, and BLE address maps.
+ * Returns { devices, cryptoKey, addressMap, meshToCloudId }.
+ *
+ * addressMap:    Map<meshId:number, bleAddr:Buffer(6)>  — for PlejdGateway per-device cipher
+ * meshToCloudId: Map<meshId:number, cloudObjectId:string> — to correlate TCP state events
+ */
+async function fetchSiteDetails(sessionToken, siteId) {
   const j = await plejdFetch('/parse/functions/getSiteDetails', {
     method: 'POST', sessionToken, body: { siteId },
   });
@@ -75,17 +92,47 @@ async function fetchSiteDevices(sessionToken, siteId) {
     acc[r.roomId || r.objectId] = r.title;
     return acc;
   }, {});
-  return (detail.plejdDevices || detail.devices || []).map(d => ({
-    id:   d.deviceId || d.objectId,
-    name: d.title || d.name || d.deviceId || d.objectId,
-    room: rooms[d.roomId] || d.room || '',
-    type: d.outputType || d.deviceType || d.traits || 'Light',
-    isOn: !!(d.outputSettings?.state || d.state),
-    dim:  d.outputSettings?.dim ?? d.dim ?? null,
-  }));
+
+  // Build address maps from deviceAddresses: { objectId → 12-char hex MAC }
+  const addressMap    = new Map();  // meshId → bleAddr Buffer(6)
+  const meshToCloudId = new Map();  // meshId → cloud objectId
+  const cloudToMeshId = new Map();  // cloud objectId → meshId
+  const addrEntries = detail.deviceAddresses || {};
+  for (const [objId, rawAddr] of Object.entries(addrEntries)) {
+    if (typeof rawAddr === 'string' && rawAddr.length === 12) {
+      // BLE addr in normal MAC order (big-endian); reverse gives mesh byte order
+      const bleAddr = Buffer.from(rawAddr, 'hex').reverse();
+      const meshId  = bleAddr[0]; // first byte after reversal = mesh address
+      addressMap.set(meshId, bleAddr);
+      meshToCloudId.set(meshId, objId);
+      cloudToMeshId.set(objId, meshId);
+    }
+  }
+
+  const devices = (detail.plejdDevices || detail.devices || []).map(d => {
+    const objectId = d.objectId || d.deviceId;
+    const meshId   = cloudToMeshId.get(objectId) ?? (typeof d.deviceId === 'number' ? d.deviceId : undefined);
+    return {
+      id:       objectId,
+      meshId,
+      name:     d.title || d.name || objectId,
+      room:     rooms[d.roomId] || d.room || '',
+      type:     d.outputType || d.deviceType || d.traits || 'Light',
+      isOn:     !!(d.outputSettings?.state || d.state),
+      dim:      d.outputSettings?.dim ?? d.dim ?? null,
+    };
+  });
+
+  // cryptoKey may be in detail.plejdMesh or detail.cryptoKey
+  const cryptoKey = detail.plejdMesh?.cryptoKey
+    || detail.cryptoKey
+    || detail.key
+    || null;
+  return { devices, cryptoKey, addressMap, meshToCloudId };
 }
 
-async function sendState(sessionToken, siteId, deviceId, state, dim) {
+// Cloud fallback: send command via REST (used when local TCP is unavailable)
+async function sendStateCloud(sessionToken, siteId, deviceId, state, dim) {
   return plejdFetch('/parse/functions/sendStateToDevice', {
     method: 'POST', sessionToken,
     body: {
@@ -93,6 +140,75 @@ async function sendState(sessionToken, siteId, deviceId, state, dim) {
       state: !!state,
       ...(typeof dim === 'number' ? { dim } : {}),
     },
+  });
+}
+
+// ── Gateway discovery ─────────────────────────────────────────────────────────
+
+/**
+ * Find the GWY-01 on the LAN.
+ * Strategy:
+ *   1. Use PLEJD_GATEWAY_IP env var if set.
+ *   2. TCP-probe common subnets for an open port 9001.
+ *      (mDNS would be cleaner but requires mdns/bonjour npm packages)
+ *
+ * Returns IP string or null.
+ */
+async function discoverGatewayIP(hint) {
+  if (hint) {
+    console.log(`[hub:plejd] Using gateway IP from env: ${hint}`);
+    return hint;
+  }
+
+  // Determine likely subnet from process network interfaces
+  const subnets = new Set();
+  try {
+    const { networkInterfaces } = await import('os');
+    for (const ifaces of Object.values(networkInterfaces())) {
+      for (const iface of (ifaces || [])) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          const parts = iface.address.split('.');
+          parts[3] = '';
+          subnets.add(parts.join('.'));
+        }
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Add common fallbacks
+  subnets.add('192.168.1.');
+  subnets.add('192.168.0.');
+  subnets.add('10.0.0.');
+
+  console.log('[hub:plejd] Scanning LAN for GWY-01 on port 9001…');
+
+  for (const prefix of subnets) {
+    const candidates = Array.from({ length: 254 }, (_, i) => `${prefix}${i + 1}`);
+    // Check 20 IPs at a time to avoid flooding the router
+    const BATCH = 20;
+    for (let i = 0; i < candidates.length; i += BATCH) {
+      const batch = candidates.slice(i, i + BATCH);
+      const results = await Promise.allSettled(
+        batch.map(ip => tcpProbe(ip, GWY_TCP_PORT, 600))
+      );
+      for (let j = 0; j < batch.length; j++) {
+        if (results[j].value === true) {
+          console.log(`[hub:plejd] Found GWY-01 candidate at ${batch[j]}`);
+          return batch[j];
+        }
+      }
+    }
+  }
+
+  console.warn('[hub:plejd] GWY-01 not found on LAN — will use cloud fallback');
+  return null;
+}
+
+function tcpProbe(host, port, timeoutMs) {
+  return new Promise((resolve) => {
+    const sock = createConnection({ host, port }, () => { sock.destroy(); resolve(true); });
+    sock.on('error', () => resolve(false));
+    sock.setTimeout(timeoutMs, () => { sock.destroy(); resolve(false); });
   });
 }
 
@@ -130,33 +246,65 @@ function mapSwitches(devices) {
 
 // ── Hash helper (skip broadcast when nothing changed) ─────────────────────────
 
-const h = (arr, keyFn) => arr.map(keyFn).join('|');
+const hsh = (arr, keyFn) => arr.map(keyFn).join('|');
 
-// ── Poller ────────────────────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
 
 /**
  * @param {import('../wss.js').WssHub} hub
- * @param {{ email?: string, password?: string, siteId?: string, pollMs?: number }} opts
- * @returns {(() => void)|undefined}  cleanup fn (clears the interval)
+ * @param {{ email?: string, password?: string, siteId?: string, gatewayIp?: string }} opts
+ * @returns {(() => void)|undefined}  cleanup fn
  */
-export function startPlejdPoller(hub, { email, password, siteId: envSiteId, pollMs = DEFAULT_POLL_MS } = {}) {
+export function startPlejdPoller(hub, {
+  email,
+  password,
+  siteId: envSiteId,
+  gatewayIp: envGatewayIp,
+} = {}) {
   if (!email || !password) {
     console.log('[hub:plejd] Skipped — set PLEJD_EMAIL + PLEJD_PASSWORD in .env.local');
     return;
   }
 
+  // ── Mutable state ──────────────────────────────────────────────────────────
   let sessionToken = null;
-  let siteId = envSiteId || null;
-  const hashes = {};
-  let interval;
+  let siteId       = envSiteId || null;
+  let cryptoKey    = null;
+  let gatewayIp    = envGatewayIp || null;
+
+  /** @type {PlejdGateway|null} */
+  let gateway      = null;
+  let localActive  = false; // true when TCP connection is authenticated
+
+  // BLE address maps populated from cloud; updated each fetch cycle
+  let addressMap    = new Map();  // meshId:number → bleAddr:Buffer(6)
+  let meshToCloudId = new Map();  // meshId:number → cloud objectId
+
+  // In-memory device list (id → device object) for state merging
+  /** @type {Map<string|number, object>} */
+  const deviceMap  = new Map();
+  const hashes     = {};
+  let fallbackInterval = null;
+  let reconnectTimer   = null;
+  let cleanedUp        = false;
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
 
   function pushIfChanged(key, items, hashFn) {
     if (!items.length) return;
-    const digest = h(items, hashFn);
+    const digest = hsh(items, hashFn);
     if (digest === hashes[key]) return;
     hashes[key] = digest;
     hub.pushUpdate(key, items);
   }
+
+  function broadcastFromMap() {
+    const devices = [...deviceMap.values()];
+    pushIfChanged('plejd_lights',   mapLights(devices),   l => `${l.id}:${l.on}:${l.brightness}`);
+    pushIfChanged('plejd_switches', mapSwitches(devices), s => `${s.id}:${s.on}`);
+  }
+
+  // ── Cloud auth + device discovery ──────────────────────────────────────────
 
   async function ensureAuth() {
     sessionToken = await login(email, password);
@@ -166,54 +314,192 @@ export function startPlejdPoller(hub, { email, password, siteId: envSiteId, poll
     }
   }
 
-  async function poll() {
+  async function fetchAndSeedDevices() {
+    const { devices, cryptoKey: ck, addressMap: am, meshToCloudId: mtc } =
+      await fetchSiteDetails(sessionToken, siteId);
+    if (ck) {
+      cryptoKey = ck;
+      console.log('[hub:plejd] Crypto key obtained from cloud');
+    }
+    if (am.size) {
+      addressMap    = am;
+      meshToCloudId = mtc;
+      console.log(`[hub:plejd] Address map: ${am.size} devices`);
+    }
+    for (const d of devices) deviceMap.set(d.id, d);
+    broadcastFromMap();
+    return devices;
+  }
+
+  // ── Cloud fallback polling ─────────────────────────────────────────────────
+
+  async function cloudPoll() {
+    if (localActive) return; // local TCP is working — skip cloud poll
     try {
       if (!sessionToken) await ensureAuth();
-      const devices = await fetchSiteDevices(sessionToken, siteId);
-      pushIfChanged('plejd_lights',   mapLights(devices),   l => `${l.id}:${l.on}:${l.brightness}`);
-      pushIfChanged('plejd_switches', mapSwitches(devices), s => `${s.id}:${s.on}`);
+      await fetchAndSeedDevices();
     } catch (e) {
       if (e.status === 401) {
         console.log('[hub:plejd] Session expired — will re-authenticate on next poll');
         sessionToken = null;
       } else {
-        hub.pushError('plejd', `Poll failed: ${e.message}`);
+        hub.pushError('plejd', `Cloud poll failed: ${e.message}`);
       }
     }
   }
 
-  // Authenticate and start polling
-  ensureAuth()
-    .then(() => {
-      poll();
-      interval = setInterval(poll, pollMs);
-      console.log(`[hub:plejd] Polling site ${siteId} every ${pollMs / 1000}s`);
-    })
-    .catch(e => {
-      console.error(`[hub:plejd] Auth failed: ${e.message}`);
-      hub.pushError('plejd', `Auth failed: ${e.message}`);
+  function startFallbackPoller() {
+    if (fallbackInterval) return;
+    fallbackInterval = setInterval(cloudPoll, FALLBACK_POLL_MS);
+    console.log(`[hub:plejd] Cloud fallback polling every ${FALLBACK_POLL_MS / 1000}s`);
+  }
+
+  // ── Local TCP connection management ───────────────────────────────────────
+
+  function connectLocal() {
+    if (cleanedUp || !gatewayIp || !cryptoKey) return;
+
+    console.log(`[hub:plejd] Connecting to GWY-01 at ${gatewayIp}:${GWY_TCP_PORT}`);
+    gateway = new PlejdGateway(gatewayIp, cryptoKey, addressMap);
+
+    gateway.on('state', ({ deviceId: meshId, on, brightness }) => {
+      // TCP state events carry meshId (1-byte integer); deviceMap is keyed by cloud objectId
+      const cloudId = meshToCloudId.get(meshId);
+      const existing = deviceMap.get(meshId)
+                    || deviceMap.get(String(meshId))
+                    || (cloudId ? deviceMap.get(cloudId) : null);
+      if (existing) {
+        existing.isOn = on;
+        existing.dim  = Math.round((brightness / 100) * 255); // store as 0-255 to match cloud format
+      } else {
+        // Unknown device reported by TCP — create minimal entry keyed by meshId
+        deviceMap.set(meshId, {
+          id: cloudId ?? meshId, meshId, name: `Plejd ${meshId}`, type: 'Light',
+          isOn: on, dim: Math.round((brightness / 100) * 255), room: '',
+        });
+      }
+      broadcastFromMap();
     });
 
-  // ── Command handler ─────────────────────────────────────────────────────────
+    gateway.on('error', (err) => {
+      console.error(`[hub:plejd] Gateway TCP error: ${err.message}`);
+    });
+
+    gateway.on('close', () => {
+      localActive = false;
+      console.log('[hub:plejd] Gateway connection closed — will retry');
+      if (!cleanedUp) {
+        reconnectTimer = setTimeout(connectLocal, RECONNECT_MS);
+      }
+    });
+
+    gateway.connect()
+      .then(() => {
+        localActive = true;
+        console.log(`[hub:plejd] Local TCP active — real-time state updates enabled`);
+      })
+      .catch((err) => {
+        localActive = false;
+        console.warn(`[hub:plejd] TCP connect failed: ${err.message} — retrying in ${RECONNECT_MS / 1000}s`);
+        gateway = null;
+        if (!cleanedUp) {
+          reconnectTimer = setTimeout(connectLocal, RECONNECT_MS);
+        }
+      });
+  }
+
+  // ── Startup sequence ───────────────────────────────────────────────────────
+
+  async function start() {
+    try {
+      await ensureAuth();
+      await fetchAndSeedDevices();
+
+      // Try to find the gateway even if we have no crypto key yet
+      // (fetchSiteDetails should have given us the key — warn if not)
+      if (!cryptoKey) {
+        console.warn('[hub:plejd] No crypto key returned by cloud — local TCP commands unavailable');
+      }
+
+      // Discover gateway IP, then open TCP if we have the key
+      gatewayIp = await discoverGatewayIP(gatewayIp);
+
+      if (gatewayIp && cryptoKey) {
+        connectLocal();
+        // Still run a slow cloud poll so device metadata stays fresh
+        // and we recover if the TCP socket silently stalls
+        startFallbackPoller();
+      } else {
+        console.log('[hub:plejd] Running in cloud-only mode');
+        startFallbackPoller();
+      }
+    } catch (e) {
+      console.error(`[hub:plejd] Startup failed: ${e.message}`);
+      hub.pushError('plejd', `Startup failed: ${e.message}`);
+    }
+  }
+
+  start();
+
+  // ── Command handler ────────────────────────────────────────────────────────
   hub.onCommand('plejd', async (action, params = {}) => {
     if (!sessionToken || !siteId) throw new Error('Plejd not yet initialized');
 
     const { deviceId, on, brightness } = params;
-    if (!deviceId) throw new Error('plejd command requires deviceId');
-
-    if (action === 'toggle') {
-      await sendState(sessionToken, siteId, deviceId, on, undefined);
-    } else if (action === 'dim') {
-      const dim255 = Math.round(((brightness ?? 0) / 100) * 255);
-      await sendState(sessionToken, siteId, deviceId, (brightness ?? 0) > 0, dim255);
-    } else {
-      throw new Error(`Unknown Plejd action: "${action}"`);
+    if (deviceId === undefined || deviceId === null) {
+      throw new Error('plejd command requires deviceId');
     }
 
-    // Re-poll quickly so updated state reaches all tabs
-    setTimeout(poll, 600);
+    // Resolve cloud objectId and meshId from whatever the UI sent
+    const d = deviceMap.get(deviceId) || deviceMap.get(String(deviceId));
+    const cloudObjectId = d ? (d.id ?? deviceId) : String(deviceId);
+    // meshId for TCP: from device record, or from meshToCloudId reverse lookup, or parseInt
+    const meshId = d?.meshId
+      ?? [...meshToCloudId.entries()].find(([, cid]) => cid === cloudObjectId)?.[0]
+      ?? (typeof deviceId === 'number' ? deviceId : parseInt(deviceId, 10));
+
+    if (localActive && gateway) {
+      // Fast path: local TCP — sendCommand expects brightness in 0-100
+      if (action === 'toggle') {
+        gateway.sendCommand(meshId, !!on);
+      } else if (action === 'dim') {
+        gateway.sendCommand(meshId, (brightness ?? 0) > 0, brightness ?? 0);
+      } else {
+        throw new Error(`Unknown Plejd action: "${action}"`);
+      }
+      // Optimistically update local state so the UI responds immediately
+      if (d) {
+        if (action === 'toggle') {
+          d.isOn = !!on;
+        } else if (action === 'dim') {
+          d.isOn = (brightness ?? 0) > 0;
+          d.dim  = Math.round(((brightness ?? 0) / 100) * 255);
+        }
+        broadcastFromMap();
+      }
+    } else {
+      // Slow path: cloud REST
+      console.log('[hub:plejd] Using cloud REST for command (local TCP unavailable)');
+      if (action === 'toggle') {
+        await sendStateCloud(sessionToken, siteId, cloudObjectId, on, undefined);
+      } else if (action === 'dim') {
+        const dim255 = Math.round(((brightness ?? 0) / 100) * 255);
+        await sendStateCloud(sessionToken, siteId, cloudObjectId, (brightness ?? 0) > 0, dim255);
+      } else {
+        throw new Error(`Unknown Plejd action: "${action}"`);
+      }
+      // Re-poll quickly to pick up updated state
+      setTimeout(cloudPoll, 600);
+    }
+
     return { ok: true };
   });
 
-  return () => { if (interval) clearInterval(interval); };
+  // ── Cleanup ────────────────────────────────────────────────────────────────
+  return () => {
+    cleanedUp = true;
+    if (fallbackInterval) clearInterval(fallbackInterval);
+    if (reconnectTimer)   clearTimeout(reconnectTimer);
+    if (gateway)          gateway.destroy();
+  };
 }
