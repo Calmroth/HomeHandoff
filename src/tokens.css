@@ -2876,38 +2876,45 @@ img.avatar { display: block; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  max-height: 640px;
+  max-height: 720px;
 }
 
-/* Individual headline row — source chip · title · time */
+/* Individual headline row — source pill · title · time */
 .news-item {
   display: grid;
-  grid-template-columns: 32px 1fr 36px;
-  gap: 10px;
-  align-items: baseline;
-  padding: 11px 18px;
-  border-bottom: 1px solid var(--border);
+  grid-template-columns: auto 1fr auto;
+  gap: 0 14px;
+  align-items: start;
+  padding: 17px 20px;
+  border-bottom: 1px solid color-mix(in oklch, var(--foreground) 7%, transparent);
   text-decoration: none;
   color: inherit;
   transition: background var(--motion-duration-fast);
 }
 .news-item:last-child { border-bottom: 0; }
-.news-item:hover { background: color-mix(in oklch, var(--foreground) 4%, transparent); }
-.news-item:hover .news-item-title { color: var(--primary); }
+.news-item:hover {
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+.news-item:hover .news-item-title {
+  color: var(--primary);
+}
 
 .news-item-source {
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   white-space: nowrap;
-  line-height: 1.6;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: color-mix(in oklch, currentColor 15%, transparent);
+  margin-top: 3px;
 }
 .news-item-title {
-  font-size: 13px;
-  font-weight: 450;
-  letter-spacing: -0.005em;
-  line-height: 1.4;
+  font-size: 15px;
+  font-weight: 520;
+  letter-spacing: -0.015em;
+  line-height: 1.45;
   transition: color var(--motion-duration-fast);
 }
 .news-item-meta {
@@ -2916,11 +2923,12 @@ img.avatar { display: block; }
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  margin-top: 4px;
 }
 
 /* Loading skeleton rows */
 .news-item-skeleton {
-  height: 40px;
+  height: 56px;
   background: linear-gradient(
     90deg,
     color-mix(in oklch, var(--foreground) 4%, transparent) 25%,
