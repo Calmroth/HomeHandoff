@@ -4422,43 +4422,43 @@ const BRAND_LOGOS = {
 const INTEGRATION_CATALOG = [
   {
     id: 'plejd', name: 'Plejd lights', icon: 'Light', kind: 'Plejd account',
-    tagline: 'Sign in with your Plejd app credentials — same email + password.',
+    tagline: 'Wireless lights and dimmers, made in Sweden.',
     keywords: ['plejd', 'lights', 'bulbs', 'lighting', 'sign in', 'account'],
     status: (i) => (i.config.plejd?.cloudSession || (i.config.plejd?.url && i.config.plejd?.token)) ? 'configured' : 'not-configured',
   },
   {
     id: 'sonos', name: 'Sonos speakers', icon: 'Speaker', kind: 'LAN bridge',
-    tagline: 'Multi-room audio. Needs node-sonos-http-api on your LAN.',
+    tagline: 'Multi-room speakers, all zones in sync.',
     keywords: ['sonos', 'speakers', 'audio', 'multi-room', 'sound'],
     status: (i) => i.config.sonos?.url ? 'configured' : 'not-configured',
   },
   {
     id: 'shelly', name: 'Shelly outlets', icon: 'Plug', kind: 'LAN devices',
-    tagline: 'Smart plugs with live wattage. Each device has its own HTTP API.',
+    tagline: 'Smart plugs with live power readings.',
     keywords: ['shelly', 'outlets', 'plugs', 'power', 'switches'],
     status: (i) => (i.config.shelly?.devices?.length ?? 0) > 0 ? 'configured' : 'not-configured',
   },
   {
     id: 'spotify', name: 'Spotify', icon: 'Music', kind: 'Cloud OAuth',
-    tagline: 'Each household member signs in with their own Spotify account.',
+    tagline: 'Music streaming for every household member.',
     keywords: ['spotify', 'music', 'playback', 'streaming'],
     status: (i, sp) => sp?.token ? 'configured' : (sp?.clientId ? 'partial' : 'not-configured'),
   },
   {
     id: 'tibber', name: 'Tibber energy', icon: 'Zap', kind: 'Cloud token',
-    tagline: 'Live electricity prices (Nordics). Bring your personal access token.',
+    tagline: 'Live electricity prices, Nordic power grid.',
     keywords: ['tibber', 'energy', 'price', 'electricity', 'nordic'],
     status: (i) => i.config.tibber?.token ? 'configured' : 'not-configured',
   },
   {
     id: 'weather', name: 'Local weather', icon: 'Cloud', kind: 'Cloud, no key',
-    tagline: 'Hourly + daily forecast from open-meteo. No API key, free.',
+    tagline: 'Local forecast, no account needed.',
     keywords: ['weather', 'forecast', 'open-meteo', 'temperature', 'rain'],
     status: (i) => i.config.weather?.lat && i.config.weather?.lon ? 'configured' : 'default',
   },
   {
     id: 'ha-sensors', name: 'Home Assistant sensors', icon: 'Home', kind: 'LAN bridge (HA)',
-    tagline: 'Pin any Home Assistant entity (temperature, motion, door, vacuum battery) onto the dashboard.',
+    tagline: 'Dashboard tiles from any Home Assistant entity.',
     keywords: ['sensors', 'home assistant', 'ha', 'temperature', 'motion', 'door', 'entities', 'plejd', 'hass'],
     status: (i) => (i.config.ha?.entities?.length ?? 0) > 0 ? 'configured' : 'not-configured',
   },
@@ -5561,20 +5561,83 @@ function SpotifyConfig({ spotify }) {
 
 function TibberConfig({ integrations }) {
   const cfg = integrations.config.tibber || { token: '' };
+  const [draft, setDraft] = useState('');
+  const [editing, setEditing] = useState(!cfg.token);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  useEffect(() => { setEditing(!cfg.token); setDraft(''); setTestResult(null); }, [cfg.token]);
+
+  const testToken = async (tok) => {
+    if (!tok?.trim()) return;
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await fetch('https://api.tibber.com/v1-beta/gql', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tok.trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: '{ viewer { name homes { address { address1 } } } }' }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      if (j.errors?.length) throw new Error(j.errors[0].message || 'Invalid token');
+      const name = j.data?.viewer?.name || 'Tibber account';
+      const homes = (j.data?.viewer?.homes || []).map(h => h.address?.address1).filter(Boolean);
+      setTestResult({ ok: true, name, homes });
+    } catch (e) {
+      setTestResult({ ok: false, error: e.message || 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="catalog-form">
       <p className="catalog-help">
         {cfg.token
           ? <>Connected. Live electricity prices flow into the Power tile.</>
-          : <>Get a personal access token at <a href="https://developer.tibber.com" target="_blank" rel="noreferrer">developer.tibber.com</a> and paste it here. It stays in this browser.</>}
+          : <>Get a personal access token at <a href="https://developer.tibber.com" target="_blank" rel="noreferrer">developer.tibber.com</a> — it stays in this browser.</>}
       </p>
       <label className="catalog-label">Access token</label>
-      <MaskedSecret
-        value={cfg.token || ''}
-        onSave={(v) => integrations.setIntegration('tibber', { token: v })}
-        placeholder="Bearer ..."
-      />
-      {cfg.token && (
+      {editing ? (
+        <div className="catalog-search">
+          <input
+            className="settings-input"
+            type="password"
+            placeholder="Bearer ..."
+            value={draft}
+            onChange={(e) => { setDraft(e.target.value); setTestResult(null); }}
+            autoComplete="off"
+            spellCheck="false"
+          />
+          <button className="group-toggle" onClick={() => testToken(draft)} disabled={testing || !draft.trim()}>
+            {testing ? 'Testing…' : 'Test'}
+          </button>
+          <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('tibber', { token: draft.trim() })} disabled={!draft.trim()}>
+            Save
+          </button>
+          {cfg.token && <button className="group-toggle" onClick={() => { setEditing(false); setDraft(''); setTestResult(null); }}>Cancel</button>}
+        </div>
+      ) : (
+        <div className="catalog-search">
+          <input className="settings-input" type="text" value={'••••••••' + String(cfg.token).slice(-4)} readOnly aria-label="Stored token (masked)" />
+          <button className="group-toggle" onClick={() => testToken(cfg.token)} disabled={testing}>
+            {testing ? 'Testing…' : 'Test'}
+          </button>
+          <button className="group-toggle" onClick={() => { setEditing(true); setTestResult(null); }}>Change</button>
+        </div>
+      )}
+      {testResult && !testResult.ok && (
+        <p className="catalog-help" style={{ color: 'var(--destructive)', marginTop: 8 }}>
+          {testResult.error}
+        </p>
+      )}
+      {testResult?.ok && (
+        <p className="catalog-help" style={{ color: 'oklch(0.70 0.14 145)', marginTop: 8 }}>
+          Connected as {testResult.name}{testResult.homes.length ? ` · ${testResult.homes.join(', ')}` : ''}
+        </p>
+      )}
+      {cfg.token && !editing && (
         <div className="catalog-actions" style={{ marginTop: 12 }}>
           <button className="group-toggle" onClick={() => integrations.setIntegration('tibber', { token: '' })}>Disconnect</button>
         </div>
