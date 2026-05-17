@@ -109,6 +109,10 @@ async function fetchSiteDetails(sessionToken, siteId) {
     }
   }
 
+  const roomNames = new Map(
+    (detail.rooms || []).map(r => [r.roomId || r.objectId, r.title])
+  );
+
   const devices = (detail.plejdDevices || detail.devices || []).map(d => {
     const objectId = d.objectId || d.deviceId;
     const meshId   = cloudToMeshId.get(objectId) ?? (typeof d.deviceId === 'number' ? d.deviceId : undefined);
@@ -116,7 +120,8 @@ async function fetchSiteDetails(sessionToken, siteId) {
       id:       objectId,
       meshId,
       name:     d.title || d.name || objectId,
-      room:     rooms[d.roomId] || d.room || '',
+      roomId:   d.roomId || null,
+      room:     roomNames.get(d.roomId) || d.room || '',
       type:     d.outputType || d.deviceType || d.traits || 'Light',
       isOn:     !!(d.outputSettings?.state || d.state),
       dim:      d.outputSettings?.dim ?? d.dim ?? null,
@@ -128,7 +133,7 @@ async function fetchSiteDetails(sessionToken, siteId) {
     || detail.cryptoKey
     || detail.key
     || null;
-  return { devices, cryptoKey, addressMap, meshToCloudId };
+  return { devices, cryptoKey, addressMap, meshToCloudId, roomNames };
 }
 
 // Cloud fallback: send command via REST (used when local TCP is unavailable)
@@ -216,18 +221,62 @@ function tcpProbe(host, port, timeoutMs) {
 
 const isPlug = (d) => /relay|outlet|plug|switch/i.test(d.type || '');
 
-function mapLights(devices) {
-  return devices.filter(d => !isPlug(d)).map(d => ({
-    id:           d.id,
-    name:         d.name,
-    bulbs:        1,
-    on:           d.isOn,
-    brightness:   typeof d.dim === 'number'
-                    ? Math.round((d.dim / 255) * 100)
-                    : (d.isOn ? 100 : 0),
-    _cloudDevice: { id: d.id },
-    _platform:    'plejd',
-  }));
+const bri255to100 = (dim) => typeof dim === 'number' ? Math.round((dim / 255) * 100) : 100;
+
+/**
+ * Map Plejd lights to room cards — grouped by Plejd room where possible.
+ * Devices with no room assignment get individual cards (bulbs: 1).
+ * Room card id = Plejd roomObjectId; _cloudDevice.id = 'room:<roomObjectId>'
+ * so the command handler can fan out to all devices in the room.
+ */
+function mapRooms(devices) {
+  const lights = devices.filter(d => !isPlug(d));
+  const byRoom = new Map();  // roomObjectId → device[]
+  const noRoom = [];
+
+  for (const d of lights) {
+    if (d.roomId) {
+      if (!byRoom.has(d.roomId)) byRoom.set(d.roomId, []);
+      byRoom.get(d.roomId).push(d);
+    } else {
+      noRoom.push(d);
+    }
+  }
+
+  const result = [];
+
+  // One card per Plejd room
+  for (const [roomId, devs] of byRoom) {
+    const onDevs = devs.filter(d => d.isOn);
+    const on = onDevs.length > 0;
+    const brightness = on
+      ? Math.round(onDevs.reduce((s, d) => s + bri255to100(d.dim), 0) / onDevs.length)
+      : 0;
+    result.push({
+      id:           roomId,
+      name:         devs[0].room || roomId,
+      bulbs:        devs.length,
+      on,
+      brightness,
+      _cloudDevice: { id: `room:${roomId}` },
+      _platform:    'plejd',
+    });
+  }
+
+  // Ungrouped devices — individual cards
+  for (const d of noRoom) {
+    result.push({
+      id:           d.id,
+      name:         d.name,
+      bulbs:        1,
+      on:           d.isOn,
+      brightness:   d.isOn ? bri255to100(d.dim) : 0,
+      _cloudDevice: { id: d.id },
+      _platform:    'plejd',
+    });
+  }
+
+  return result;
 }
 
 function mapSwitches(devices) {
@@ -280,6 +329,10 @@ export function startPlejdPoller(hub, {
   let addressMap    = new Map();  // meshId:number → bleAddr:Buffer(6)
   let meshToCloudId = new Map();  // meshId:number → cloud objectId
 
+  // Room grouping maps (populated from cloud getSiteDetails)
+  let roomNames     = new Map();  // roomObjectId → room title
+  let roomDeviceMap = new Map();  // roomObjectId → cloudDeviceId[]
+
   // In-memory device list (id → device object) for state merging
   /** @type {Map<string|number, object>} */
   const deviceMap  = new Map();
@@ -300,7 +353,7 @@ export function startPlejdPoller(hub, {
 
   function broadcastFromMap() {
     const devices = [...deviceMap.values()];
-    pushIfChanged('plejd_lights',   mapLights(devices),   l => `${l.id}:${l.on}:${l.brightness}`);
+    pushIfChanged('plejd_lights',   mapRooms(devices),    l => `${l.id}:${l.on}:${l.brightness}`);
     pushIfChanged('plejd_switches', mapSwitches(devices), s => `${s.id}:${s.on}`);
   }
 
@@ -315,7 +368,7 @@ export function startPlejdPoller(hub, {
   }
 
   async function fetchAndSeedDevices() {
-    const { devices, cryptoKey: ck, addressMap: am, meshToCloudId: mtc } =
+    const { devices, cryptoKey: ck, addressMap: am, meshToCloudId: mtc, roomNames: rn } =
       await fetchSiteDetails(sessionToken, siteId);
     if (ck) {
       cryptoKey = ck;
@@ -325,6 +378,18 @@ export function startPlejdPoller(hub, {
       addressMap    = am;
       meshToCloudId = mtc;
       console.log(`[hub:plejd] Address map: ${am.size} devices`);
+    }
+    if (rn.size) {
+      roomNames = rn;
+      // Rebuild room → device index
+      roomDeviceMap = new Map();
+      for (const d of devices) {
+        if (d.roomId) {
+          if (!roomDeviceMap.has(d.roomId)) roomDeviceMap.set(d.roomId, []);
+          roomDeviceMap.get(d.roomId).push(d.id);
+        }
+      }
+      console.log(`[hub:plejd] Rooms: ${rn.size} (${[...rn.values()].join(', ')})`);
     }
     for (const d of devices) deviceMap.set(d.id, d);
     broadcastFromMap();
@@ -450,6 +515,36 @@ export function startPlejdPoller(hub, {
       throw new Error('plejd command requires deviceId');
     }
 
+    // ── Room fan-out ────────────────────────────────────────────────────────
+    // _cloudDevice.id is 'room:<roomObjectId>' for grouped room cards.
+    if (typeof deviceId === 'string' && deviceId.startsWith('room:')) {
+      const roomId = deviceId.slice(5);
+      const devIds = roomDeviceMap.get(roomId) || [];
+      await Promise.allSettled(devIds.map(async (devObjectId) => {
+        const dev = deviceMap.get(devObjectId);
+        const devMeshId = dev?.meshId
+          ?? [...meshToCloudId.entries()].find(([, cid]) => cid === devObjectId)?.[0];
+        if (localActive && gateway && devMeshId != null) {
+          if (action === 'toggle')      gateway.sendCommand(devMeshId, !!on);
+          else if (action === 'dim')    gateway.sendCommand(devMeshId, (brightness ?? 0) > 0, brightness ?? 0);
+          if (dev) {
+            if (action === 'toggle')   { dev.isOn = !!on; }
+            else if (action === 'dim') { dev.isOn = (brightness ?? 0) > 0; dev.dim = Math.round(((brightness ?? 0) / 100) * 255); }
+          }
+        } else {
+          if (action === 'toggle')      await sendStateCloud(sessionToken, siteId, devObjectId, on, undefined);
+          else if (action === 'dim') {
+            const dim255 = Math.round(((brightness ?? 0) / 100) * 255);
+            await sendStateCloud(sessionToken, siteId, devObjectId, (brightness ?? 0) > 0, dim255);
+          }
+        }
+      }));
+      broadcastFromMap();
+      if (!localActive) setTimeout(cloudPoll, 600);
+      return { ok: true, room: roomId, devices: devIds.length };
+    }
+
+    // ── Single-device path ───────────────────────────────────────────────────
     // Resolve cloud objectId and meshId from whatever the UI sent
     const d = deviceMap.get(deviceId) || deviceMap.get(String(deviceId));
     const cloudObjectId = d ? (d.id ?? deviceId) : String(deviceId);
