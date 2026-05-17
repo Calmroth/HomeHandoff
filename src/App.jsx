@@ -2063,7 +2063,10 @@ function App() {
   const effectiveSpeakers = useMemo(() => {
     const discovered = (integrations.config.discovered?.devices || [])
       .filter(d => d.assignedTo === 'music')
-      .filter(d => !speakers.some(s => s.id === d.id))
+      .filter(d => !speakers.some(s =>
+        s.id === d.id ||
+        s.name?.toLowerCase().trim() === d.name?.toLowerCase().trim()
+      ))
       .map(d => ({
         id: d.id,
         name: d.name,
@@ -3694,7 +3697,10 @@ function MusicPage({
   // Load the user's playlists once when connected.
   useEffect(() => {
     if (!spotify.token) { setLibrary(null); return; }
-    spotify.api('/me/playlists?limit=50')
+    // fields param forces tracks(total) to be included — without it some clients
+    // receive simplified objects where tracks.total is 0 or absent.
+    const fields = 'items(id,name,description,images,owner(id,display_name),tracks(total)),total,next';
+    spotify.api(`/me/playlists?limit=50&fields=${encodeURIComponent(fields)}`)
       .then(r => setLibrary(r?.items ?? []))
       .catch(e => setLibErr(String(e.message || e)));
   }, [spotify.token, spotify.api]);
@@ -3894,29 +3900,30 @@ function MusicPage({
             })}
           </div>
 
-          {/* Speakers — interactive, identical to home Sound section */}
-          <div className="music-side-card">
-            <div className="music-side-head">
-              <div className="np-label">Speakers</div>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
-                {onCount} of {speakers.length} on
-              </span>
-            </div>
-            {speakers.length === 0 ? (
-              <div className="music-empty">No speakers — add a Sonos bridge in Settings.</div>
-            ) : (
-              <div className="speaker-grid" style={{ gap: 2 }}>
-                {speakers.map(sp => (
-                  <SpeakerCard
-                    key={sp.id}
-                    speaker={sp}
-                    onToggle={() => toggleSpeaker(sp.id)}
-                    onVolume={(v) => setVolume(sp.id, v)}
-                  />
-                ))}
-              </div>
-            )}
+        </div>
+
+        {/* Speakers — full-width row spanning both columns */}
+        <div className="music-speakers-row">
+          <div className="music-side-head">
+            <div className="np-label">Speakers</div>
+            <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+              {onCount} of {speakers.length} on
+            </span>
           </div>
+          {speakers.length === 0 ? (
+            <div className="music-empty">No speakers — add a Sonos bridge in Settings.</div>
+          ) : (
+            <div className="speaker-grid" style={{ gap: 2 }}>
+              {speakers.map(sp => (
+                <SpeakerCard
+                  key={sp.id}
+                  speaker={sp}
+                  onToggle={() => toggleSpeaker(sp.id)}
+                  onVolume={(v) => setVolume(sp.id, v)}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Modal: pick a playlist to add the selected track to */}
