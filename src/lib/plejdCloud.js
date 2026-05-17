@@ -65,16 +65,21 @@ export async function plejdLogin(email, password) {
 // List sites visible to the signed-in user. Most homes have exactly one
 // "installation"; the user picks it once and we persist the choice.
 export async function plejdFetchSites(sessionToken) {
-  const res = await fetch(`${BASE}/parse/classes/Site?limit=100`, {
+  const res = await fetch(`${BASE}/parse/functions/getSiteList`, {
+    method: 'POST',
     headers: parseHeaders(sessionToken),
+    body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error(await parsedError(res));
   const j = await res.json();
-  return (j.results || []).map(s => ({
-    id: s.siteId || s.objectId,
-    objectId: s.objectId,
-    title: s.title || s.siteName || s.objectId,
-  }));
+  return (j.result || []).map(item => {
+    const s = item.site || item;
+    return {
+      id: s.siteId || s.objectId,
+      objectId: s.objectId || s.siteId,
+      title: s.title || s.siteName || s.objectId,
+    };
+  });
 }
 
 // Fetch every device on a site + the room layout. Plejd uses a few classes
@@ -85,14 +90,15 @@ export async function plejdFetchDevices({ sessionToken, siteId }) {
   if (!siteId) throw new Error('siteId required');
   // The site detail endpoint Plejd's app uses is /parse/functions/getSiteDetails.
   // It returns: { site, plejdDevices, rooms, scenes, deviceAddresses, ... }.
-  const res = await fetch(`${BASE}/parse/functions/getSiteDetails`, {
+  const res = await fetch(`${BASE}/parse/functions/getSiteById`, {
     method: 'POST',
     headers: parseHeaders(sessionToken),
     body: JSON.stringify({ siteId }),
   });
   if (!res.ok) throw new Error(await parsedError(res));
   const j = await res.json();
-  const detail = j.result || j;
+  // getSiteById returns result as an array; getSiteDetails returned a plain object
+  const detail = (Array.isArray(j.result) ? j.result[0] : j.result) || j;
   const rooms = (detail.rooms || []).reduce((acc, r) => { acc[r.roomId || r.objectId] = r.title; return acc; }, {});
   const devices = (detail.plejdDevices || detail.devices || []).map(d => ({
     id: d.deviceId || d.objectId,

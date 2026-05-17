@@ -70,24 +70,29 @@ async function login(email, password) {
 }
 
 async function getFirstSiteId(sessionToken) {
-  const j = await plejdFetch('/parse/classes/Site?limit=100', { sessionToken });
-  const first = (j.results || [])[0];
+  const j = await plejdFetch('/parse/functions/getSiteList', {
+    method: 'POST', sessionToken, body: {},
+  });
+  const items = j.result || [];
+  const first = items[0];
   if (!first) throw new Error('Plejd: no sites found for this account');
-  return first.siteId || first.objectId;
+  const s = first.site || first;
+  return s.siteId || s.objectId;
 }
 
 /**
- * Fetch site details — device list, crypto key, and BLE address maps.
- * Returns { devices, cryptoKey, addressMap, meshToCloudId }.
+ * Fetch site details via getSiteById — device list, crypto key, and BLE address maps.
+ * Returns { devices, cryptoKey, addressMap, meshToCloudId, roomNames }.
  *
  * addressMap:    Map<meshId:number, bleAddr:Buffer(6)>  — for PlejdGateway per-device cipher
  * meshToCloudId: Map<meshId:number, cloudObjectId:string> — to correlate TCP state events
  */
 async function fetchSiteDetails(sessionToken, siteId) {
-  const j = await plejdFetch('/parse/functions/getSiteDetails', {
+  const j = await plejdFetch('/parse/functions/getSiteById', {
     method: 'POST', sessionToken, body: { siteId },
   });
-  const detail = j.result || j;
+  // getSiteById returns result as an array; handle both array and plain object
+  const detail = (Array.isArray(j.result) ? j.result[0] : j.result) || j;
   const rooms = (detail.rooms || []).reduce((acc, r) => {
     acc[r.roomId || r.objectId] = r.title;
     return acc;
