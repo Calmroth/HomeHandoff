@@ -4374,7 +4374,13 @@ function parseRSSXML(xml, sourceId) {
       const link = (item.querySelector('link')?.textContent?.trim() ||
                     item.querySelector('guid')?.textContent?.trim() || '');
       const pub = item.querySelector('pubDate')?.textContent;
-      return { id: link || `${sourceId}-${i}`, title, url: link, pubDate: new Date(pub || Date.now()), source: sourceId };
+      const rawDesc = (item.querySelector('description')?.textContent || '')
+        .replace(/<!\[CDATA\[|\]\]>/g, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+        .trim();
+      const description = rawDesc.length > 0 && rawDesc !== title ? rawDesc : '';
+      return { id: link || `${sourceId}-${i}`, title, description, url: link, pubDate: new Date(pub || Date.now()), source: sourceId };
     }).filter(x => x.title.length > 0);
   } catch { return []; }
 }
@@ -4540,7 +4546,12 @@ function NewsPage() {
                   <span className="news-item-source" style={{ color: src?.color }}>
                     {src?.label ?? item.source.toUpperCase()}
                   </span>
-                  <span className="news-item-title">{item.title}</span>
+                  <span className="news-item-body">
+                    <span className="news-item-title">{item.title}</span>
+                    {item.description && (
+                      <span className="news-item-desc">{item.description}</span>
+                    )}
+                  </span>
                   <span className="news-item-meta">{newsTimeAgo(item.pubDate)}</span>
                 </a>
               );
