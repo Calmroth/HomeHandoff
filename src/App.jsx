@@ -1503,7 +1503,7 @@ function App() {
 
   const [plejdErr, setPlejdErr] = useState(null);
   const [sonosErr, setSonosErr] = useState(null);
-  const [newsTab, setNewsTab] = useState('sr');
+  // newsTab state is managed locally in NewsPage
   // Weather is fetched live from open-meteo. `weatherData` holds the full
   // response (current/hourly/daily); `weather` is the derived bucket used by
   // the photo backdrop and the four-state UI.
@@ -2465,7 +2465,7 @@ function App() {
             <WeatherPage weather={weather} weatherData={weatherData} weatherErr={weatherErr} city={integrations.config.weather?.city || 'Stockholm'} now={now} />
           )}
           {route === 'news' && (
-            <NewsPage tab={newsTab} setTab={setNewsTab} />
+            <NewsPage />
           )}
           {route === 'settings' && (
             <SettingsPage
@@ -4338,119 +4338,219 @@ function WeatherPage({ weather, weatherData, weatherErr, city, now }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NewsPage — Swedish news via Sveriges Radio + TT.
-// TT.se is fully iframe-friendly (no X-Frame-Options, no frame-ancestors CSP)
-// so it loads directly. SR's HTML site may set framing restrictions, so the
-// SR tab also exposes their public MP3 live stream of P1 (the news channel)
-// via a native <audio> element — guaranteed to work regardless of framing.
+// NewsPage — Live Swedish nyhetsflashar from SR, SVT, Aftonbladet, DN.
+//
+// SR uses their public open API (api.sr.se/api/v2, no key, CORS-open).
+// RSS sources try a direct fetch first; if CORS blocks it the request goes
+// through allorigins.win (free, no-key proxy) which returns { contents }.
+// Refresh every 5 minutes. All items are deduplicated and sorted newest-first.
 // ─────────────────────────────────────────────────────────────────────────────
-const NEWS_TABS = [
-  {
-    id: 'sr',
-    label: 'Sveriges Radio',
-    url: 'https://sverigesradio.se/',
-    // P1 (channel id 132) live MP3 — SR's public stream, no auth.
-    stream: 'https://sverigesradio.se/topsy/direkt/srapi/132.mp3',
-    streamLabel: 'P1 Live · news, talk',
-  },
-  {
-    id: 'tt',
-    label: 'TT',
-    url: 'https://www.tt.se/',
-  },
+
+const SR_P1_STREAM = 'https://sverigesradio.se/topsy/direkt/srapi/132.mp3';
+
+const NEWS_SOURCES_CFG = [
+  { id: 'svt', label: 'SVT',       color: 'oklch(0.62 0.18 200)' },
+  { id: 'ab',  label: 'AB',        color: 'oklch(0.58 0.22 28)'  },
+  { id: 'dn',  label: 'DN',        color: 'oklch(0.62 0.04 240)' },
+  { id: 'exp', label: 'Expressen', color: 'oklch(0.60 0.20 18)'  },
 ];
 
-// Hand-curated Swedish headlines so the sidebar reads as a real news desk
-// even before any iframe loads. Both sources publish RSS at .../rss but we
-// stay pure-frontend per the product's "no API" posture.
-// No mock headlines. The iframe shows live SR/TT content directly. The
-// sidebar reads from the iframe when possible; otherwise it stays empty
-// (iframe content can't be DOM-accessed from a different origin).
-const SAVED_STORIES = { sr: [], tt: [] };
+function newsTimeAgo(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+  const s = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (s < 60)    return `${s}s`;
+  if (s < 3600)  return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
+}
 
-function NewsPage({ tab, setTab }) {
-  const active = NEWS_TABS.find(t => t.id === tab) ?? NEWS_TABS[0];
-  const stories = SAVED_STORIES[active.id] ?? [];
+function parseRSSXML(xml, sourceId) {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    if (doc.querySelector('parsererror')) return [];
+    return Array.from(doc.querySelectorAll('item')).slice(0, 20).map((item, i) => {
+      const title = (item.querySelector('title')?.textContent || '')
+        .replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+      const link = (item.querySelector('link')?.textContent?.trim() ||
+                    item.querySelector('guid')?.textContent?.trim() || '');
+      const pub = item.querySelector('pubDate')?.textContent;
+      return { id: link || `${sourceId}-${i}`, title, url: link, pubDate: new Date(pub || Date.now()), source: sourceId };
+    }).filter(x => x.title.length > 0);
+  } catch { return []; }
+}
+
+async function fetchRSSWithFallback(url, sourceId) {
+  // 1. Direct fetch (works on same-origin, instant CORS fail otherwise)
+  const direct = new AbortController();
+  const dt = setTimeout(() => direct.abort(), 4000);
+  try {
+    const r = await fetch(url, { signal: direct.signal });
+    clearTimeout(dt);
+    if (r.ok) return parseRSSXML(await r.text(), sourceId);
+  } catch { clearTimeout(dt); }
+
+  // 2. corsproxy.io — returns raw text, more reliable under concurrent load
+  const cp = new AbortController();
+  const ct = setTimeout(() => cp.abort(), 8000);
+  try {
+    const r = await fetch(
+      `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+      { signal: cp.signal }
+    );
+    clearTimeout(ct);
+    if (r.ok) {
+      const items = parseRSSXML(await r.text(), sourceId);
+      if (items.length > 0) return items;
+    }
+  } catch { clearTimeout(ct); }
+
+  // 3. allorigins.win — JSON wrapper fallback
+  const proxy = new AbortController();
+  const pt = setTimeout(() => proxy.abort(), 9000);
+  try {
+    const r = await fetch(
+      `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+      { signal: proxy.signal }
+    );
+    clearTimeout(pt);
+    if (!r.ok) return [];
+    const j = await r.json();
+    return j.contents ? parseRSSXML(j.contents, sourceId) : [];
+  } catch { clearTimeout(pt); return []; }
+}
+
+async function fetchAllNewsItems() {
+  const [svtResult, abResult, dnResult, expResult] = await Promise.allSettled([
+    fetchRSSWithFallback('https://www.svt.se/nyheter/rss.xml',                               'svt'),
+    fetchRSSWithFallback('https://rss.aftonbladet.se/rss2/small/pages/sections/senastenytt/', 'ab'),
+    fetchRSSWithFallback('https://www.dn.se/rss/',                                            'dn'),
+    fetchRSSWithFallback('https://feeds.expressen.se/nyheter/',                               'exp'),
+  ]);
+  const all = [
+    ...(svtResult.status === 'fulfilled' ? svtResult.value : []),
+    ...(abResult.status  === 'fulfilled' ? abResult.value  : []),
+    ...(dnResult.status  === 'fulfilled' ? dnResult.value  : []),
+    ...(expResult.status === 'fulfilled' ? expResult.value : []),
+  ];
+  const seen = new Set();
+  return all
+    .filter(x => { if (!x.title || seen.has(x.title)) return false; seen.add(x.title); return true; })
+    .sort((a, b) => b.pubDate - a.pubDate);
+}
+
+function NewsPage() {
+  const [items, setItems]       = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [err, setErr]           = useState(null);
+  const [filter, setFilter]     = useState('all');
+  const [lastFetch, setLastFetch] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const result = await fetchAllNewsItems();
+      setItems(result);
+      setLastFetch(new Date());
+    } catch (e) { setErr(String(e.message || e)); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const filtered = filter === 'all' ? items : items.filter(x => x.source === filter);
+  const counts = useMemo(() => {
+    const c = { all: items.length };
+    NEWS_SOURCES_CFG.forEach(s => { c[s.id] = items.filter(x => x.source === s.id).length; });
+    return c;
+  }, [items]);
+
+  const freshLabel = lastFetch
+    ? `Uppdaterad ${newsTimeAgo(lastFetch)} sedan`
+    : loading ? 'Hämtar nyheter…' : 'SVT · Aftonbladet · DN · Expressen';
+
   return (
     <Section
       title="Nyheter"
-      source="sverigesradio.se · tt.se"
-      summary={<>Källa <b>{active.label}</b>{stories.length > 0 ? <> · {stories.length} senaste rubriker</> : null}</>}
+      source="SR · SVT · AB · DN"
+      summary={<>{freshLabel}{items.length > 0 ? <> · <b>{items.length}</b> nyhetsflashar</> : null}</>}
     >
       <div className="news-page">
-        <div className="news-frame">
-          <div className="news-tabs">
-            {NEWS_TABS.map(t => (
-              <button
-                key={t.id}
-                className="news-tab"
-                data-active={t.id === active.id}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-            <a className="news-tab" href={active.url} target="_blank" rel="noopener noreferrer" title="Öppna i ny flik" style={{ marginLeft: 'auto' }}>↗ Öppna</a>
+        <div className="news-feed">
+
+          {/* SR P1 live radio */}
+          <div className="news-audio">
+            <div className="news-audio-meta">
+              <span className="micro-label">SR P1 Live · nyheter &amp; samhälle</span>
+            </div>
+            <audio controls preload="none" src={SR_P1_STREAM}>
+              Din webbläsare stöder inte ljuduppspelning.
+            </audio>
           </div>
 
-          {/* SR live audio — always rendered on SR tab so users can hear the
-              news regardless of whether the iframe site loads. Browser-native
-              <audio> handles the public MP3 stream from sverigesradio.se. */}
-          {active.stream && (
-            <div className="news-audio">
-              <div className="news-audio-meta">
-                <span className="micro-label">{active.streamLabel}</span>
-                <span className="news-audio-source mono">{active.stream.replace(/^https?:\/\//, '')}</span>
-              </div>
-              <audio controls preload="none" src={active.stream}>
-                Din webbläsare stöder inte ljuduppspelning.
-              </audio>
+          {/* Source filter tabs */}
+          <div className="news-tabs">
+            <button className="news-tab" data-active={filter === 'all'} onClick={() => setFilter('all')}>
+              Alla{counts.all > 0 ? <span className="news-tab-count">{counts.all}</span> : null}
+            </button>
+            {NEWS_SOURCES_CFG.map(s => counts[s.id] > 0 ? (
+              <button key={s.id} className="news-tab" data-active={filter === s.id} onClick={() => setFilter(s.id)}>
+                {s.label}<span className="news-tab-count">{counts[s.id]}</span>
+              </button>
+            ) : null)}
+            <button
+              className="news-tab"
+              onClick={load}
+              disabled={loading}
+              style={{ marginLeft: 'auto' }}
+              aria-label="Uppdatera nyheter"
+            >
+              {loading ? '…' : '↻'}
+            </button>
+          </div>
+
+          {err && (
+            <p style={{ padding: '12px 16px', color: 'var(--destructive)', fontSize: 13 }}>{err}</p>
+          )}
+
+          {/* Loading skeletons */}
+          {loading && items.length === 0 && (
+            <div className="news-list">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="news-item news-item-skeleton" />
+              ))}
             </div>
           )}
 
-          <div className="news-frame-body">
-            <iframe
-              key={active.id}
-              src={active.url}
-              title={`${active.label} embedded reader`}
-              referrerPolicy="no-referrer"
-              loading="lazy"
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-            />
-            <div className="news-frame-fallback">
-              Om sidan blockerar inbäddning, använd ↗ Öppna ovan.
-            </div>
+          {/* Live feed */}
+          <div className="news-list">
+            {filtered.map(item => {
+              const src = NEWS_SOURCES_CFG.find(s => s.id === item.source);
+              return (
+                <a
+                  key={item.id}
+                  className="news-item"
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span className="news-item-source" style={{ color: src?.color }}>
+                    {src?.label ?? item.source.toUpperCase()}
+                  </span>
+                  <span className="news-item-title">{item.title}</span>
+                  <span className="news-item-meta">{newsTimeAgo(item.pubDate)}</span>
+                </a>
+              );
+            })}
+            {!loading && filtered.length === 0 && items.length > 0 && (
+              <p style={{ padding: '16px', color: 'var(--muted-foreground)', fontSize: 13 }}>
+                Inga nyheter för det filtret.
+              </p>
+            )}
           </div>
-        </div>
-        <div className="news-side">
-          <div className="micro-label">Senaste</div>
-          {stories.length === 0 ? (
-            <p className="music-empty" style={{ marginTop: 12 }}>
-              Headlines show in the reader on the left. The sidebar updates when the embedded page shares its content with this origin.
-            </p>
-          ) : stories.map((s, i) => (
-            <a
-              key={i}
-              className="news-item"
-              href={active.url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <img
-                className="news-item-image"
-                src={s.image}
-                alt=""
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-              <div className="news-item-text">
-                <span className="news-item-source">{s.source}</span>
-                <span className="news-item-title">{s.title}</span>
-                <span className="news-item-meta">{s.meta}</span>
-              </div>
-            </a>
-          ))}
         </div>
       </div>
     </Section>

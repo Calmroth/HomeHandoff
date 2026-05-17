@@ -2800,30 +2800,57 @@ img.avatar { display: block; }
   letter-spacing: 0.04em;
 }
 
-/* News page -- two-column: iframe of source on the left, saved/curated list right. */
+/* News page — single-column live nyhetsflashar feed. */
 .news-page {
-  display: grid;
-  grid-template-columns: 1fr 320px;
-  gap: 2px;
-  min-height: 720px;
+  display: block;
 }
-.news-frame {
+.news-feed {
   background-color: var(--popover);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
-  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
 }
+
+/* SR P1 live audio row */
+.news-audio {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--amber-400) 6%, color-mix(in oklch, var(--clay-850) 70%, transparent));
+}
+.news-audio-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.news-audio-meta .micro-label { color: var(--primary); }
+.news-audio audio {
+  height: 34px;
+  width: 280px;
+  max-width: 100%;
+  color-scheme: dark;
+  filter: hue-rotate(-15deg) saturate(0.9);
+}
+@media (max-width: 720px) {
+  .news-audio { grid-template-columns: 1fr; }
+  .news-audio audio { width: 100%; }
+}
+
+/* Source filter tabs */
 .news-tabs {
   display: flex;
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
 }
 .news-tab {
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
   border-radius: 999px;
   font-size: 12px;
   color: var(--muted-foreground);
@@ -2836,114 +2863,78 @@ img.avatar { display: block; }
   color: var(--primary);
   border-color: color-mix(in oklch, var(--amber-400) 35%, transparent);
 }
-.news-frame-body {
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--clay-950);
-  flex: 1;
-  min-height: 600px;
-  position: relative;
-}
-.news-frame-body iframe {
-  width: 100%; height: 100%; border: 0; display: block; color-scheme: dark;
-}
-.news-frame-fallback {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  padding: 32px;
-  text-align: center;
-  color: var(--muted-foreground);
-  font-size: 13px;
-  pointer-events: none;
-}
-
-/* SR live-audio row inside the news frame — sits between the tabs and the
-   iframe, gives users an instant-play news stream that doesn't depend on
-   the iframe loading. */
-.news-audio {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: color-mix(in oklch, var(--amber-400) 8%, color-mix(in oklch, var(--clay-850) 70%, transparent));
-  border: 1px solid color-mix(in oklch, var(--amber-400) 22%, transparent);
-}
-.news-audio-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.news-audio-meta .micro-label { color: var(--primary); }
-.news-audio-source {
+.news-tab:disabled { opacity: 0.5; cursor: default; }
+.news-tab-count {
   font-size: 10px;
   color: var(--muted-foreground);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
-.news-audio audio {
-  height: 36px;
-  width: 320px;
-  max-width: 100%;
-  /* Native controls inherit dark scheme so the chrome reads against our bg. */
-  color-scheme: dark;
-  filter: hue-rotate(-15deg) saturate(0.9);
-}
-@media (max-width: 720px) {
-  .news-audio { grid-template-columns: 1fr; }
-  .news-audio audio { width: 100%; }
-}
-.news-side {
-  background-color: var(--popover);
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
-  padding: 18px 20px;
+.news-tab[data-active="true"] .news-tab-count { color: var(--primary); opacity: 0.7; }
+
+/* Scrollable headline list */
+.news-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  overflow-y: auto;
+  max-height: 640px;
 }
+
+/* Individual headline row — source chip · title · time */
 .news-item {
   display: grid;
-  grid-template-columns: 76px 1fr;
-  gap: 12px;
-  padding: 10px 0;
+  grid-template-columns: 32px 1fr 36px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 11px 18px;
   border-bottom: 1px solid var(--border);
-  text-align: left;
   text-decoration: none;
   color: inherit;
+  transition: background var(--motion-duration-fast);
 }
 .news-item:last-child { border-bottom: 0; }
+.news-item:hover { background: color-mix(in oklch, var(--foreground) 4%, transparent); }
 .news-item:hover .news-item-title { color: var(--primary); }
-.news-item-image {
-  width: 76px; height: 56px;
-  object-fit: cover;
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--clay-50) 5%, transparent);
-  border: 1px solid var(--border);
-  display: block;
-}
-.news-item-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
+
 .news-item-source {
   font-size: 9px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--muted-foreground);
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  line-height: 1.6;
 }
 .news-item-title {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 450;
   letter-spacing: -0.005em;
+  line-height: 1.4;
   transition: color var(--motion-duration-fast);
-  line-height: 1.3;
 }
 .news-item-meta {
   font-size: 11px;
   color: var(--muted-foreground);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Loading skeleton rows */
+.news-item-skeleton {
+  height: 40px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--foreground) 4%, transparent) 25%,
+    color-mix(in oklch, var(--foreground) 7%, transparent) 50%,
+    color-mix(in oklch, var(--foreground) 4%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+}
+@keyframes skeleton-sweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* Settings page -- integrations + device list + about. */
@@ -3036,8 +3027,8 @@ img.avatar { display: block; }
   .weather-current-meta { text-align: left; }
   .weather-days { grid-template-columns: repeat(4, 1fr); }
   .weather-hour-strip { grid-template-columns: repeat(6, 1fr); }
-  .news-page { grid-template-columns: 1fr; }
 }
+
 @media (max-width: 720px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { display: none; }
