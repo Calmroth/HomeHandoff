@@ -115,21 +115,23 @@ app.post('/scan', async (req, res) => {
 // when state changes, and registers hub.onCommand(name, handler) for commands.
 //
 // Required .env.local vars (all optional — integrations skip gracefully if absent):
-//   HOME_ASSISTANT_URL    http://homeassistant.local:8123
-//   HOME_ASSISTANT_TOKEN  HA long-lived access token
-//   SONOS_URL             http://localhost:5005  (node-sonos-http-api)
-//   TIBBER_TOKEN          Tibber personal access token
+//   PLEJD_EMAIL    Plejd account email
+//   PLEJD_PASSWORD Plejd account password
+//   PLEJD_SITE_ID  (optional) Plejd site ID; auto-discovered if absent
+//   SONOS_URL      http://localhost:5005  (node-sonos-http-api)
+//   TIBBER_TOKEN   Tibber personal access token
 
-import { startHAPoller }     from './lib/integrations/ha.js';
+import { startPlejdPoller }  from './lib/integrations/plejd.js';
 import { startSonosPoller }  from './lib/integrations/sonos.js';
 import { startShellyPoller } from './lib/integrations/shelly.js';
 import { startTibberPoller } from './lib/integrations/tibber.js';
 
 // Start after server is listening so any startup errors are easier to trace.
 server.once('listening', () => {
-  startHAPoller(hub, {
-    url:   process.env.HOME_ASSISTANT_URL,
-    token: process.env.HOME_ASSISTANT_TOKEN,
+  startPlejdPoller(hub, {
+    email:    process.env.PLEJD_EMAIL,
+    password: process.env.PLEJD_PASSWORD,
+    siteId:   process.env.PLEJD_SITE_ID,
   });
 
   startSonosPoller(hub, {

@@ -300,93 +300,6 @@ function useGoogleAuth() {
   return { clientId, setClientId, user, error, promptSignIn, renderButton, signOut, signUpLocal };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Plejd via Home Assistant REST API.
-// HA exposes `/api/states` (list) and `/api/services/light/turn_on|off` (cmd).
-// Plejd lights show up as `light.*` entities. The bridge runs on the user's
-// LAN (e.g. http://homeassistant.local:8123); HA must have CORS enabled in
-// configuration.yaml under `http: cors_allowed_origins: ['http://127.0.0.1:5183']`.
-// ─────────────────────────────────────────────────────────────────────────────
-async function plejdFetchRooms({ url, token }) {
-  if (!url || !token) throw new Error('Plejd not configured');
-  const base = url.replace(/\/$/, '');
-  const r = await fetch(`${base}/api/states`, {
-    headers: { 'Authorization': `Bearer ${token}` },
-  });
-  if (!r.ok) {
-    if (r.status === 401) throw new Error('HA token rejected (401)');
-    throw new Error(`HA ${r.status}`);
-  }
-  const states = await r.json();
-  return states
-    .filter(s => s.entity_id.startsWith('light.'))
-    .map(s => ({
-      id: s.entity_id.replace('light.', ''),
-      name: s.attributes?.friendly_name || s.entity_id,
-      // HA doesn't track "bulb count" per entity; assume 1 unless overridden.
-      bulbs: s.attributes?.bulb_count || 1,
-      on: s.state === 'on',
-      brightness: Math.round((s.attributes?.brightness || 0) / 255 * 100),
-      _entity: s.entity_id,
-    }));
-}
-async function plejdCallService({ url, token }, service, entity_id, payload = {}) {
-  const base = url.replace(/\/$/, '');
-  const r = await fetch(`${base}/api/services/light/${service}`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entity_id, ...payload }),
-  });
-  if (!r.ok) throw new Error(`HA ${r.status}`);
-  return r.json();
-}
-
-// Plejd plugs / switches via HA. Plejd's wall-mounted relay outputs and any
-// "Plejd plug" surface as `switch.*` entities in HA. We fetch them in the
-// same poll cycle as the lights and map them onto the existing Outlet shape
-// so they show up in the Power section alongside any Shelly devices. The
-// `_entity` discriminator lets toggleOutlet route to HA's service endpoint
-// instead of the Shelly HTTP API.
-async function plejdFetchOutlets({ url, token }) {
-  if (!url || !token) throw new Error('Plejd not configured');
-  const base = url.replace(/\/$/, '');
-  const r = await fetch(`${base}/api/states`, {
-    headers: { 'Authorization': `Bearer ${token}` },
-  });
-  if (!r.ok) {
-    if (r.status === 401) throw new Error('HA token rejected (401)');
-    throw new Error(`HA ${r.status}`);
-  }
-  const states = await r.json();
-  return states
-    .filter(s => s.entity_id.startsWith('switch.'))
-    // Heuristic: most Plejd plug entities are explicitly "plejd" in their
-    // unique_id or device_class. We include all switch.* by default and let
-    // the user prune in Settings later -- HA users typically WANT all their
-    // switches surfaced on a Power tile.
-    .map(s => ({
-      id: s.entity_id.replace('switch.', ''),
-      name: s.attributes?.friendly_name || s.entity_id,
-      room: s.attributes?.room || '',
-      watts: 0,
-      on: s.state === 'on',
-      // No always-on detection from HA -- user can mark in catalog if needed.
-      alwaysOn: false,
-      icon: 'Plug',
-      _entity: s.entity_id,
-    }));
-}
-// Toggle a switch entity in HA. Returns true on 200.
-async function plejdToggleSwitch({ url, token }, entity_id, on) {
-  const base = url.replace(/\/$/, '');
-  const r = await fetch(`${base}/api/services/switch/${on ? 'turn_on' : 'turn_off'}`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entity_id }),
-  });
-  if (!r.ok) throw new Error(`HA ${r.status}`);
-  return r.json();
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sonos via node-sonos-http-api (https://github.com/jishi/node-sonos-http-api).
@@ -1572,58 +1485,28 @@ function App() {
   const [tibberPrices, setTibberPrices] = useState(null);
   const [tibberErr, setTibberErr] = useState(null);
 
-  // HA extended domains — populated from hub pushes when HA is configured.
-  // Google Home / Apple HomeKit / Matter devices appear here once added to HA.
-  const [haClimate,       setHaClimate]       = useState([]); // thermostats
-  const [haCovers,        setHaCovers]        = useState([]); // blinds/curtains/garage
-  const [haLocks,         setHaLocks]         = useState([]); // smart locks
-  const [haBinarySensors, setHaBinarySensors] = useState([]); // motion/door sensors
-  const [haScenes,        setHaScenes]        = useState([]); // HA scenes
-
   // Hub state dispatch — updated every render so the hub callbacks always
   // have stable access to the latest state setters without stale closures.
   // Called by onDeviceUpdate when the server pushes an integration update.
   hubDispatchRef.current = (integration, payload) => {
     switch (integration) {
-      case 'ha_lights':
-        // Replace rooms list with HA-sourced light entities.
-        // If we're in demo mode, ignore hub updates so the demo stays coherent.
+      case 'plejd_lights':
         if (!demoMode) setRooms(payload);
         break;
+      case 'plejd_switches':
+        if (!demoMode) setOutlets(prev => {
+          const nonPlejd = prev.filter(o => !o._cloudDevice);
+          return [...nonPlejd, ...payload];
+        });
+        break;
       case 'sonos':
-        // Replace Sonos speakers. Non-Sonos speakers (discovered, Spotify) are
-        // preserved by the effectiveSpeakers memo downstream.
         if (!demoMode) setSpeakers(payload);
         break;
       case 'shelly':
-        // Merge: replace only Shelly entries (those with an ip field),
-        // keep any HA-backed outlets that don't have an IP.
         if (!demoMode) setOutlets(prev => {
           const nonShelly = prev.filter(o => !o.ip);
           return [...nonShelly, ...payload];
         });
-        break;
-      case 'ha_switches':
-        // Merge HA switch entities into outlets. Keep Shelly (ip) and other outlets.
-        if (!demoMode) setOutlets(prev => {
-          const nonSwitch = prev.filter(o => !o._entity || o.ip);
-          return [...nonSwitch, ...payload];
-        });
-        break;
-      case 'ha_climate':
-        setHaClimate(payload);
-        break;
-      case 'ha_covers':
-        setHaCovers(payload);
-        break;
-      case 'ha_locks':
-        setHaLocks(payload);
-        break;
-      case 'ha_binary_sensors':
-        setHaBinarySensors(payload);
-        break;
-      case 'ha_scenes':
-        setHaScenes(payload);
         break;
       case 'tibber':
         setTibberPrices(payload);
@@ -1964,46 +1847,10 @@ function App() {
       load();
       return () => { cancelled = true; clearTimeout(timer); };
     }
-    if (!cfg?.url || !cfg?.token) {
-      setPlejdErr(null);
-      useHomeStore.getState().setStatus('plejd', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
-      return;
-    }
-    let cancelled = false;
-    let backoffMs = 30_000;   // doubles on consecutive HA errors, cap 5 min
-    let timer;
-    const schedule = () => { timer = setTimeout(load, backoffMs); };
-    // Both lights and switches come from the same HA /api/states call --
-    // we fire them in parallel so the home page populates rooms AND plugs
-    // in one round-trip.
-    const load = () => Promise.all([plejdFetchRooms(cfg), plejdFetchOutlets(cfg)])
-      .then(([rs, outs]) => {
-        if (cancelled) return;
-        backoffMs = 30_000; // reset on success
-        setRooms(rs);
-        // Merge HA switches with any existing Shelly outlets the user has
-        // configured manually. HA-backed outlets get an `_entity` field;
-        // Shelly ones have an `ip` field. toggleOutlet routes on whichever
-        // is present.
-        setOutlets((prev) => {
-          const shellyOnly = (prev || []).filter(o => o.ip && !o._entity);
-          return [...shellyOnly, ...outs];
-        });
-        setPlejdErr(null);
-        useHomeStore.getState().markOk('plejd', `${rs.length} rooms · ${outs.length} plugs`);
-        schedule();
-      })
-      .catch(e => {
-        if (cancelled) return;
-        const msg = String(e.message || e);
-        setPlejdErr(msg);
-        useHomeStore.getState().markFailed('plejd', msg);
-        backoffMs = Math.min(backoffMs * 2, 5 * 60_000); // exp backoff, cap 5 min
-        schedule();
-      });
-    load();
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [pageVisible, integrations.config.plejd?.url, integrations.config.plejd?.token, integrations.config.plejd?.cloudSession, integrations.config.plejd?.cloudSiteId, demoMode]);
+    // No credentials configured; hub pushes plejd_lights when server has PLEJD_EMAIL/PASSWORD.
+    setPlejdErr(null);
+    useHomeStore.getState().setStatus('plejd', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
+  }, [pageVisible, integrations.config.plejd?.cloudSession, integrations.config.plejd?.cloudSiteId, demoMode]);
 
   // Fetch live Sonos state when configured. Poll 15s — playback changes
   // faster than light state so the UI feels responsive.
@@ -2180,9 +2027,9 @@ function App() {
     logActivity('scene', `Scene **${scene.label}** applied`);
   }, [rooms, outlets, speakers, logActivity]);
 
-  // Light handlers — optimistic local update + real HA call when configured.
-  // If the HA call fails, the next poll (30s) will reconcile state from the
-  // bridge so the UI corrects itself even without explicit error handling.
+  // Light handlers — optimistic local update + real Plejd call when configured.
+  // Hub path routes through the server (no CORS, all tabs see the update).
+  // Falls back to direct Plejd cloud call when hub is offline.
   const toggleRoom = (id) => {
     breakScene();
     const r = rooms.find(rr => rr.id === id);
@@ -2191,11 +2038,9 @@ function App() {
     setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: next } : rr));
     logActivity('light', `${r.name} lights turned **${next ? 'on' : 'off'}**`);
     const cfg = integrations.config.plejd;
-    // Hub path (preferred when server is running — no CORS, instant push to all tabs).
-    if (hubConnected && r._entity && !r._cloudDevice) {
-      hubCommand('ha', 'call_service', {
-        domain: 'light', service: next ? 'turn_on' : 'turn_off', entity_id: r._entity,
-      });
+    // Hub path: server holds the Plejd session token, handles the API call.
+    if (hubConnected && r._cloudDevice) {
+      hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: next });
       return;
     }
     // Plejd cloud path: works only if the user has a Plejd Hub paired. If
@@ -2209,11 +2054,6 @@ function App() {
         });
       return;
     }
-    // HA bridge path (fallback when hub offline).
-    if (cfg?.url && cfg?.token && r._entity) {
-      plejdCallService(cfg, next ? 'turn_on' : 'turn_off', r._entity)
-        .catch(e => logActivity('light', `Plejd error: ${e.message || e}`));
-    }
   };
   const setBrightness = (id, b) => {
     breakScene();
@@ -2221,15 +2061,9 @@ function App() {
     const r = rooms.find(rr => rr.id === id);
     const cfg = integrations.config.plejd;
     if (!r) return;
-    // Hub path for HA-backed lights (no CORS, all tabs see the update).
-    if (hubConnected && r._entity && !r._cloudDevice) {
-      const ha255 = Math.round((b / 100) * 255);
-      hubCommand('ha', 'call_service', {
-        domain: 'light',
-        service: b > 0 ? 'turn_on' : 'turn_off',
-        entity_id: r._entity,
-        ...(b > 0 ? { brightness: ha255 } : {}),
-      });
+    // Hub path: server holds Plejd session token, all tabs see the update.
+    if (hubConnected && r._cloudDevice) {
+      hubCommand('plejd', 'dim', { deviceId: r._cloudDevice.id, brightness: b });
       return;
     }
     if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
@@ -2239,23 +2073,17 @@ function App() {
           logActivity('light', `**Needs Plejd Hub** — dim reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud dim needs a Plejd Hub.' });
         });
-      return;
-    }
-    if (cfg?.url && cfg?.token && r._entity) {
-      const ha255 = Math.round((b / 100) * 255);
-      plejdCallService(cfg, b > 0 ? 'turn_on' : 'turn_off', r._entity, b > 0 ? { brightness: ha255 } : {})
-        .catch(e => logActivity('light', `Plejd error: ${e.message || e}`));
     }
   };
   const setAllLights = (on) => {
     breakScene();
     setRooms(rs => rs.map(r => ({ ...r, on })));
     logActivity('light', `All lights **${on ? 'on' : 'off'}**`);
-    const cfg = integrations.config.plejd;
-    if (cfg?.url && cfg?.token) {
-      // HA accepts entity_id: 'all' on the light domain — turns all lights at once.
-      plejdCallService(cfg, on ? 'turn_on' : 'turn_off', 'all')
-        .catch(e => logActivity('light', `Plejd error: ${e.message || e}`));
+    // Send individual toggle commands through the hub for each Plejd light.
+    if (hubConnected) {
+      rooms.forEach(r => {
+        if (r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on });
+      });
     }
   };
 
@@ -2297,24 +2125,6 @@ function App() {
           revert(err, 'plejd');
           useHomeStore.getState().setStatus('plejd', { detail: 'Plug control needs a Plejd Hub.' });
         });
-      return;
-    }
-    // Hub path for HA switch entities (preferred when server is running).
-    if (hubConnected && o._entity && !o._cloudDevice) {
-      hubCommand('ha', 'call_service', {
-        domain: 'switch', service: next ? 'turn_on' : 'turn_off', entity_id: o._entity,
-      });
-      return;
-    }
-    // Plejd / HA switch entity: route via the HA service endpoint. The
-    // _entity field is the discriminator -- when present, this outlet came
-    // from the plejdFetchOutlets call and the Shelly HTTP path doesn't apply.
-    if (o._entity) {
-      const cfg = integrations.config.plejd;
-      if (!cfg?.url || !cfg?.token) return; // shouldn't happen, but be safe
-      plejdToggleSwitch(cfg, o._entity, next)
-        .then(() => useHomeStore.getState().markOk('plejd', `${outlets.filter(x => x._entity).length} HA plug(s)`))
-        .catch(err => revert(err, 'plejd'));
       return;
     }
     // Hub path for Shelly devices (no CORS, state updates reach all tabs).
@@ -2512,8 +2322,6 @@ function App() {
               applyScene={applyScene} breakScene={breakScene}
               activity={activity}
               spotify={spotify}
-              haClimate={haClimate} haCovers={haCovers} haLocks={haLocks} haScenes={haScenes}
-              hubCommand={hubCommand}
             />
           )}
           {route === 'rooms' && (
@@ -2570,108 +2378,6 @@ function App() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ── HA extended-domain cards ──────────────────────────────────────────────────
-// These render when Home Assistant surfaces thermostats, covers, locks, etc.
-// from any ecosystem: Google Home, Apple HomeKit, Matter, Nest, Tado, etc.
-
-/** ThermostatCard — shows current/target temp and mode control. */
-function ThermostatCard({ t, hubCommand }) {
-  const fmtTemp = (v) => v != null ? `${Number(v).toFixed(1)}°` : '—';
-  const step = 0.5;
-  const adjust = (delta) => hubCommand?.('ha', 'call_service', {
-    domain: 'climate', service: 'set_temperature',
-    entity_id: t.id, temperature: (t.targetTemp ?? t.currentTemp ?? 20) + delta,
-  });
-  const cycleMode = () => {
-    const order = ['off', 'heat', 'cool', 'auto', 'heat_cool'];
-    const available = (t.modes?.length ? t.modes : order);
-    const idx = available.indexOf(t.mode);
-    const next = available[(idx + 1) % available.length];
-    hubCommand?.('ha', 'call_service', {
-      domain: 'climate', service: 'set_hvac_mode',
-      entity_id: t.id, hvac_mode: next,
-    });
-  };
-  const modeColor = { heat: 'var(--amber-4)', cool: 'oklch(0.72 0.12 230)', off: 'var(--muted)' };
-  return (
-    <div className="thermostat-card" data-mode={t.mode}>
-      <div className="thermostat-name">{t.name}</div>
-      <div className="thermostat-temps">
-        <span className="thermostat-current">{fmtTemp(t.currentTemp)}</span>
-        <span className="thermostat-arrow">→</span>
-        <span className="thermostat-target">{fmtTemp(t.targetTemp)}</span>
-      </div>
-      <div className="thermostat-controls">
-        <button className="thermo-btn" onClick={() => adjust(-step)} aria-label="Lower" title="−0.5°"><I.Minus size={12} /></button>
-        <button className="thermo-mode" onClick={cycleMode}
-          style={{ color: modeColor[t.mode] || 'var(--muted)' }}
-          title="Cycle mode"
-        >{t.mode}</button>
-        <button className="thermo-btn" onClick={() => adjust(+step)} aria-label="Raise" title="+0.5°"><I.Plus size={12} /></button>
-      </div>
-      {t.hvacAction && t.hvacAction !== 'off' && (
-        <div className="thermostat-action">{t.hvacAction}</div>
-      )}
-    </div>
-  );
-}
-
-/** CoverRow — open/close/stop a blind or curtain. */
-function CoverRow({ cover, hubCommand }) {
-  const cmd = (service) => hubCommand?.('ha', 'call_service', {
-    domain: 'cover', service, entity_id: cover.id,
-  });
-  const setPos = (p) => hubCommand?.('ha', 'call_service', {
-    domain: 'cover', service: 'set_cover_position',
-    entity_id: cover.id, position: p,
-  });
-  const moving = cover.state === 'opening' || cover.state === 'closing';
-  return (
-    <div className="cover-row" data-open={cover.open || undefined} data-moving={moving || undefined}>
-      <I.Blinds size={13} className="cover-icon" />
-      <span className="cover-name">{cover.name}</span>
-      {cover.position != null && (
-        <input type="range" min={0} max={100} value={cover.position}
-          className="cover-slider"
-          onChange={e => setPos(Number(e.target.value))}
-          aria-label={`${cover.name} position`}
-        />
-      )}
-      <div className="cover-btns">
-        <button className="cover-btn" onClick={() => cmd('open_cover')}  title="Open"  disabled={cover.open}><I.ArrowUp   size={12} /></button>
-        {moving && <button className="cover-btn" onClick={() => cmd('stop_cover')}  title="Stop">■</button>}
-        <button className="cover-btn" onClick={() => cmd('close_cover')} title="Close" disabled={!cover.open && cover.position === 0}><I.ArrowDown size={12} /></button>
-      </div>
-    </div>
-  );
-}
-
-/** LockRow — lock / unlock with a visual armed state. */
-function LockRow({ lock, hubCommand }) {
-  const [armed, setArmed] = React.useState(false);
-  const toggle = () => {
-    if (lock.locked) {
-      if (!armed) { setArmed(true); return; }
-      hubCommand?.('ha', 'call_service', { domain: 'lock', service: 'unlock', entity_id: lock.id });
-      setArmed(false);
-    } else {
-      hubCommand?.('ha', 'call_service', { domain: 'lock', service: 'lock', entity_id: lock.id });
-    }
-  };
-  return (
-    <div className="lock-row" data-locked={lock.locked || undefined}>
-      {lock.locked ? <I.Lock size={13} /> : <I.Unlock size={13} />}
-      <span className="lock-name">{lock.name}</span>
-      <span className="lock-state">{lock.state}</span>
-      <button className="lock-btn" onClick={toggle} data-armed={armed || undefined}>
-        {lock.locked ? (armed ? 'Confirm unlock' : 'Unlock') : 'Lock'}
-      </button>
-      {armed && <button className="lock-cancel" onClick={() => setArmed(false)}>Cancel</button>}
-    </div>
-  );
-}
-
 // HomePage — Music + Sound + Lights + Power + Scenes + Activity
 // (extracted from App so each page can render independently)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2686,8 +2392,6 @@ function HomePage({
   applyScene, breakScene,
   activity,
   spotify,
-  haClimate = [], haCovers = [], haLocks = [], haScenes = [],
-  hubCommand,
 }) {
   // Cast-to-room handler for the NowPlaying hero. Two cases:
   // (1) a speaker is already active -> reassert it (no-op behavioral, but the
@@ -2789,42 +2493,6 @@ function HomePage({
           <EmptyIntegration title="No outlets configured" sub="Add Shelly device IPs in Settings → Integrations." />
         )}
       </Section>
-
-      {haClimate.length > 0 && (
-        <Section
-          title="Climate"
-          source={`${haClimate.length} ${haClimate.length === 1 ? 'thermostat' : 'thermostats'} · live`}
-          summary={<>Temperature and HVAC control from Google Nest, Tado, and other HA thermostats</>}
-        >
-          <div className="thermostat-grid">
-            {haClimate.map(t => <ThermostatCard key={t.id} t={t} hubCommand={hubCommand} />)}
-          </div>
-        </Section>
-      )}
-
-      {haCovers.length > 0 && (
-        <Section
-          title="Covers"
-          source={`${haCovers.length} ${haCovers.length === 1 ? 'cover' : 'covers'} · live`}
-          summary={<>Blinds, curtains, and garage doors from any HA-connected platform</>}
-        >
-          <div className="settings-page"><div className="settings-section">
-            {haCovers.map(c => <CoverRow key={c.id} cover={c} hubCommand={hubCommand} />)}
-          </div></div>
-        </Section>
-      )}
-
-      {haLocks.length > 0 && (
-        <Section
-          title="Security"
-          source={`${haLocks.length} ${haLocks.length === 1 ? 'lock' : 'locks'} · live`}
-          summary={<>Smart locks from August, Yale, Nuki, and other HA-connected brands</>}
-        >
-          <div className="settings-page"><div className="settings-section">
-            {haLocks.map(l => <LockRow key={l.id} lock={l} hubCommand={hubCommand} />)}
-          </div></div>
-        </Section>
-      )}
 
       <Section
         title="Scenes"
