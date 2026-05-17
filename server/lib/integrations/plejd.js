@@ -29,7 +29,7 @@ import { createConnection } from 'net';
 import { PlejdGateway } from '../plejd-gateway.js';
 
 const PLEJD_BASE      = 'https://cloud.plejd.com';
-const PLEJD_APP_ID    = 'zHduJF2dgQX2BFEN3QcXmF8x';
+const PLEJD_APP_ID    = 'zHtVqXt8k4yFyk2QGmgp48D9xZr2G94xWYnF4dak';
 const GWY_TCP_PORT    = 9001;
 const FALLBACK_POLL_MS = 30_000;  // cloud fallback when local TCP is down
 const RECONNECT_MS    = 15_000;   // retry local TCP after disconnect

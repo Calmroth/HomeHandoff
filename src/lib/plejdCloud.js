@@ -23,7 +23,7 @@
 // bridge process. We attempt cloud-control endpoints below and surface
 // "needs Hub" if they fail.
 
-const PLEJD_APP_ID = 'zHduJF2dgQX2BFEN3QcXmF8x';
+const PLEJD_APP_ID = 'zHtVqXt8k4yFyk2QGmgp48D9xZr2G94xWYnF4dak';
 
 // Base path -- when running under Vite dev, this is /api/plejd (rewritten by
 // the proxy). For prod deploys with a different proxy path, change here.
@@ -44,9 +44,9 @@ function parseHeaders(sessionToken) {
 async function parsedError(res) {
   try {
     const j = await res.json();
-    if (j?.error) return `${j.error}${j.code ? ` (code ${j.code})` : ''}`;
+    if (j?.error) return `${j.error}${j.code ? ` (code ${j.code})` : ''} [HTTP ${res.status}]`;
   } catch {}
-  return `Plejd ${res.status}`;
+  return `Plejd HTTP ${res.status}`;
 }
 
 export async function plejdLogin(email, password) {
