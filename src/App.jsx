@@ -1936,6 +1936,47 @@ function App() {
     setSpeakers(mapped);
   }, [spotify.token, spotify.devices, integrations.config.sonos?.url, demoMode]);
 
+  // Poll discovered Sonos speakers directly via UPnP (no bridge configured).
+  // Runs parallel to the Spotify Connect path; bridge URL wins when present.
+  // Uses sonosUPnPState() which may be blocked by CORS on some firmware versions
+  // — fails silently, optimistic local state remains.
+  useEffect(() => {
+    if (demoMode) return;
+    if (!pageVisible) return;
+    if (integrations.config.sonos?.url) return; // bridge handles polling
+    const sonosDevs = (integrations.config.discovered?.devices || [])
+      .filter(d => d.protocol === 'sonos' && d.ip && d.assignedTo === 'music');
+    if (!sonosDevs.length) return;
+    let cancelled = false;
+    const load = async () => {
+      const polled = await Promise.all(sonosDevs.map(async d => {
+        try {
+          const { playing, paused, volume } = await sonosUPnPState(d.ip);
+          return {
+            id: d.id, name: d.name, model: d.model || '',
+            source: playing ? 'Playing' : paused ? 'Paused' : null,
+            on: playing, paused, volume, primary: false,
+            _ip: d.ip, _protocol: 'sonos',
+          };
+        } catch {
+          return {
+            id: d.id, name: d.name, on: false, paused: false,
+            volume: 0, source: null, primary: false,
+            _ip: d.ip, _protocol: 'sonos',
+          };
+        }
+      }));
+      if (cancelled) return;
+      setSpeakers(prev => {
+        const ids = polled.map(p => p.id);
+        return [...prev.filter(s => !ids.includes(s.id)), ...polled];
+      });
+    };
+    load();
+    const t = setInterval(load, 15_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [demoMode, pageVisible, integrations.config.sonos?.url, integrations.config.discovered?.devices]);
+
   // Fetch live Tibber prices when configured. Refresh hourly. Drives both
   // the local prices state and the home store's `price` slice -- the latter
   // is what the Power section's "live draw" tile reads. Hardcoded
@@ -2233,6 +2274,11 @@ function App() {
     if (cfg?.url && s._room) {
       sonosCmd(cfg, s._room, next ? 'play' : 'pause')
         .catch(e => logActivity('speaker', `Sonos error: ${e.message || e}`));
+      return;
+    }
+    // Direct Sonos UPnP path — discovered speaker with IP but no bridge configured.
+    if (s._protocol === 'sonos' && s._ip) {
+      sonosUPnPCmd(s._ip, next ? 'play' : 'pause').catch(() => {});
     }
   };
   const setVolume = (id, v) => {
@@ -2253,6 +2299,10 @@ function App() {
     if (cfg?.url && s._room) {
       sonosCmd(cfg, s._room, 'volume', String(Math.round(v)))
         .catch(e => logActivity('speaker', `Sonos error: ${e.message || e}`));
+      return;
+    }
+    if (s._protocol === 'sonos' && s._ip) {
+      sonosUPnPCmd(s._ip, 'volume', { volume: v }).catch(() => {});
     }
   };
   // Group all: ON groups every speaker to the lead room and turns them on;
@@ -4629,6 +4679,58 @@ async function probeSonosLAN(ip) {
     const uuid  = text.match(/<UDN>uuid:(.*?)<\/UDN>/i)?.[1]              || ip;
     return { id: `sonos-${uuid}`, ip, name, type: 'speaker', protocol: 'sonos', model, assignedTo: 'music' };
   } catch { return null; }
+}
+
+// Direct Sonos UPnP control — no bridge process required.
+// Sends AVTransport (play/pause) or RenderingControl (volume) SOAP commands
+// straight to port 1400. Works when Sonos firmware allows cross-origin POST
+// (modern Sonos does). Fails silently if CORS blocks it; hub path bypasses CORS.
+function sonosUPnPEnvelope(urn, action, inner = '') {
+  return `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:${action} xmlns:u="${urn}"><InstanceID>0</InstanceID>${inner}</u:${action}></s:Body></s:Envelope>`;
+}
+async function sonosUPnPCmd(ip, action, { volume } = {}) {
+  const avt = 'urn:schemas-upnp-org:service:AVTransport:1';
+  const rc  = 'urn:schemas-upnp-org:service:RenderingControl:1';
+  const routes = {
+    play:   [avt, 'MediaRenderer/AVTransport/Control',      'Play',      '<Speed>1</Speed>'],
+    pause:  [avt, 'MediaRenderer/AVTransport/Control',      'Pause',     ''],
+    volume: [rc,  'MediaRenderer/RenderingControl/Control', 'SetVolume', `<Channel>Master</Channel><DesiredVolume>${Math.round(volume ?? 0)}</DesiredVolume>`],
+  };
+  const [urn, path, act, inner] = routes[action] || [];
+  if (!urn) return;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 1800);
+  try {
+    await fetch(`http://${ip}:1400/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/xml; charset="utf-8"', SOAPACTION: `"${urn}#${act}"` },
+      body: sonosUPnPEnvelope(urn, act, inner),
+    });
+  } finally { clearTimeout(t); }
+}
+async function sonosUPnPState(ip) {
+  const avt = 'urn:schemas-upnp-org:service:AVTransport:1';
+  const rc  = 'urn:schemas-upnp-org:service:RenderingControl:1';
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 1800);
+  const [tr, vr] = await Promise.allSettled([
+    fetch(`http://${ip}:1400/MediaRenderer/AVTransport/Control`, {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'text/xml; charset="utf-8"', SOAPACTION: `"${avt}#GetTransportInfo"` },
+      body: sonosUPnPEnvelope(avt, 'GetTransportInfo'),
+    }).then(r => r.text()),
+    fetch(`http://${ip}:1400/MediaRenderer/RenderingControl/Control`, {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'text/xml; charset="utf-8"', SOAPACTION: `"${rc}#GetVolume"` },
+      body: sonosUPnPEnvelope(rc, 'GetVolume', '<Channel>Master</Channel>'),
+    }).then(r => r.text()),
+  ]);
+  clearTimeout(t);
+  const ts  = tr.status === 'fulfilled' ? tr.value : '';
+  const vs  = vr.status === 'fulfilled' ? vr.value : '';
+  const state = ts.match(/<CurrentTransportState>(.*?)<\/CurrentTransportState>/)?.[1] || 'STOPPED';
+  const vol   = parseInt(vs.match(/<CurrentVolume>(.*?)<\/CurrentVolume>/)?.[1] || '0', 10);
+  return { playing: state === 'PLAYING', paused: state === 'PAUSED_PLAYBACK', volume: isNaN(vol) ? 0 : vol };
 }
 
 async function probeChromecast(ip) {
