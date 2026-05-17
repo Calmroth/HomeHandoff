@@ -195,9 +195,37 @@ async function fetchSiteDetails(sessionToken, siteId) {
     || detail.key
     || null;
 
+  // Parse scenes — sceneDevices may be a separate top-level list or nested per scene
+  const sceneDevLookup = new Map();  // sceneId → device step[]
+  for (const sd of (detail.sceneDevices || [])) {
+    const sid = sd.sceneId || sd.scene?.objectId;
+    if (!sid) continue;
+    if (!sceneDevLookup.has(sid)) sceneDevLookup.set(sid, []);
+    const val = sd.value ?? sd.dim;
+    sceneDevLookup.get(sid).push({
+      deviceId:   sd.deviceId || sd.deviceObjectId || sd.objectId,
+      on:         val != null ? val > 0 : (sd.state != null ? !!sd.state : true),
+      brightness: val != null ? Math.round((val / 255) * 100) : 100,
+    });
+  }
+  const scenes = (detail.scenes || []).map(sc => {
+    const nested  = sc.sceneDevices || sc.settings || sc.steps || [];
+    const devList = nested.length > 0
+      ? nested.map(sd => {
+          const val = sd.value ?? sd.dim;
+          return {
+            deviceId:   sd.deviceId || sd.deviceObjectId || sd.objectId,
+            on:         val != null ? val > 0 : (sd.state != null ? !!sd.state : true),
+            brightness: val != null ? Math.round((val / 255) * 100) : 100,
+          };
+        })
+      : (sceneDevLookup.get(sc.objectId) || []);
+    return { id: sc.objectId, title: sc.title || sc.name || sc.objectId, devices: devList };
+  }).filter(sc => sc.devices.length > 0);
+
   console.log(`[hub:plejd] Parsed: ${devices.length} devices, ${roomNames.size / 2 | 0} rooms, `
-    + `${addressMap.size} BLE addresses, cryptoKey ${cryptoKey ? 'ok' : 'MISSING'}`);
-  return { devices, cryptoKey, addressMap, meshToCloudId, roomNames };
+    + `${addressMap.size} BLE addresses, ${scenes.length} scenes, cryptoKey ${cryptoKey ? 'ok' : 'MISSING'}`);
+  return { devices, cryptoKey, addressMap, meshToCloudId, roomNames, scenes };
 }
 
 // Cloud fallback: send command via REST (used when local TCP is unavailable)
@@ -283,7 +311,12 @@ function tcpProbe(host, port, timeoutMs) {
 
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
-const isPlug = (d) => /relay|outlet|plug|switch/i.test(d.type || '');
+const isPlug = (d) => {
+  if (/relay|outlet|plug/i.test(d.type || '')) return true;
+  // Plejd relay modules report dimmable:false; lights/dimmers report true or omit it
+  if (d.dimmable === false && !/button|sensor|pir|gwy|gateway/i.test(d.type || '')) return true;
+  return false;
+};
 
 const bri255to100 = (dim) => typeof dim === 'number' ? Math.round((dim / 255) * 100) : 100;
 
@@ -396,6 +429,7 @@ export function startPlejdPoller(hub, {
   // Room grouping maps (populated from cloud getSiteDetails)
   let roomNames     = new Map();  // roomObjectId → room title
   let roomDeviceMap = new Map();  // roomObjectId → cloudDeviceId[]
+  let scenesCache   = new Map();  // sceneId → { id, title, devices[] }
 
   // In-memory device list (id → device object) for state merging
   /** @type {Map<string|number, object>} */
@@ -432,7 +466,7 @@ export function startPlejdPoller(hub, {
   }
 
   async function fetchAndSeedDevices() {
-    const { devices, cryptoKey: ck, addressMap: am, meshToCloudId: mtc, roomNames: rn } =
+    const { devices, cryptoKey: ck, addressMap: am, meshToCloudId: mtc, roomNames: rn, scenes: fetchedScenes = [] } =
       await fetchSiteDetails(sessionToken, siteId);
     if (ck) {
       cryptoKey = ck;
@@ -458,6 +492,11 @@ export function startPlejdPoller(hub, {
     }
     for (const d of devices) deviceMap.set(d.id, d);
     broadcastFromMap();
+    // Scenes — broadcast once on each fetch; only updates when titles change
+    if (fetchedScenes.length) {
+      scenesCache = new Map(fetchedScenes.map(sc => [sc.id, sc]));
+      hub.pushUpdate('plejd_scenes', fetchedScenes.map(({ id, title }) => ({ id, title })));
+    }
     return devices;
   }
 
@@ -575,7 +614,30 @@ export function startPlejdPoller(hub, {
   hub.onCommand('plejd', async (action, params = {}) => {
     if (!sessionToken || !siteId) throw new Error('Plejd not yet initialized');
 
-    const { deviceId, on, brightness } = params;
+    const { deviceId, on, brightness, sceneId } = params;
+
+    // ── Scene activation ─────────────────────────────────────────────────────
+    if (action === 'activateScene') {
+      if (!sceneId) throw new Error('activateScene requires sceneId');
+      const scene = scenesCache.get(sceneId);
+      if (!scene) throw new Error(`Plejd scene "${sceneId}" not found`);
+      await Promise.allSettled(scene.devices.map(async (sd) => {
+        const dev = deviceMap.get(sd.deviceId);
+        const devMeshId = dev?.meshId
+          ?? [...meshToCloudId.entries()].find(([, cid]) => cid === sd.deviceId)?.[0];
+        if (localActive && gateway && devMeshId != null) {
+          gateway.sendCommand(devMeshId, sd.on, sd.on ? sd.brightness : undefined);
+          if (dev) { dev.isOn = sd.on; dev.dim = Math.round((sd.brightness / 100) * 255); }
+        } else {
+          const dim255 = Math.round((sd.brightness / 100) * 255);
+          await sendStateCloud(sessionToken, siteId, sd.deviceId, sd.on, sd.on ? dim255 : 0);
+        }
+      }));
+      broadcastFromMap();
+      if (!localActive) setTimeout(cloudPoll, 600);
+      return { ok: true, sceneId };
+    }
+
     if (deviceId === undefined || deviceId === null) {
       throw new Error('plejd command requires deviceId');
     }

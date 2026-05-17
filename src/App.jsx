@@ -1391,6 +1391,7 @@ function App() {
   const [rooms, setRooms] = useState(() => demoMode ? DEMO_ROOMS : INITIAL_ROOMS);
   const [outlets, setOutlets] = useState(() => demoMode ? DEMO_OUTLETS : INITIAL_OUTLETS);
   const [speakers, setSpeakers] = useState(() => demoMode ? DEMO_SPEAKERS : INITIAL_SPEAKERS);
+  const [plejdScenes, setPlejdScenes] = useState([]);  // live scenes from Plejd cloud
   // Latch the "touched" flag so the auto-demo doesn't re-arm on every reload.
   useEffect(() => {
     if (localStorage.getItem('hdg-touched') !== '1') {
@@ -1533,6 +1534,9 @@ function App() {
           const nonPlejd = prev.filter(o => !o._cloudDevice);
           return [...nonPlejd, ...payload];
         });
+        break;
+      case 'plejd_scenes':
+        if (!demoMode) setPlejdScenes(payload);
         break;
       case 'sonos':
         if (!demoMode) setSpeakers(payload);
@@ -2106,6 +2110,13 @@ function App() {
     logActivity('scene', `Scene **${scene.label}** applied`);
   }, [rooms, outlets, speakers, logActivity]);
 
+  const activatePlejdScene = useCallback((sceneId, title) => {
+    setActiveScene(sceneId);
+    setActiveSceneAt(new Date());
+    if (hubConnected) hubCommand('plejd', 'activateScene', { sceneId });
+    logActivity('scene', `Scene **${title}** activated`);
+  }, [hubConnected, hubCommand, logActivity]);
+
   // Light handlers — optimistic local update + real Plejd call when configured.
   // Hub path routes through the server (no CORS, all tabs see the update).
   // Falls back to direct Plejd cloud call when hub is offline.
@@ -2370,7 +2381,12 @@ function App() {
       if (e.key === ' ' && route === 'music') { togglePlay(); e.preventDefault(); return; }
       if (route !== 'home') return;
       const idx = (e.key === '0') ? 4 : (parseInt(e.key, 10) - 1);
-      if (Number.isInteger(idx) && idx >= 0 && idx < SCENES.length) {
+      if (plejdScenes.length > 0) {
+        if (Number.isInteger(idx) && idx >= 0 && idx < plejdScenes.length) {
+          activatePlejdScene(plejdScenes[idx].id, plejdScenes[idx].title);
+          e.preventDefault();
+        }
+      } else if (Number.isInteger(idx) && idx >= 0 && idx < SCENES.length) {
         applyScene(SCENES[idx]);
         e.preventDefault();
       }
@@ -2447,6 +2463,7 @@ function App() {
             <RoomsPage
               rooms={rooms} toggleRoom={toggleRoom} setBrightness={setBrightness} setAllLights={setAllLights}
               applyScene={applyScene} activeScene={activeScene}
+              plejdScenes={plejdScenes} activatePlejdScene={activatePlejdScene}
             />
           )}
           {route === 'music' && (
@@ -2644,7 +2661,7 @@ function HomePage({
             One tap. Affects <b style={{ margin: '0 4px' }}>{rooms.length}</b> rooms, <b style={{ margin: '0 4px' }}>{outlets.filter(o => !o.alwaysOn).length}</b> outlets, <b style={{ margin: '0 4px' }}>{speakers.length}</b> speakers.
             {activeScene && activeSceneAt && (
               <span className="scene-timer">
-                <span className="mono">{SCENES.find(s => s.id === activeScene)?.label}</span>
+                <span className="mono">{SCENES.find(s => s.id === activeScene)?.label || plejdScenes.find(s => s.id === activeScene)?.title}</span>
                 · Active <span className="mono">{fmtAgo(activeSceneAt, now)}</span>
                 <button className="clear-btn" onClick={breakScene} title="Clear active scene" aria-label="Clear active scene">×</button>
               </span>
@@ -2653,26 +2670,43 @@ function HomePage({
         }
       >
         <div className="scenes">
-          {SCENES.map((scene, i) => {
-            const SceneIcon = I[scene.icon];
-            const keyHint = i === 4 ? '0' : String(i + 1);
-            return (
-              <button
-                key={scene.id}
-                className="scene"
-                data-active={activeScene === scene.id}
-                onClick={() => applyScene(scene)}
-                title={`Press ${keyHint} to apply ${scene.label}`}
-              >
-                <span className="scene-key">{keyHint}</span>
-                <span className="scene-icon"><SceneIcon size={18} /></span>
-                <div>
-                  <div className="scene-label">{scene.label}</div>
-                  <div className="scene-sub">{scene.sub}</div>
-                </div>
-              </button>
-            );
-          })}
+          {plejdScenes.length > 0
+            ? plejdScenes.map((sc, i) => (
+                <button
+                  key={sc.id}
+                  className="scene"
+                  data-active={activeScene === sc.id}
+                  onClick={() => activatePlejdScene(sc.id, sc.title)}
+                  title={sc.title}
+                >
+                  <span className="scene-key">{String(i + 1)}</span>
+                  <span className="scene-icon"><I.Layers size={18} /></span>
+                  <div>
+                    <div className="scene-label">{sc.title}</div>
+                  </div>
+                </button>
+              ))
+            : SCENES.map((scene, i) => {
+                const SceneIcon = I[scene.icon];
+                const keyHint = i === 4 ? '0' : String(i + 1);
+                return (
+                  <button
+                    key={scene.id}
+                    className="scene"
+                    data-active={activeScene === scene.id}
+                    onClick={() => applyScene(scene)}
+                    title={`Press ${keyHint} to apply ${scene.label}`}
+                  >
+                    <span className="scene-key">{keyHint}</span>
+                    <span className="scene-icon"><SceneIcon size={18} /></span>
+                    <div>
+                      <div className="scene-label">{scene.label}</div>
+                      <div className="scene-sub">{scene.sub}</div>
+                    </div>
+                  </button>
+                );
+              })
+          }
         </div>
       </Section>
 
@@ -3530,7 +3564,7 @@ const ROOM_SCENES = [
   { id: 'off',     label: 'Off',     brightness: 0,   off: true },
 ];
 
-function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene, activeScene }) {
+function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene, activeScene, plejdScenes = [], activatePlejdScene }) {
   const onCount = rooms.filter(r => r.on).length;
   const totalBulbs = rooms.reduce((a, r) => a + r.bulbs, 0);
   const litBulbs   = rooms.reduce((a, r) => a + (r.on ? r.bulbs : 0), 0);
@@ -3624,23 +3658,38 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene,
         summary={<>Affect every room at once</>}
       >
         <div className="scenes">
-          {SCENES.map((scene, i) => {
-            const SceneIcon = I[scene.icon];
-            return (
-              <button
-                key={scene.id}
-                className="scene"
-                data-active={activeScene === scene.id}
-                onClick={() => applyScene(scene)}
-              >
-                <span className="scene-icon"><SceneIcon size={18} /></span>
-                <div>
-                  <div className="scene-label">{scene.label}</div>
-                  <div className="scene-sub">{scene.sub}</div>
-                </div>
-              </button>
-            );
-          })}
+          {plejdScenes.length > 0
+            ? plejdScenes.map(sc => (
+                <button
+                  key={sc.id}
+                  className="scene"
+                  data-active={activeScene === sc.id}
+                  onClick={() => activatePlejdScene(sc.id, sc.title)}
+                >
+                  <span className="scene-icon"><I.Layers size={18} /></span>
+                  <div>
+                    <div className="scene-label">{sc.title}</div>
+                  </div>
+                </button>
+              ))
+            : SCENES.map(scene => {
+                const SceneIcon = I[scene.icon];
+                return (
+                  <button
+                    key={scene.id}
+                    className="scene"
+                    data-active={activeScene === scene.id}
+                    onClick={() => applyScene(scene)}
+                  >
+                    <span className="scene-icon"><SceneIcon size={18} /></span>
+                    <div>
+                      <div className="scene-label">{scene.label}</div>
+                      <div className="scene-sub">{scene.sub}</div>
+                    </div>
+                  </button>
+                );
+              })
+          }
         </div>
       </Section>
     </>
