@@ -3402,7 +3402,7 @@ function SpeakerCard({ speaker, onToggle, onVolume }) {
             {speaker.primary && <span style={{ marginLeft: 8, color: 'var(--primary)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Lead</span>}
           </div>
         </div>
-        <Toggle on={speaker.on} onToggle={onToggle} ariaLabel={`Toggle ${speaker.name} speaker`} />
+        <Toggle on={speaker.on} onToggle={onToggle} ariaLabel={speaker.on ? `Turn off ${speaker.name}` : `Turn on ${speaker.name}`} />
       </div>
 
       <div className="speaker-vol-row">
@@ -5711,7 +5711,7 @@ function TibberConfig({ integrations }) {
         </p>
       )}
       {testResult?.ok && (
-        <p className="catalog-help" style={{ color: 'oklch(0.78 0.14 70)', marginTop: 8 }}>
+        <p className="catalog-help" style={{ color: 'var(--primary)', marginTop: 8 }}>
           Connected as {testResult.name}{testResult.homes.length ? ` · ${testResult.homes.join(', ')}` : ''}
         </p>
       )}

@@ -489,11 +489,10 @@ img.avatar { display: block; }
 .env-seed-banner {
   margin-top: 8px;
   padding: 16px 20px 14px 22px;
-  background-color: var(--popover);
+  background: var(--amber-tint-10);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
-  border-left: 2px solid var(--primary);
-  box-shadow: inset 0 0 0 1px var(--border);
+  border: 1px solid var(--amber-tint-24);
 }
 .env-seed-head {
   display: flex; align-items: flex-start; gap: 14px;
@@ -1294,32 +1293,33 @@ img.avatar { display: block; }
   position: relative;
   width: 40px; height: 22px; border-radius: 999px;
   overflow: hidden;
-  border: 1px solid oklch(0.65 0.18 25 / 0.45);
-  background: oklch(0.65 0.18 25 / 0.12);
+  border: 1px solid color-mix(in oklch, var(--destructive) 45%, transparent);
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
   cursor: pointer;
   flex-shrink: 0;
   touch-action: none;
 }
 .hold-btn-fill {
   position: absolute; inset: 0;
-  background: oklch(0.65 0.18 25 / 0.55);
+  background: color-mix(in oklch, var(--destructive) 55%, transparent);
   transform-origin: left center;
   transform: scaleX(0);
 }
 .hold-btn > svg {
   position: absolute; inset: 0; margin: auto;
-  color: oklch(0.65 0.18 25);
+  color: var(--destructive);
   pointer-events: none;
 }
-.hold-btn:active .hold-btn-fill { /* fill progresses via JS — no CSS transition needed */ }
+.hold-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.hold-btn:active .hold-btn-fill { /* fill progresses via JS rAF — no CSS transition needed */ }
 
 /* ── Card retry button ─────────────────────────────────────────────────────── */
 .card-retry {
   font-size: 10px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.1em;
-  color: oklch(0.65 0.18 25);
-  background: oklch(0.65 0.18 25 / 0.12);
-  border: 1px solid oklch(0.65 0.18 25 / 0.4);
+  color: var(--destructive);
+  background: color-mix(in oklch, var(--destructive) 12%, transparent);
+  border: 1px solid color-mix(in oklch, var(--destructive) 40%, transparent);
   border-radius: 6px;
   padding: 2px 8px;
   cursor: pointer;
@@ -1327,7 +1327,8 @@ img.avatar { display: block; }
   margin-top: 6px;
   align-self: flex-start;
 }
-.card-retry:hover { background: oklch(0.65 0.18 25 / 0.22); }
+.card-retry:hover { background: color-mix(in oklch, var(--destructive) 22%, transparent); }
+.card-retry:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 /* ── Route-conditional keyboard hints footer ───────────────────────────────── */
 .key-hints {
