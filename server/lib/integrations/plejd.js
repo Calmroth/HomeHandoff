@@ -93,51 +93,110 @@ async function fetchSiteDetails(sessionToken, siteId) {
   });
   // getSiteById returns result as an array; handle both array and plain object
   const detail = (Array.isArray(j.result) ? j.result[0] : j.result) || j;
-  const rooms = (detail.rooms || []).reduce((acc, r) => {
-    acc[r.roomId || r.objectId] = r.title;
-    return acc;
-  }, {});
 
-  // Build address maps from deviceAddresses: { objectId → 12-char hex MAC }
-  const addressMap    = new Map();  // meshId → bleAddr Buffer(6)
-  const meshToCloudId = new Map();  // meshId → cloud objectId
-  const cloudToMeshId = new Map();  // cloud objectId → meshId
-  const addrEntries = detail.deviceAddresses || {};
-  for (const [objId, rawAddr] of Object.entries(addrEntries)) {
-    if (typeof rawAddr === 'string' && rawAddr.length === 12) {
-      // BLE addr in normal MAC order (big-endian); reverse gives mesh byte order
-      const bleAddr = Buffer.from(rawAddr, 'hex').reverse();
-      const meshId  = bleAddr[0]; // first byte after reversal = mesh address
-      addressMap.set(meshId, bleAddr);
-      meshToCloudId.set(meshId, objId);
-      cloudToMeshId.set(objId, meshId);
+  // One-time diagnostic log — shows exact field names from the live API
+  console.log('[hub:plejd] rooms[0]:', JSON.stringify(detail.rooms?.[0] ?? null));
+  console.log('[hub:plejd] plejdDevices[0]:', JSON.stringify(detail.plejdDevices?.[0] ?? null));
+  const firstAddr = Object.entries(detail.deviceAddresses ?? detail.outputAddress ?? {})[0];
+  console.log('[hub:plejd] deviceAddresses[0]:', firstAddr ?? null);
+  console.log('[hub:plejd] cryptoKey paths: plejdMesh=', !!detail.plejdMesh?.cryptoKey,
+    'site=', !!detail.site?.cryptoKey, 'root=', !!detail.cryptoKey);
+
+  // Room name lookup — index by BOTH roomId and objectId so either reference works
+  const roomNames = new Map();
+  for (const r of (detail.rooms || [])) {
+    const title = r.title || r.name || r.roomId || r.objectId;
+    if (r.roomId)   roomNames.set(r.roomId,   title);
+    if (r.objectId) roomNames.set(r.objectId, title);
+  }
+
+  // BLE address lookup — try deviceAddresses first, then outputAddress
+  // Values may be a plain hex string or an object like { address: "hex" }
+  const deviceBleAddr = new Map();  // cloudObjectId → Buffer(6) reversed BLE addr
+  const rawAddrMap = detail.deviceAddresses ?? detail.outputAddress ?? {};
+  for (const [objId, rawEntry] of Object.entries(rawAddrMap)) {
+    const hex = typeof rawEntry === 'string' ? rawEntry
+      : (rawEntry?.address ?? rawEntry?.bleAddress ?? null);
+    if (typeof hex === 'string' && hex.length === 12) {
+      // Plejd MAC stored big-endian; reversed = mesh byte order, [0] = mesh address
+      deviceBleAddr.set(objId, Buffer.from(hex, 'hex').reverse());
     }
   }
 
-  const roomNames = new Map(
-    (detail.rooms || []).map(r => [r.roomId || r.objectId, r.title])
-  );
+  // Build address maps (meshId ↔ cloudObjectId) and flat device list.
+  // Prefer outputSettings[i].deviceId (TCP mesh address) when present;
+  // otherwise derive the mesh address as the last byte of the BLE address.
+  const addressMap    = new Map();  // meshId:number → bleAddr Buffer(6)
+  const meshToCloudId = new Map();  // meshId:number → cloud objectId
+  const cloudToMeshId = new Map();  // cloud objectId → first meshId
 
-  const devices = (detail.plejdDevices || detail.devices || []).map(d => {
-    const objectId = d.objectId || d.deviceId;
-    const meshId   = cloudToMeshId.get(objectId) ?? (typeof d.deviceId === 'number' ? d.deviceId : undefined);
-    return {
-      id:       objectId,
-      meshId,
-      name:     d.title || d.name || objectId,
-      roomId:   d.roomId || null,
-      room:     roomNames.get(d.roomId) || d.room || '',
-      type:     d.outputType || d.deviceType || d.traits || 'Light',
-      isOn:     !!(d.outputSettings?.state || d.state),
-      dim:      d.outputSettings?.dim ?? d.dim ?? null,
-    };
-  });
+  // outputSettings may be a flat top-level list or nested per-device
+  const topLevelOutputSettings = Array.isArray(detail.outputSettings) ? detail.outputSettings : [];
 
-  // cryptoKey may be in detail.plejdMesh or detail.cryptoKey
+  const devices = [];
+  for (const d of (detail.plejdDevices || detail.devices || [])) {
+    const objectId = d.objectId || String(d.deviceId ?? '');
+    const roomId   = d.roomId || null;
+    const room     = (roomId ? roomNames.get(roomId) : '') || d.room || '';
+    const bleAddr  = deviceBleAddr.get(objectId);
+
+    // Per-device outputSettings (nested) or matched from top-level list
+    const perDeviceOutputs = Array.isArray(d.outputSettings) ? d.outputSettings
+      : topLevelOutputSettings.filter(o => o.deviceParseId === objectId || o.deviceId === objectId);
+
+    if (perDeviceOutputs.length > 0) {
+      for (const out of perDeviceOutputs) {
+        // outputSettings[i].deviceId is the TCP mesh address when it's a small integer
+        const outMeshId = typeof out.deviceId === 'number' && out.deviceId < 256 ? out.deviceId
+          : (bleAddr ? bleAddr[0] : undefined);
+        if (outMeshId !== undefined && bleAddr) {
+          addressMap.set(outMeshId, bleAddr);
+          meshToCloudId.set(outMeshId, objectId);
+          if (!cloudToMeshId.has(objectId)) cloudToMeshId.set(objectId, outMeshId);
+        }
+        devices.push({
+          id:       objectId,
+          meshId:   outMeshId,
+          name:     out.name || out.title || d.title || d.name || objectId,
+          roomId,
+          room,
+          type:     out.outputType || d.outputType || d.deviceType || 'Light',
+          isOn:     !!(out.state ?? d.state),
+          dim:      out.dim ?? d.dim ?? null,
+          dimmable: out.dimmable ?? true,
+        });
+      }
+    } else {
+      // Single-output device — derive meshId from BLE address last byte
+      const meshId = bleAddr ? bleAddr[0] : undefined;
+      if (meshId !== undefined && bleAddr) {
+        addressMap.set(meshId, bleAddr);
+        meshToCloudId.set(meshId, objectId);
+        cloudToMeshId.set(objectId, meshId);
+      }
+      devices.push({
+        id:       objectId,
+        meshId,
+        name:     d.title || d.name || d.deviceTitle || objectId,
+        roomId,
+        room,
+        type:     d.outputType || d.deviceType || 'Light',
+        isOn:     !!(d.state),
+        dim:      d.dim ?? null,
+        dimmable: d.dimmable ?? true,
+      });
+    }
+  }
+
+  // Crypto key — check all known nesting paths
   const cryptoKey = detail.plejdMesh?.cryptoKey
+    || detail.site?.cryptoKey
     || detail.cryptoKey
     || detail.key
     || null;
+
+  console.log(`[hub:plejd] Parsed: ${devices.length} devices, ${roomNames.size / 2 | 0} rooms, `
+    + `${addressMap.size} BLE addresses, cryptoKey ${cryptoKey ? 'ok' : 'MISSING'}`);
   return { devices, cryptoKey, addressMap, meshToCloudId, roomNames };
 }
 
@@ -386,12 +445,13 @@ export function startPlejdPoller(hub, {
     }
     if (rn.size) {
       roomNames = rn;
-      // Rebuild room → device index
+      // Rebuild room → device index (deduplicate: multi-output devices share objectId)
       roomDeviceMap = new Map();
       for (const d of devices) {
         if (d.roomId) {
           if (!roomDeviceMap.has(d.roomId)) roomDeviceMap.set(d.roomId, []);
-          roomDeviceMap.get(d.roomId).push(d.id);
+          const arr = roomDeviceMap.get(d.roomId);
+          if (!arr.includes(d.id)) arr.push(d.id);
         }
       }
       console.log(`[hub:plejd] Rooms: ${rn.size} (${[...rn.values()].join(', ')})`);
