@@ -4364,6 +4364,31 @@ function newsTimeAgo(date) {
   return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' });
 }
 
+function extractItemImage(item) {
+  // 1. <enclosure> (AB / standard RSS)
+  const enc = item.querySelector('enclosure');
+  if (enc) {
+    const url = enc.getAttribute('url') || '';
+    const type = enc.getAttribute('type') || '';
+    if (url && (type.startsWith('image') || /\.(jpe?g|png|webp)(\?|$)/i.test(url))) return url;
+  }
+  // 2. <media:content> / <media:thumbnail> (DN / Yahoo Media RSS)
+  for (const el of item.querySelectorAll('*')) {
+    const ln = el.localName;
+    if (ln === 'content' || ln === 'thumbnail') {
+      const url = el.getAttribute('url') || '';
+      const medium = el.getAttribute('medium') || '';
+      const type = el.getAttribute('type') || '';
+      if (url && (medium === 'image' || type.startsWith('image') || /\.(jpe?g|png|webp)(\?|$)/i.test(url))) return url;
+    }
+  }
+  // 3. <img> embedded in description HTML (Expressen)
+  const rawDesc = item.querySelector('description')?.textContent || '';
+  const m = rawDesc.match(/<img\s[^>]*\bsrc=['"]([^'"]+)['"]/i);
+  if (m?.[1]) return m[1];
+  return null;
+}
+
 function parseRSSXML(xml, sourceId) {
   try {
     const doc = new DOMParser().parseFromString(xml, 'application/xml');
@@ -4380,7 +4405,8 @@ function parseRSSXML(xml, sourceId) {
         .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
         .trim();
       const description = rawDesc.length > 0 && rawDesc !== title ? rawDesc : '';
-      return { id: link || `${sourceId}-${i}`, title, description, url: link, pubDate: new Date(pub || Date.now()), source: sourceId };
+      const image = extractItemImage(item);
+      return { id: link || `${sourceId}-${i}`, title, description, image, url: link, pubDate: new Date(pub || Date.now()), source: sourceId };
     }).filter(x => x.title.length > 0);
   } catch { return []; }
 }
@@ -4551,8 +4577,12 @@ function NewsPage() {
                     {item.description && (
                       <span className="news-item-desc">{item.description}</span>
                     )}
+                    <span className="news-item-meta">{newsTimeAgo(item.pubDate)}</span>
                   </span>
-                  <span className="news-item-meta">{newsTimeAgo(item.pubDate)}</span>
+                  {item.image
+                    ? <img className="news-item-thumb" src={item.image} alt="" loading="lazy" decoding="async" />
+                    : <span className="news-item-thumb news-item-thumb--empty" />
+                  }
                 </a>
               );
             })}
