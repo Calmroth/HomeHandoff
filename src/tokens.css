@@ -1222,6 +1222,47 @@ img.avatar { display: block; }
 .outlet[data-on="true"] .outlet-watts { color: var(--foreground); }
 .outlet-watts small { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted-foreground); margin-top: 2px; }
 
+/* ── Command send feedback ─────────────────────────────────────────────────── */
+@keyframes cmd-send {
+  0%   { box-shadow: inset 0 0 0 2px oklch(0.78 0.14 70 / 0.00); }
+  30%  { box-shadow: inset 0 0 0 2px oklch(0.78 0.14 70 / 0.55); }
+  100% { box-shadow: inset 0 0 0 2px oklch(0.78 0.14 70 / 0.00); }
+}
+.light-room[data-sending="true"],
+.outlet[data-sending="true"] { animation: cmd-send 800ms ease-out; }
+.light-room[data-failed="true"],
+.outlet[data-failed="true"] { box-shadow: inset 0 0 0 2px oklch(0.65 0.18 25 / 0.55); }
+
+/* ── Undo chip ─────────────────────────────────────────────────────────────── */
+.undo-chip {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: oklch(0.22 0.015 65);
+  border: 1px solid oklch(0.78 0.14 70 / 0.35);
+  border-radius: 10px;
+  z-index: 500;
+  white-space: nowrap;
+  animation: undo-enter 180ms ease-out;
+}
+@keyframes undo-enter {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.undo-label { font-size: 13px; color: var(--muted-foreground); }
+.undo-btn {
+  font-size: 13px; font-weight: 500;
+  color: oklch(0.78 0.14 70);
+  background: none; border: none; cursor: pointer; padding: 0;
+  transition: opacity 120ms;
+}
+.undo-btn:hover { opacity: 0.7; }
+
 /* Power live panel */
 .power-live {
   background-color: var(--popover);

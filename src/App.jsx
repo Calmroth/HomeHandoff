@@ -1439,6 +1439,12 @@ function App() {
     }, []),
   });
 
+  // Per-action undo stack (3-second window after each toggle).
+  const [undoStack, setUndoStack] = useState([]);
+  // Per-card command-send feedback (amber pulse while sending, red outline on failure).
+  const [sendingIds, setSendingIds] = useState(new Set());
+  const [failedIds, setFailedIds] = useState(new Set());
+
   // Tab-lifecycle primitives -- foundation of an "appliance" feel.
   // pageVisible is the gate for every polling effect: when nobody is looking
   // (tab hidden, switched to another app on the kitchen iPad, OS turned the
@@ -1472,6 +1478,24 @@ function App() {
       spotify.api('/me/player/previous', { method: 'POST' }).catch(() => {});
     },
   }), [spotify.token, spotify.api]));
+
+  const pushUndo = useCallback((label, revert) => {
+    const uid = Date.now() + Math.random();
+    setUndoStack(s => [...s, { uid, label, revert }]);
+    setTimeout(() => setUndoStack(s => s.filter(x => x.uid !== uid)), 3000);
+  }, []);
+
+  const setCardSending = useCallback((cardId) => {
+    setSendingIds(s => new Set([...s, cardId]));
+    setTimeout(() => setSendingIds(s => { const n = new Set(s); n.delete(cardId); return n; }), 800);
+  }, []);
+
+  const setCardFailed = useCallback((cardId) => {
+    setSendingIds(s => { const n = new Set(s); n.delete(cardId); return n; });
+    setFailedIds(s => new Set([...s, cardId]));
+    setTimeout(() => setFailedIds(s => { const n = new Set(s); n.delete(cardId); return n; }), 3000);
+  }, []);
+
   const [plejdErr, setPlejdErr] = useState(null);
   const [sonosErr, setSonosErr] = useState(null);
   const [newsTab, setNewsTab] = useState('sr');
@@ -2037,17 +2061,24 @@ function App() {
     const next = !r.on;
     setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: next } : rr));
     logActivity('light', `${r.name} lights turned **${next ? 'on' : 'off'}**`);
+    pushUndo(`${r.name} ${next ? 'on' : 'off'}`, () => {
+      setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
+      if (hubConnected && r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: !next });
+    });
     const cfg = integrations.config.plejd;
     // Hub path: server holds the Plejd session token, handles the API call.
     if (hubConnected && r._cloudDevice) {
+      setCardSending(r.id);
       hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: next });
       return;
     }
     // Plejd cloud path: works only if the user has a Plejd Hub paired. If
     // sendStateToDevice fails, revert + surface "needs Hub" honestly.
     if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
+      setCardSending(r.id);
       plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: next })
         .catch(e => {
+          setCardFailed(r.id);
           setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
           logActivity('light', `**Needs Plejd Hub** — toggle reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud control needs a Plejd Hub. Discovery still works.' });
@@ -2070,6 +2101,7 @@ function App() {
       const dim255 = Math.round((b / 100) * 255);
       plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: b > 0, dim: dim255 })
         .catch(e => {
+          setCardFailed(r.id);
           logActivity('light', `**Needs Plejd Hub** — dim reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud dim needs a Plejd Hub.' });
         });
@@ -2077,8 +2109,17 @@ function App() {
   };
   const setAllLights = (on) => {
     breakScene();
+    const prevRooms = rooms;
     setRooms(rs => rs.map(r => ({ ...r, on })));
     logActivity('light', `All lights **${on ? 'on' : 'off'}**`);
+    pushUndo(`All lights ${on ? 'on' : 'off'}`, () => {
+      setRooms(prevRooms);
+      if (hubConnected) {
+        prevRooms.forEach(r => {
+          if (r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: r.on });
+        });
+      }
+    });
     // Send individual toggle commands through the hub for each Plejd light.
     if (hubConnected) {
       rooms.forEach(r => {
@@ -2106,8 +2147,14 @@ function App() {
     // (1) optimistic
     setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: next } : oo));
     logActivity('outlet', `${o.name} **${next ? 'on' : 'off'}**`);
+    pushUndo(`${o.name} ${next ? 'on' : 'off'}`, () => {
+      setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: !next } : oo));
+      if (hubConnected && o.ip) hubCommand('shelly', 'toggle', { ip: o.ip, on: !next });
+    });
     if (demoMode) return;
+    setCardSending(o.id);
     const revert = (err, statusId) => {
+      setCardFailed(o.id);
       setOutlets(os => os.map(oo => oo.id === id ? { ...oo, on: !next } : oo));
       logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
       useHomeStore.getState().markFailed(statusId, String(err.message || err));
@@ -2118,9 +2165,9 @@ function App() {
     // signal that this plug came from plejdFetchDevices.
     if (o._cloudDevice) {
       const cfg = integrations.config.plejd;
-      if (!cfg?.cloudSession || !cfg?.cloudSiteId) return;
+      if (!cfg?.cloudSession || !cfg?.cloudSiteId) { setSendingIds(s => { const n = new Set(s); n.delete(o.id); return n; }); return; }
       plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: o._cloudDevice.id, on: next })
-        .then(() => useHomeStore.getState().markOk('plejd', `cloud control ok`))
+        .then(() => { setSendingIds(s => { const n = new Set(s); n.delete(o.id); return n; }); useHomeStore.getState().markOk('plejd', `cloud control ok`); })
         .catch(err => {
           revert(err, 'plejd');
           useHomeStore.getState().setStatus('plejd', { detail: 'Plug control needs a Plejd Hub.' });
@@ -2133,13 +2180,14 @@ function App() {
       return;
     }
     // Shelly direct HTTP path: try Gen2 RPC first, fall back to Gen1 relay.
-    if (!o.ip) return;
+    if (!o.ip) { setSendingIds(s => { const n = new Set(s); n.delete(o.id); return n; }); return; }
     const ip = o.ip;
     const tryGen2 = fetch(`http://${ip}/rpc/Switch.Set?id=0&on=${next}`, { method: 'GET' });
     const tryGen1 = (resp) => (resp && resp.ok) ? resp : fetch(`http://${ip}/relay/0?turn=${next ? 'on' : 'off'}`, { method: 'GET' });
     tryGen2
       .then(tryGen1, () => tryGen1(null))
       .then(r => {
+        setSendingIds(s => { const n = new Set(s); n.delete(o.id); return n; });
         if (r && r.ok) {
           useHomeStore.getState().markOk('shelly', `${outlets.filter(x => x.ip).length} device(s)`);
         } else {
@@ -2322,6 +2370,7 @@ function App() {
               applyScene={applyScene} breakScene={breakScene}
               activity={activity}
               spotify={spotify}
+              sendingIds={sendingIds} failedIds={failedIds}
             />
           )}
           {route === 'rooms' && (
@@ -2374,6 +2423,16 @@ function App() {
           </footer>
         </div>
       </main>
+      {undoStack.length > 0 && (
+        <div key={undoStack[undoStack.length - 1].uid} className="undo-chip">
+          <span className="undo-label">{undoStack[undoStack.length - 1].label}</span>
+          <button className="undo-btn" onClick={() => {
+            const item = undoStack[undoStack.length - 1];
+            item.revert();
+            setUndoStack(s => s.filter(x => x.uid !== item.uid));
+          }}>Undo</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -2392,6 +2451,7 @@ function HomePage({
   applyScene, breakScene,
   activity,
   spotify,
+  sendingIds, failedIds,
 }) {
   // Cast-to-room handler for the NowPlaying hero. Two cases:
   // (1) a speaker is already active -> reassert it (no-op behavioral, but the
@@ -2466,7 +2526,7 @@ function HomePage({
               />
             </div>
             <div className="lights-grid">
-              {rooms.map(r => <RoomCard key={r.id} room={r} onToggle={() => toggleRoom(r.id)} onBrightness={(b) => setBrightness(r.id, b)} />)}
+              {rooms.map(r => <RoomCard key={r.id} room={r} onToggle={() => toggleRoom(r.id)} onBrightness={(b) => setBrightness(r.id, b)} sending={sendingIds.has(r.id)} failed={failedIds.has(r.id)} />)}
             </div>
           </div>
         ) : (
@@ -2485,7 +2545,7 @@ function HomePage({
         {outlets.length ? (
           <div className="power-grid">
             <div className="outlets">
-              {outlets.map(o => <OutletRow key={o.id} outlet={o} onToggle={() => toggleOutlet(o.id)} />)}
+              {outlets.map(o => <OutletRow key={o.id} outlet={o} onToggle={() => toggleOutlet(o.id)} sending={sendingIds.has(o.id)} failed={failedIds.has(o.id)} />)}
             </div>
             <PowerLive outlets={outlets} totalW={totalW} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts} />
           </div>
@@ -2788,12 +2848,12 @@ function IntegrationStatusDot({ id, showWhenEmpty = false }) {
   );
 }
 
-function RoomCard({ room, onToggle, onBrightness }) {
+function RoomCard({ room, onToggle, onBrightness, sending, failed }) {
   const flick = useFlicker([room.on]);
   // CSS variable controls the warm glow opacity inside the card
   const glow = room.on ? 0.04 + (room.brightness / 100) * 0.18 : 0;
   return (
-    <div className="light-room" data-on={room.on} style={{ '--glow': glow }}>
+    <div className="light-room" data-on={room.on} data-sending={sending ? 'true' : undefined} data-failed={failed ? 'true' : undefined} style={{ '--glow': glow }}>
       {flick > 0 && room.on && <div key={flick} className="flick" />}
       <div className="room-head">
         <div>
@@ -2817,10 +2877,10 @@ function RoomCard({ room, onToggle, onBrightness }) {
   );
 }
 
-function OutletRow({ outlet, onToggle }) {
+function OutletRow({ outlet, onToggle, sending, failed }) {
   const Ic = I[outlet.icon] ?? I.Plug;
   return (
-    <div className="outlet" data-on={outlet.on}>
+    <div className="outlet" data-on={outlet.on} data-sending={sending ? 'true' : undefined} data-failed={failed ? 'true' : undefined}>
       <div className="outlet-icon"><Ic size={16} /></div>
       <div>
         <div className="outlet-name">{outlet.name}</div>
