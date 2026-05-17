@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite",
     "dev:lan": "cross-env VITE_HTTPS=1 vite",
-    "dev:full": "concurrently --names VITE,SONOS --prefix-colors cyan,yellow \"npm run dev\" \"node ../node-sonos-http-api/server.js\"",
+    "dev:full": "concurrently --names VITE,HUB,SONOS --prefix-colors cyan,magenta,yellow \"npm run dev\" \"npm run hub:dev\" \"node ../node-sonos-http-api/server.js\"",
+    "hub": "node server/index.js",
+    "hub:dev": "node --watch server/index.js",
     "sonos": "node ../node-sonos-http-api/server.js",
     "build": "vite build",
     "preview": "vite preview --port 5183 --strictPort"
