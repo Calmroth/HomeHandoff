@@ -8,6 +8,7 @@ import { pickBackdrop } from './lib/sunPhase.js';
 import { useMediaSession } from './lib/mediaSession.js';
 import { useHaEntities } from './lib/haEntities.js';
 import { plejdLogin, plejdFetchSites, plejdFetchDevices, plejdSetDeviceState } from './lib/plejdCloud.js';
+import { useWebSocketHub } from './lib/useWebSocketHub.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Icons (inline SVG, 1.5 stroke — matches lucide weight)
@@ -1495,6 +1496,23 @@ function App() {
   const spotify = useSpotify();
   const google = useGoogleAuth();
   const integrations = useIntegrations();
+
+  // Real-time hub — WebSocket to server/index.js running on the LAN.
+  // Falls back gracefully (hubConnected=false) when the hub isn't running;
+  // the rest of the app uses direct polling in that case, unchanged.
+  const hubStateRef = useRef({});
+  const { connected: hubConnected } = useWebSocketHub({
+    onSnapshot: useCallback((state) => {
+      hubStateRef.current = state.integrations || {};
+    }, []),
+    onDeviceUpdate: useCallback((integration, payload) => {
+      hubStateRef.current[integration] = payload;
+    }, []),
+    onError: useCallback((integration, message) => {
+      console.warn(`[hub:${integration || 'general'}]`, message);
+    }, []),
+  });
+
   // Tab-lifecycle primitives -- foundation of an "appliance" feel.
   // pageVisible is the gate for every polling effect: when nobody is looking
   // (tab hidden, switched to another app on the kitchen iPad, OS turned the
@@ -2422,6 +2440,7 @@ function App() {
               rooms={rooms} outlets={outlets} speakers={effectiveSpeakers} activity={activity}
               spotify={spotify} google={google} integrations={integrations}
               demoMode={demoMode} onLoadDemo={loadDemoData} onClearDemo={clearDemoData}
+              hubConnected={hubConnected}
             />
           )}
 
@@ -5760,7 +5779,7 @@ function DiscoveredDevicesList({ integrations }) {
   );
 }
 
-function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, integrations, demoMode, onLoadDemo, onClearDemo }) {
+function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, integrations, demoMode, onLoadDemo, onClearDemo, hubConnected }) {
   const deviceTotal = rooms.length + outlets.length + speakers.length;
   // MaskedSecret handles its own draft/save for both Spotify and Google Client
   // IDs — no top-level draft state needed here.
@@ -5898,6 +5917,22 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
         summary={<>Search for a service, expand to set it up, or scan your LAN for Shelly devices.</>}
       >
         <IntegrationCatalog integrations={integrations} spotify={spotify} />
+        <div className="settings-page" style={{ marginTop: 0 }}>
+          <div className="settings-section">
+            <div className="settings-row" data-on={hubConnected || undefined}>
+              <span className="settings-row-icon"><I.Wifi size={14} /></span>
+              <div>
+                <div className="settings-row-name">Real-time hub</div>
+                <div className="settings-row-sub">
+                  {hubConnected
+                    ? 'Connected — device updates stream live to all tabs'
+                    : <>Offline · run <span className="mono">npm run hub</span> to enable live updates</>}
+                </div>
+              </div>
+              <span className="settings-row-state">{hubConnected ? 'Live' : 'Offline'}</span>
+            </div>
+          </div>
+        </div>
       </Section>
 
       <Section
