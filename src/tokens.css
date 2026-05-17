@@ -1181,7 +1181,7 @@ img.avatar { display: block; }
   border-radius: 999px;
   transform: translate(-50%, -50%);
   box-shadow: 0 1px 4px oklch(0 0 0 / 0.4);
-  transition: left var(--motion-duration-fast) var(--motion-ease-out-quart);
+  /* No transition — thumb tracks finger instantly; programmatic updates snap */
 }
 
 /* Power toggle -- 40x22 visual, 44x44 invisible hit area (WCAG 2.2 AAA) */
@@ -1499,7 +1499,7 @@ img.avatar { display: block; }
   padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  transition: all var(--motion-duration-fast);
+  transition: color var(--motion-duration-fast), border-color var(--motion-duration-fast), background-color var(--motion-duration-fast), box-shadow var(--motion-duration-fast);
 }
 .group-toggle:hover { color: var(--foreground); border-color: var(--border-strong); }
 .group-toggle[data-active="true"] {
@@ -2168,7 +2168,7 @@ img.avatar { display: block; }
   color: var(--muted-foreground);
   border: 1px solid var(--border);
   background: color-mix(in oklch, var(--clay-50) 3%, transparent);
-  transition: all var(--motion-duration-fast);
+  transition: color var(--motion-duration-fast), border-color var(--motion-duration-fast), background var(--motion-duration-fast);
 }
 .room-scene:hover { color: var(--foreground); border-color: var(--border-strong); }
 .room-scene[data-active="true"] {
@@ -2413,7 +2413,7 @@ img.avatar { display: block; }
   border-radius: 999px;
   color: var(--muted-foreground);
   font-size: 16px; line-height: 1;
-  transition: all var(--motion-duration-fast);
+  transition: color var(--motion-duration-fast), background-color var(--motion-duration-fast);
   position: relative;
 }
 .music-source-rm::before {
@@ -2558,105 +2558,153 @@ img.avatar { display: block; }
 .settings-row { align-items: flex-start; }
 
 /* Energy page -- big total, dual chart (price + draw), per-source bars. */
+/* ── Energy page ──────────────────────────────────────────────────────────── */
 .energy-page {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.energy-hero {
-  background-color: var(--popover);
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
-  padding: 28px 32px;
+
+/* KPI strip — 3 glass tiles across the top */
+.energy-kpi-strip {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 32px;
-  align-items: flex-end;
-}
-.energy-hero-total {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.energy-hero-total .micro-label { color: var(--muted-foreground); }
-.energy-hero-total .big {
-  font-family: var(--font-mono);
-  font-size: clamp(64px, 7vw, 108px);
-  font-weight: 200;
-  letter-spacing: -0.05em;
-  line-height: 0.95;
-  font-variant-numeric: tabular-nums;
-}
-.energy-hero-total .big .unit {
-  font-size: 0.3em;
-  color: var(--muted-foreground);
-  margin-left: 8px;
-  letter-spacing: 0.02em;
-}
-.energy-hero-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-}
-.energy-hero-meta b { color: var(--foreground); font-weight: 500; }
-.energy-charts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 2px;
 }
-.energy-chart {
+.energy-kpi {
   background-color: var(--popover);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
   padding: 22px 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 4px;
 }
-.energy-chart-head {
+.energy-kpi-val {
+  font-family: var(--font-mono);
+  font-size: clamp(28px, 3vw, 44px);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.energy-kpi-val .unit {
+  font-size: 0.42em;
+  color: var(--muted-foreground);
+  margin-left: 4px;
+  letter-spacing: 0.02em;
+}
+.energy-kpi-sub {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+}
+
+/* Full-width glass card */
+.energy-card {
+  background-color: var(--popover);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.energy-card-head {
   display: flex; justify-content: space-between; align-items: baseline;
 }
-.energy-chart-now {
+.energy-card-val {
   font-family: var(--font-mono);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 500;
   letter-spacing: -0.02em;
 }
-.energy-chart svg { width: 100%; display: block; }
-.energy-chart-empty {
+.energy-empty {
   display: grid; place-items: center;
-  min-height: 80px;
-  padding: 16px 0;
+  min-height: 72px;
   font-size: 12px;
   font-style: italic;
   color: var(--muted-foreground);
   text-align: center;
 }
-.energy-axis {
+
+/* 24-hour price bar chart */
+.price-bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 80px;
+}
+.price-bar-col {
+  flex: 1;
+}
+.price-bar-inner {
+  width: 100%;
+  background: color-mix(in oklch, var(--clay-50) 30%, transparent);
+  border-radius: 2px 2px 0 0;
+  transition: background-color var(--motion-duration-fast);
+}
+.price-bar-col[data-current="true"] .price-bar-inner {
+  background: var(--primary);
+  box-shadow: 0 0 10px oklch(0.78 0.14 70 / 0.40);
+}
+.price-bar-col[data-past="true"] .price-bar-inner {
+  background: color-mix(in oklch, var(--clay-50) 12%, transparent);
+}
+.price-bar-col[data-cheap="true"] .price-bar-inner {
+  background: color-mix(in oklch, var(--primary) 42%, transparent);
+}
+.price-bar-axis {
   display: flex; justify-content: space-between;
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--muted-foreground);
   letter-spacing: 0.06em;
 }
-.energy-sources {
+.price-bar-minmax {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted-foreground);
+  opacity: 0.65;
+}
+
+/* 2-col row below the price chart */
+.energy-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+/* Price insight card (right side of energy-charts row) */
+.energy-insight {
   background-color: var(--popover);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
   padding: 22px 24px;
-  display: flex; flex-direction: column; gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
+.energy-insight-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.energy-insight-row b { color: var(--foreground); font-weight: 500; font-family: var(--font-mono); }
+
+/* Source breakdown bars */
 .energy-source-row {
   display: grid;
-  grid-template-columns: 110px 1fr auto;
-  gap: 14px;
+  grid-template-columns: 90px 1fr auto;
+  gap: 12px;
   align-items: center;
   font-size: 12px;
 }
 .energy-source-bar {
-  height: 8px;
+  height: 7px;
   background: color-mix(in oklch, var(--clay-50) 8%, transparent);
   border-radius: 999px;
   overflow: hidden;
@@ -2668,7 +2716,44 @@ img.avatar { display: block; }
   transition: transform var(--motion-duration-base) var(--motion-ease-out-quart);
 }
 .energy-source-name { color: var(--muted-foreground); }
-.energy-source-val { font-family: var(--font-mono); font-size: 13px; min-width: 70px; text-align: right; }
+.energy-source-val { font-family: var(--font-mono); font-size: 13px; min-width: 60px; text-align: right; }
+
+/* Per-device breakdown grid */
+.energy-devices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+.energy-device-col {
+  background-color: var(--popover);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.energy-device-row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto 56px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.energy-device-bar {
+  height: 4px;
+  background: color-mix(in oklch, var(--clay-50) 8%, transparent);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.energy-device-bar > div {
+  height: 100%;
+  background: color-mix(in oklch, var(--primary) 50%, transparent);
+  border-radius: 999px;
+  transform-origin: left;
+  transition: transform var(--motion-duration-base) var(--motion-ease-out-quart);
+}
 
 /* Weather page -- 7-day forecast grid, big current condition, hourly strip. */
 .weather-page {
@@ -2868,7 +2953,7 @@ img.avatar { display: block; }
   font-size: 12px;
   color: var(--muted-foreground);
   border: 1px solid var(--border);
-  transition: all var(--motion-duration-fast);
+  transition: color var(--motion-duration-fast), border-color var(--motion-duration-fast), background var(--motion-duration-fast);
 }
 .news-tab:hover { color: var(--foreground); border-color: var(--border-strong); }
 .news-tab[data-active="true"] {
@@ -3066,8 +3151,9 @@ img.avatar { display: block; }
   .music-hero-embed { height: auto; }
   .music-hero { grid-template-columns: minmax(320px, 380px) 1fr; }
   .music-page { grid-template-columns: 1fr; }
-  .energy-hero { grid-template-columns: 1fr; gap: 18px; }
+  .energy-kpi-strip { grid-template-columns: 1fr 1fr; }
   .energy-charts { grid-template-columns: 1fr; }
+  .energy-devices { grid-template-columns: 1fr; }
   .weather-current { grid-template-columns: auto 1fr; }
   .weather-current-meta { text-align: left; }
   .weather-days { grid-template-columns: repeat(4, 1fr); }

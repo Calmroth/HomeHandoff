@@ -4081,62 +4081,98 @@ function ResultGroup({ title, children }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EnergyPage — expanded Power view with hourly price + draw charts and a
-// per-source bar breakdown. All numbers are computed locally from the same
-// state as the Home page; no API. The price curve is a fixed seasonal model.
 // ─────────────────────────────────────────────────────────────────────────────
-// Real prices come from Tibber's GraphQL API when a token is configured in
-// Settings. Until then the curve is null and the Energy page shows a
-// "configure Tibber" empty state instead of a fake curve.
+// PriceBarChart — 24-column bar chart of Tibber hourly prices.
+// Current hour: amber fill + glow. Past hours: dimmed. Three cheapest
+// upcoming hours: soft amber to signal good time to run high-draw appliances.
+// ─────────────────────────────────────────────────────────────────────────────
+function PriceBarChart({ prices, now }) {
+  const nowT = now.getTime();
+  const vals = prices.map(p => p.total);
+  const maxP = Math.max(...vals, 0.001);
+  const minP = Math.min(...vals);
+  const range = maxP - minP || 0.001;
+  const cIdx = Math.max(0, prices.findIndex(p => new Date(p.startsAt).getTime() + 3600_000 > nowT));
+  const cheapSet = new Set(
+    prices.map((p, i) => ({ i, v: p.total }))
+      .filter(x => x.i > cIdx)
+      .sort((a, b) => a.v - b.v)
+      .slice(0, 3)
+      .map(x => x.i)
+  );
 
-function MiniLineChart({ values, color, height = 60, fillRecent = true }) {
-  if (!values?.length) return null;
-  const max = Math.max(...values, 0.0001);
-  const min = Math.min(...values, max);
-  const range = Math.max(max - min, 0.0001);
-  const stepX = 100 / (values.length - 1 || 1);
-  const points = values.map((v, i) => {
-    const x = i * stepX;
-    const y = 100 - ((v - min) / range) * 90 - 5; // 5–95 range
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  }).join(' ');
-  const lastIdx = values.length - 1;
-  const lastX = lastIdx * stepX;
-  const lastY = 100 - ((values[lastIdx] - min) / range) * 90 - 5;
   return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ height }}>
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-      {fillRecent && (
-        <circle cx={lastX} cy={lastY} r="1.6" fill={color} />
-      )}
-    </svg>
+    <>
+      <div className="price-bar-chart">
+        {prices.map((p, i) => {
+          const frac = (p.total - minP) / range;
+          const isCurrent = i === cIdx;
+          const isPast = i < cIdx;
+          const isCheap = cheapSet.has(i);
+          return (
+            <div
+              key={i}
+              className="price-bar-col"
+              data-current={isCurrent || undefined}
+              data-past={isPast || undefined}
+              data-cheap={isCheap || undefined}
+              title={`${new Date(p.startsAt).getHours()}:00 — ${p.total.toFixed(3)} SEK/kWh`}
+            >
+              <div className="price-bar-inner" style={{ height: `${Math.max(frac * 72, 3)}px` }} />
+            </div>
+          );
+        })}
+      </div>
+      <div className="price-bar-axis">
+        <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+      </div>
+    </>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EnergyPage — redesigned with KPI strip, 24h bar chart, source breakdown,
+// price insights, and per-device power table.
+// ─────────────────────────────────────────────────────────────────────────────
 function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, speakerWatts, tibberPrices, tibberErr, tibberConfigured, now }) {
-  // Spot price values for the chart — real values from Tibber if configured,
-  // otherwise empty (we show a "Configure Tibber" empty state).
-  const priceValues = useMemo(() => (tibberPrices || []).map(p => p.total), [tibberPrices]);
   const currentPrice = useMemo(() => {
     if (!tibberPrices?.length) return null;
     const nowT = now.getTime();
-    // Find the entry whose startsAt covers this hour.
     let idx = tibberPrices.findIndex(p => new Date(p.startsAt).getTime() + 3600_000 > nowT);
     if (idx < 0) idx = tibberPrices.length - 1;
     return tibberPrices[idx]?.total ?? null;
   }, [tibberPrices, now]);
 
+  const costPerHour = currentPrice != null ? totalW * 0.001 * currentPrice : null;
+
+  const priceStats = useMemo(() => {
+    if (!tibberPrices?.length) return null;
+    const vals = tibberPrices.map(p => p.total);
+    const maxP = Math.max(...vals);
+    const minP = Math.min(...vals);
+    const avgP = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return { maxP, minP, avgP, estimatedDailyCost: totalW * 0.001 * 24 * avgP };
+  }, [tibberPrices, totalW]);
+
   const cats = [
-    { name: 'Lights',   val: Math.round(litWatts),     color: 'var(--chart-1)' },
+    { name: 'Lights',   val: Math.round(litWatts),    color: 'var(--chart-1)' },
     { name: 'Outlets',  val: Math.round(outletWatts),  color: 'var(--chart-2)' },
     { name: 'Speakers', val: Math.round(speakerWatts), color: 'var(--chart-3)' },
   ];
   const catMax = Math.max(...cats.map(c => c.val), 1);
 
+  const roomPower = useMemo(() =>
+    rooms.filter(r => r.on)
+      .map(r => ({ name: r.name || 'Room', watts: Math.round(r.bulbs * 9 * (r.brightness / 100)) }))
+      .sort((a, b) => b.watts - a.watts)
+  , [rooms]);
+  const roomPowerMax = Math.max(...roomPower.map(r => r.watts), 1);
+
+  const outletPower = outlets.filter(o => o.watts > 0 || o.on);
+  const outletPowerMax = Math.max(...outletPower.map(o => o.watts), 1);
+
   const litRooms = rooms.filter(r => r.on);
   const onOutlets = outlets.filter(o => o.on);
-  const onSpeakers = speakers.filter(s => s.on);
-  const anyDevices = rooms.length + outlets.length + speakers.length > 0;
 
   return (
     <Section
@@ -4148,62 +4184,144 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
       </>}
     >
       <div className="energy-page">
-        <div className="energy-hero">
-          <div className="energy-hero-total">
+
+        {/* KPI strip */}
+        <div className="energy-kpi-strip">
+          <div className="energy-kpi">
             <span className="micro-label">Live draw</span>
-            <div className="big mono">{totalW}<span className="unit">W</span></div>
+            <div className="energy-kpi-val">{totalW}<span className="unit">W</span></div>
+            <div className="energy-kpi-sub">{litRooms.length} rooms · {onOutlets.length} outlets active</div>
           </div>
-          <div className="energy-hero-meta">
-            <span>Estimated this hour <b className="mono">{(totalW * 0.001).toFixed(2)} kWh</b>
-              {currentPrice != null && <> · cost <b className="mono">{(totalW * 0.001 * currentPrice).toFixed(2)} SEK</b></>}
-            </span>
-            <span>Active: <b>{litRooms.length}</b> rooms · <b>{onOutlets.length}</b> outlets · <b>{onSpeakers.length}</b> speakers</span>
-            {!anyDevices && <span>No devices configured — set up Plejd/Shelly/Sonos in Settings.</span>}
-            {currentPrice != null
-              ? <span>Tibber spot <b className="mono">{currentPrice.toFixed(2)} SEK/kWh</b></span>
-              : <span>{tibberErr ? <>Tibber error: {tibberErr}</> : <>Configure a Tibber token in Settings to see live prices.</>}</span>}
+          <div className="energy-kpi">
+            <span className="micro-label">Spot price</span>
+            <div className="energy-kpi-val">
+              {currentPrice != null ? currentPrice.toFixed(2) : '—'}<span className="unit">SEK/kWh</span>
+            </div>
+            <div className="energy-kpi-sub">{tibberConfigured ? 'Tibber · live' : 'add Tibber in Settings'}</div>
+          </div>
+          <div className="energy-kpi">
+            <span className="micro-label">Cost this hour</span>
+            <div className="energy-kpi-val">
+              {costPerHour != null ? costPerHour.toFixed(2) : '—'}<span className="unit">SEK</span>
+            </div>
+            <div className="energy-kpi-sub">at current load</div>
           </div>
         </div>
 
-        <div className="energy-charts">
-          <div className="energy-chart">
-            <div className="energy-chart-head">
-              <span className="micro-label">Spot price · today</span>
-              <span className="energy-chart-now">
-                {currentPrice != null
-                  ? <>{currentPrice.toFixed(2)}<span style={{ fontSize: 10, color: 'var(--muted-foreground)', marginLeft: 4 }}>SEK/kWh</span></>
-                  : <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>{tibberConfigured ? 'loading…' : 'not configured'}</span>}
+        {/* 24h price bar chart */}
+        <div className="energy-card">
+          <div className="energy-card-head">
+            <span className="micro-label">Today's electricity prices</span>
+            {currentPrice != null && (
+              <span className="energy-card-val">
+                {currentPrice.toFixed(2)}<span style={{ fontSize: 11, color: 'var(--muted-foreground)', marginLeft: 4 }}>SEK/kWh now</span>
               </span>
-            </div>
-            {priceValues.length > 0 ? (
-              <MiniLineChart values={priceValues} color="var(--amber-400)" />
-            ) : (
-              <div className="energy-chart-empty">{tibberConfigured ? 'Loading prices…' : 'Add a Tibber token in Settings.'}</div>
             )}
-            <div className="energy-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
           </div>
-          <div className="energy-chart">
-            <div className="energy-chart-head">
-              <span className="micro-label">By source · now</span>
-              <span className="energy-chart-now mono">{totalW}<span style={{ fontSize: 10, color: 'var(--muted-foreground)', marginLeft: 4 }}>W</span></span>
+          {tibberPrices?.length ? (
+            <>
+              <PriceBarChart prices={tibberPrices} now={now} />
+              {priceStats && (
+                <div className="price-bar-minmax">
+                  <span>low {priceStats.minP.toFixed(2)}</span>
+                  <span>avg {priceStats.avgP.toFixed(2)}</span>
+                  <span>high {priceStats.maxP.toFixed(2)} SEK/kWh</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="energy-empty">
+              {tibberErr
+                ? `Tibber error: ${tibberErr}`
+                : tibberConfigured ? 'Loading prices…' : 'Add a Tibber token in Settings to see live prices.'}
             </div>
-            {anyDevices ? (
-              <div className="energy-sources" style={{ background: 'transparent', backdropFilter: 'none', padding: 0 }}>
-                {cats.map(c => (
-                  <div key={c.name} className="energy-source-row">
-                    <span className="energy-source-name">{c.name}</span>
-                    <div className="energy-source-bar">
-                      <div style={{ transform: `scaleX(${catMax > 0 ? c.val / catMax : 0})`, background: c.color }} />
-                    </div>
-                    <span className="energy-source-val mono">{c.val} W</span>
+          )}
+        </div>
+
+        {/* Source breakdown + price insights */}
+        <div className="energy-charts">
+          <div className="energy-card">
+            <div className="energy-card-head">
+              <span className="micro-label">By source</span>
+              <span className="energy-card-val">{totalW}<span style={{ fontSize: 11, color: 'var(--muted-foreground)', marginLeft: 4 }}>W total</span></span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {cats.map(c => (
+                <div key={c.name} className="energy-source-row">
+                  <span className="energy-source-name">{c.name}</span>
+                  <div className="energy-source-bar">
+                    <div style={{ transform: `scaleX(${catMax > 0 ? c.val / catMax : 0})`, background: c.color }} />
                   </div>
-                ))}
-              </div>
+                  <span className="energy-source-val">{c.val} W</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="energy-insight">
+            <span className="micro-label">Price insights</span>
+            {priceStats ? (
+              <>
+                <div className="energy-insight-row">
+                  <span>Low today</span>
+                  <b>{priceStats.minP.toFixed(2)} SEK</b>
+                </div>
+                <div className="energy-insight-row">
+                  <span>High today</span>
+                  <b>{priceStats.maxP.toFixed(2)} SEK</b>
+                </div>
+                <div className="energy-insight-row">
+                  <span>Est. daily cost</span>
+                  <b>{priceStats.estimatedDailyCost.toFixed(0)} SEK</b>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontStyle: 'italic', marginTop: 4 }}>
+                  at {totalW} W continuous · avg {priceStats.avgP.toFixed(2)} SEK/kWh
+                </div>
+              </>
             ) : (
-              <div className="energy-chart-empty">No devices reporting — configure integrations in Settings.</div>
+              <div className="energy-empty" style={{ minHeight: 48 }}>
+                {tibberConfigured ? 'Awaiting price data…' : 'Set up Tibber for insights.'}
+              </div>
             )}
           </div>
         </div>
+
+        {/* Per-device breakdown */}
+        {(roomPower.length > 0 || outletPower.length > 0) && (
+          <div className="energy-devices">
+            {roomPower.length > 0 && (
+              <div className="energy-device-col">
+                <div className="micro-label" style={{ marginBottom: 2 }}>Rooms</div>
+                {roomPower.map(r => (
+                  <div key={r.name} className="energy-device-row">
+                    <I.Light size={12} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                    <span style={{ color: 'var(--foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                    <div className="energy-device-bar">
+                      <div style={{ transform: `scaleX(${r.watts / roomPowerMax})` }} />
+                    </div>
+                    <span className="mono" style={{ textAlign: 'right', color: 'var(--foreground)' }}>{r.watts} W</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {outletPower.length > 0 && (
+              <div className="energy-device-col">
+                <div className="micro-label" style={{ marginBottom: 2 }}>Outlets</div>
+                {outletPower.map((o, idx) => (
+                  <div key={o.id || idx} className="energy-device-row">
+                    <I.Plug size={12} style={{ color: o.on ? 'var(--primary)' : 'var(--muted-foreground)', flexShrink: 0 }} />
+                    <span style={{ color: o.on ? 'var(--foreground)' : 'var(--muted-foreground)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</span>
+                    <div className="energy-device-bar">
+                      <div style={{ transform: `scaleX(${o.watts / outletPowerMax})` }} />
+                    </div>
+                    <span className="mono" style={{ textAlign: 'right', color: o.on ? 'var(--foreground)' : 'var(--muted-foreground)' }}>{o.watts} W</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
     </Section>
   );
