@@ -54,6 +54,14 @@ const I = {
   Shield:      (p) => <Icon {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Icon>,
   Check:       (p) => <Icon {...p}><path d="M20 6 9 17l-5-5"/></Icon>,
   Radio:       (p) => <Icon {...p}><path d="M2 7h20M10 7V4M14 7V4M6 13h12M6 17h12"/><rect x="2" y="7" width="20" height="14" rx="2"/></Icon>,
+  Thermometer: (p) => <Icon {...p}><path d="M14 14.76V4a2 2 0 0 0-4 0v10.76a4 4 0 1 0 4 0Z"/></Icon>,
+  Lock:        (p) => <Icon {...p}><rect x="5" y="11" width="14" height="11" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></Icon>,
+  Unlock:      (p) => <Icon {...p}><rect x="5" y="11" width="14" height="11" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-1.8"/></Icon>,
+  Minus:       (p) => <Icon {...p}><path d="M5 12h14"/></Icon>,
+  Plus:        (p) => <Icon {...p}><path d="M12 5v14M5 12h14"/></Icon>,
+  Blinds:      (p) => <Icon {...p}><path d="M3 3h18v4H3zM3 10h18v4H3zM3 17h18v4H3"/></Icon>,
+  ArrowUp:     (p) => <Icon {...p}><path d="m18 15-6-6-6 6"/></Icon>,
+  ArrowDown:   (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1564,6 +1572,14 @@ function App() {
   const [tibberPrices, setTibberPrices] = useState(null);
   const [tibberErr, setTibberErr] = useState(null);
 
+  // HA extended domains — populated from hub pushes when HA is configured.
+  // Google Home / Apple HomeKit / Matter devices appear here once added to HA.
+  const [haClimate,       setHaClimate]       = useState([]); // thermostats
+  const [haCovers,        setHaCovers]        = useState([]); // blinds/curtains/garage
+  const [haLocks,         setHaLocks]         = useState([]); // smart locks
+  const [haBinarySensors, setHaBinarySensors] = useState([]); // motion/door sensors
+  const [haScenes,        setHaScenes]        = useState([]); // HA scenes
+
   // Hub state dispatch — updated every render so the hub callbacks always
   // have stable access to the latest state setters without stale closures.
   // Called by onDeviceUpdate when the server pushes an integration update.
@@ -1586,6 +1602,28 @@ function App() {
           const nonShelly = prev.filter(o => !o.ip);
           return [...nonShelly, ...payload];
         });
+        break;
+      case 'ha_switches':
+        // Merge HA switch entities into outlets. Keep Shelly (ip) and other outlets.
+        if (!demoMode) setOutlets(prev => {
+          const nonSwitch = prev.filter(o => !o._entity || o.ip);
+          return [...nonSwitch, ...payload];
+        });
+        break;
+      case 'ha_climate':
+        setHaClimate(payload);
+        break;
+      case 'ha_covers':
+        setHaCovers(payload);
+        break;
+      case 'ha_locks':
+        setHaLocks(payload);
+        break;
+      case 'ha_binary_sensors':
+        setHaBinarySensors(payload);
+        break;
+      case 'ha_scenes':
+        setHaScenes(payload);
         break;
       case 'tibber':
         setTibberPrices(payload);
@@ -2474,6 +2512,8 @@ function App() {
               applyScene={applyScene} breakScene={breakScene}
               activity={activity}
               spotify={spotify}
+              haClimate={haClimate} haCovers={haCovers} haLocks={haLocks} haScenes={haScenes}
+              hubCommand={hubCommand}
             />
           )}
           {route === 'rooms' && (
@@ -2531,6 +2571,107 @@ function App() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── HA extended-domain cards ──────────────────────────────────────────────────
+// These render when Home Assistant surfaces thermostats, covers, locks, etc.
+// from any ecosystem: Google Home, Apple HomeKit, Matter, Nest, Tado, etc.
+
+/** ThermostatCard — shows current/target temp and mode control. */
+function ThermostatCard({ t, hubCommand }) {
+  const fmtTemp = (v) => v != null ? `${Number(v).toFixed(1)}°` : '—';
+  const step = 0.5;
+  const adjust = (delta) => hubCommand?.('ha', 'call_service', {
+    domain: 'climate', service: 'set_temperature',
+    entity_id: t.id, temperature: (t.targetTemp ?? t.currentTemp ?? 20) + delta,
+  });
+  const cycleMode = () => {
+    const order = ['off', 'heat', 'cool', 'auto', 'heat_cool'];
+    const available = (t.modes?.length ? t.modes : order);
+    const idx = available.indexOf(t.mode);
+    const next = available[(idx + 1) % available.length];
+    hubCommand?.('ha', 'call_service', {
+      domain: 'climate', service: 'set_hvac_mode',
+      entity_id: t.id, hvac_mode: next,
+    });
+  };
+  const modeColor = { heat: 'var(--amber-4)', cool: 'oklch(0.72 0.12 230)', off: 'var(--muted)' };
+  return (
+    <div className="thermostat-card" data-mode={t.mode}>
+      <div className="thermostat-name">{t.name}</div>
+      <div className="thermostat-temps">
+        <span className="thermostat-current">{fmtTemp(t.currentTemp)}</span>
+        <span className="thermostat-arrow">→</span>
+        <span className="thermostat-target">{fmtTemp(t.targetTemp)}</span>
+      </div>
+      <div className="thermostat-controls">
+        <button className="thermo-btn" onClick={() => adjust(-step)} aria-label="Lower" title="−0.5°"><I.Minus size={12} /></button>
+        <button className="thermo-mode" onClick={cycleMode}
+          style={{ color: modeColor[t.mode] || 'var(--muted)' }}
+          title="Cycle mode"
+        >{t.mode}</button>
+        <button className="thermo-btn" onClick={() => adjust(+step)} aria-label="Raise" title="+0.5°"><I.Plus size={12} /></button>
+      </div>
+      {t.hvacAction && t.hvacAction !== 'off' && (
+        <div className="thermostat-action">{t.hvacAction}</div>
+      )}
+    </div>
+  );
+}
+
+/** CoverRow — open/close/stop a blind or curtain. */
+function CoverRow({ cover, hubCommand }) {
+  const cmd = (service) => hubCommand?.('ha', 'call_service', {
+    domain: 'cover', service, entity_id: cover.id,
+  });
+  const setPos = (p) => hubCommand?.('ha', 'call_service', {
+    domain: 'cover', service: 'set_cover_position',
+    entity_id: cover.id, position: p,
+  });
+  const moving = cover.state === 'opening' || cover.state === 'closing';
+  return (
+    <div className="cover-row" data-open={cover.open || undefined} data-moving={moving || undefined}>
+      <I.Blinds size={13} className="cover-icon" />
+      <span className="cover-name">{cover.name}</span>
+      {cover.position != null && (
+        <input type="range" min={0} max={100} value={cover.position}
+          className="cover-slider"
+          onChange={e => setPos(Number(e.target.value))}
+          aria-label={`${cover.name} position`}
+        />
+      )}
+      <div className="cover-btns">
+        <button className="cover-btn" onClick={() => cmd('open_cover')}  title="Open"  disabled={cover.open}><I.ArrowUp   size={12} /></button>
+        {moving && <button className="cover-btn" onClick={() => cmd('stop_cover')}  title="Stop">■</button>}
+        <button className="cover-btn" onClick={() => cmd('close_cover')} title="Close" disabled={!cover.open && cover.position === 0}><I.ArrowDown size={12} /></button>
+      </div>
+    </div>
+  );
+}
+
+/** LockRow — lock / unlock with a visual armed state. */
+function LockRow({ lock, hubCommand }) {
+  const [armed, setArmed] = React.useState(false);
+  const toggle = () => {
+    if (lock.locked) {
+      if (!armed) { setArmed(true); return; }
+      hubCommand?.('ha', 'call_service', { domain: 'lock', service: 'unlock', entity_id: lock.id });
+      setArmed(false);
+    } else {
+      hubCommand?.('ha', 'call_service', { domain: 'lock', service: 'lock', entity_id: lock.id });
+    }
+  };
+  return (
+    <div className="lock-row" data-locked={lock.locked || undefined}>
+      {lock.locked ? <I.Lock size={13} /> : <I.Unlock size={13} />}
+      <span className="lock-name">{lock.name}</span>
+      <span className="lock-state">{lock.state}</span>
+      <button className="lock-btn" onClick={toggle} data-armed={armed || undefined}>
+        {lock.locked ? (armed ? 'Confirm unlock' : 'Unlock') : 'Lock'}
+      </button>
+      {armed && <button className="lock-cancel" onClick={() => setArmed(false)}>Cancel</button>}
+    </div>
+  );
+}
+
 // HomePage — Music + Sound + Lights + Power + Scenes + Activity
 // (extracted from App so each page can render independently)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2545,6 +2686,8 @@ function HomePage({
   applyScene, breakScene,
   activity,
   spotify,
+  haClimate = [], haCovers = [], haLocks = [], haScenes = [],
+  hubCommand,
 }) {
   // Cast-to-room handler for the NowPlaying hero. Two cases:
   // (1) a speaker is already active -> reassert it (no-op behavioral, but the
@@ -2646,6 +2789,42 @@ function HomePage({
           <EmptyIntegration title="No outlets configured" sub="Add Shelly device IPs in Settings → Integrations." />
         )}
       </Section>
+
+      {haClimate.length > 0 && (
+        <Section
+          title="Climate"
+          source={`${haClimate.length} ${haClimate.length === 1 ? 'thermostat' : 'thermostats'} · live`}
+          summary={<>Temperature and HVAC control from Google Nest, Tado, and other HA thermostats</>}
+        >
+          <div className="thermostat-grid">
+            {haClimate.map(t => <ThermostatCard key={t.id} t={t} hubCommand={hubCommand} />)}
+          </div>
+        </Section>
+      )}
+
+      {haCovers.length > 0 && (
+        <Section
+          title="Covers"
+          source={`${haCovers.length} ${haCovers.length === 1 ? 'cover' : 'covers'} · live`}
+          summary={<>Blinds, curtains, and garage doors from any HA-connected platform</>}
+        >
+          <div className="settings-page"><div className="settings-section">
+            {haCovers.map(c => <CoverRow key={c.id} cover={c} hubCommand={hubCommand} />)}
+          </div></div>
+        </Section>
+      )}
+
+      {haLocks.length > 0 && (
+        <Section
+          title="Security"
+          source={`${haLocks.length} ${haLocks.length === 1 ? 'lock' : 'locks'} · live`}
+          summary={<>Smart locks from August, Yale, Nuki, and other HA-connected brands</>}
+        >
+          <div className="settings-page"><div className="settings-section">
+            {haLocks.map(l => <LockRow key={l.id} lock={l} hubCommand={hubCommand} />)}
+          </div></div>
+        </Section>
+      )}
 
       <Section
         title="Scenes"

@@ -3242,3 +3242,152 @@ img.avatar { display: block; }
   .disc-modal { max-height: 90vh; border-radius: 12px; }
   .disc-device-card { flex-wrap: wrap; }
 }
+
+/* ── Climate (thermostat) cards ──────────────────────────────────────────── */
+.thermostat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  padding: 16px 20px;
+}
+.thermostat-card {
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+}
+.thermostat-card[data-mode="heat"] { border-color: color-mix(in oklch, var(--amber-4) 40%, transparent); }
+.thermostat-card[data-mode="cool"] { border-color: color-mix(in oklch, oklch(0.72 0.12 230) 40%, transparent); }
+.thermostat-name {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thermostat-temps {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.thermostat-current {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.thermostat-arrow { color: var(--muted); font-size: 0.75rem; }
+.thermostat-target {
+  font-size: 1rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--amber-4);
+}
+.thermostat-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.thermo-btn {
+  background: var(--surface-3);
+  border: none;
+  border-radius: 5px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+}
+.thermo-btn:hover { background: var(--surface-4); }
+.thermo-mode {
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  text-align: center;
+  padding: 4px 0;
+}
+.thermostat-action {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--amber-4);
+  opacity: 0.8;
+}
+
+/* ── Cover rows (blinds/curtains/garage) ─────────────────────────────────── */
+.cover-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  min-height: 44px;
+}
+.cover-row + .cover-row { border-top: 1px solid var(--border); }
+.cover-icon { color: var(--muted); flex-shrink: 0; }
+.cover-row[data-open] .cover-icon { color: var(--amber-4); }
+.cover-name { flex: 1; font-size: 0.85rem; }
+.cover-slider {
+  width: 80px;
+  accent-color: var(--amber-4);
+  height: 2px;
+}
+.cover-btns { display: flex; gap: 4px; }
+.cover-btn {
+  background: var(--surface-3);
+  border: none;
+  border-radius: 5px;
+  padding: 5px 8px;
+  cursor: pointer;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  font-size: 0.7rem;
+}
+.cover-btn:hover { background: var(--surface-4); }
+.cover-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Lock rows ───────────────────────────────────────────────────────────── */
+.lock-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  min-height: 44px;
+}
+.lock-row + .lock-row { border-top: 1px solid var(--border); }
+.lock-row[data-locked] svg { color: var(--amber-4); }
+.lock-name { flex: 1; font-size: 0.85rem; }
+.lock-state { font-size: 0.7rem; color: var(--muted); text-transform: capitalize; }
+.lock-btn {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  color: var(--fg);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.lock-btn[data-armed] {
+  background: color-mix(in oklch, oklch(0.55 0.2 25) 20%, var(--surface-3));
+  border-color: oklch(0.55 0.2 25);
+  color: oklch(0.85 0.15 25);
+}
+.lock-btn:hover { background: var(--surface-4); }
+.lock-cancel {
+  background: none;
+  border: none;
+  font-size: 0.7rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.lock-cancel:hover { color: var(--fg); }
