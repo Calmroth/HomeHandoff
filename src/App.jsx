@@ -5507,6 +5507,29 @@ function PlejdConfig({ integrations }) {
   // Multi-site picker state (most homes have 1 site, occasionally 2+).
   const [sites, setSites] = useState(null);
   const [pendingSession, setPendingSession] = useState(null);
+  // HA connection test
+  const [haTesting, setHaTesting] = useState(false);
+  const [haTestResult, setHaTestResult] = useState(null);
+
+  const testHaConnection = async () => {
+    const base = (cfg.url || '').trim().replace(/\/$/, '');
+    const tok = (cfg.token || '').trim();
+    if (!base || !tok) return;
+    setHaTesting(true); setHaTestResult(null);
+    try {
+      const res = await fetch(`${base}/api/`, {
+        headers: { Authorization: `Bearer ${tok}` },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json().catch(() => ({}));
+      setHaTestResult({ ok: true, msg: j.message || `Home Assistant ${j.version || 'reachable'}` });
+    } catch (e) {
+      setHaTestResult({ ok: false, msg: e.message || 'Could not reach Home Assistant' });
+    } finally {
+      setHaTesting(false);
+    }
+  };
 
   const doLogin = async () => {
     setErr(null); setLoading(true);
@@ -5624,7 +5647,15 @@ function PlejdConfig({ integrations }) {
         />
         {haConnected && (
           <div className="catalog-actions" style={{ marginTop: 12 }}>
-            <button className="group-toggle" onClick={() => integrations.setIntegration('plejd', { url: '', token: '' })}>Disconnect Home Assistant</button>
+            <button className="group-toggle" onClick={testHaConnection} disabled={haTesting}>
+              {haTesting ? 'Testing…' : 'Test connection'}
+            </button>
+            {haTestResult && (
+              <span style={{ fontSize: 12, color: haTestResult.ok ? 'var(--primary)' : 'var(--destructive)' }}>
+                {haTestResult.ok ? `✓ ${haTestResult.msg}` : `✗ ${haTestResult.msg}`}
+              </span>
+            )}
+            <button className="group-toggle" onClick={() => { integrations.setIntegration('plejd', { url: '', token: '' }); setHaTestResult(null); }}>Disconnect Home Assistant</button>
           </div>
         )}
       </details>
@@ -5976,28 +6007,66 @@ function WeatherConfig({ integrations }) {
   const [lat, setLat] = useState(cfg.lat);
   const [lon, setLon] = useState(cfg.lon);
   const [city, setCity] = useState(cfg.city);
-  useEffect(() => { setLat(cfg.lat); setLon(cfg.lon); setCity(cfg.city); }, [cfg.lat, cfg.lon, cfg.city]);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  useEffect(() => { setLat(cfg.lat); setLon(cfg.lon); setCity(cfg.city); setTestResult(null); }, [cfg.lat, cfg.lon, cfg.city]);
+
   const useMyLocation = () => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition((pos) => {
       setLat(pos.coords.latitude.toFixed(4));
       setLon(pos.coords.longitude.toFixed(4));
+      setTestResult(null);
     });
   };
+
+  const testCoords = async () => {
+    const la = String(lat).trim();
+    const lo = String(lon).trim();
+    if (!la || !lo) return;
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&current=temperature_2m,weather_code`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      const temp = j.current?.temperature_2m;
+      const tz = j.timezone_abbreviation || j.timezone || '';
+      setTestResult({ ok: true, temp, tz });
+    } catch (e) {
+      setTestResult({ ok: false, error: e.message || 'Invalid coordinates or network error' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="catalog-form">
       <p className="catalog-help">
         Weather comes from <a href="https://open-meteo.com" target="_blank" rel="noreferrer">open-meteo.com</a> — free, no API key, CORS-open. Set your latitude / longitude (or click "Use my location") and the city label that shows in the header.
       </p>
       <div className="catalog-add-grid">
-        <input className="settings-input" placeholder="Latitude (59.3293)" value={lat} onChange={e => setLat(e.target.value)} autoComplete="off" />
-        <input className="settings-input" placeholder="Longitude (18.0686)" value={lon} onChange={e => setLon(e.target.value)} autoComplete="off" />
+        <input className="settings-input" placeholder="Latitude (59.3293)" value={lat} onChange={e => { setLat(e.target.value); setTestResult(null); }} autoComplete="off" />
+        <input className="settings-input" placeholder="Longitude (18.0686)" value={lon} onChange={e => { setLon(e.target.value); setTestResult(null); }} autoComplete="off" />
         <input className="settings-input" placeholder="City (Stockholm)" value={city} onChange={e => setCity(e.target.value)} autoComplete="off" />
         <button className="group-toggle" onClick={useMyLocation}>Use my location</button>
       </div>
       <div className="catalog-actions">
+        <button className="group-toggle" onClick={testCoords} disabled={testing || !String(lat).trim() || !String(lon).trim()}>
+          {testing ? 'Testing…' : 'Test'}
+        </button>
         <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('weather', { lat: String(lat).trim(), lon: String(lon).trim(), city: String(city).trim() })}>Save</button>
       </div>
+      {testResult && !testResult.ok && (
+        <p className="catalog-help" style={{ color: 'var(--destructive)', marginTop: 8 }}>{testResult.error}</p>
+      )}
+      {testResult?.ok && (
+        <p className="catalog-help" style={{ color: 'var(--primary)', marginTop: 8 }}>
+          ✓ Open-Meteo responded{testResult.temp != null ? ` — current temp ${testResult.temp}°C` : ''}{testResult.tz ? ` · ${testResult.tz}` : ''}
+        </p>
+      )}
     </div>
   );
 }
@@ -6021,9 +6090,31 @@ function HaSensorsConfig({ integrations }) {
   const [label, setLabel] = useState('');
   const [unit, setUnit] = useState('');
   const [icon, setIcon] = useState('Home');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   const canAdd = id.trim().includes('.') && label.trim();
   const haCredsSet = !!(plejdCfg.url && plejdCfg.token);
+
+  const testHaConnection = async () => {
+    const base = (plejdCfg.url || '').trim().replace(/\/$/, '');
+    const tok = (plejdCfg.token || '').trim();
+    if (!base || !tok) return;
+    setTesting(true); setTestResult(null);
+    try {
+      const res = await fetch(`${base}/api/`, {
+        headers: { Authorization: `Bearer ${tok}` },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json().catch(() => ({}));
+      setTestResult({ ok: true, msg: j.message || `Home Assistant ${j.version || 'reachable'}` });
+    } catch (e) {
+      setTestResult({ ok: false, msg: e.message || 'Could not reach Home Assistant' });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const add = () => {
     if (!canAdd) return;
@@ -6044,6 +6135,18 @@ function HaSensorsConfig({ integrations }) {
         <p className="catalog-help catalog-notice">
           <b>Heads up:</b> set up Plejd first (URL + Home Assistant token) — the sensors share those credentials.
         </p>
+      )}
+      {haCredsSet && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <button className="group-toggle" onClick={testHaConnection} disabled={testing}>
+            {testing ? 'Testing…' : 'Test HA connection'}
+          </button>
+          {testResult && (
+            <span style={{ fontSize: 12, color: testResult.ok ? 'var(--primary)' : 'var(--destructive)' }}>
+              {testResult.ok ? `✓ ${testResult.msg}` : `✗ ${testResult.msg}`}
+            </span>
+          )}
+        </div>
       )}
       {entities.length > 0 && (
         <div className="catalog-list">
