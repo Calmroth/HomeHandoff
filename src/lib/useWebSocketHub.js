@@ -24,8 +24,11 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 
-const HUB_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_HUB_URL)
-  || 'ws://localhost:3001';
+const _secret = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_HUB_SECRET) || '';
+const _base   = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_HUB_URL) || 'ws://localhost:3001';
+const HUB_URL  = _secret
+  ? `${_base}${_base.includes('?') ? '&' : '?'}secret=${encodeURIComponent(_secret)}`
+  : _base;
 
 const PING_INTERVAL = 25_000;  // send a ping every 25 s to keep the connection alive
 const MAX_BACKOFF   = 30_000;  // cap reconnect delay at 30 s

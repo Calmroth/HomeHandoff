@@ -26,6 +26,7 @@
  */
 
 import { WebSocketServer } from 'ws';
+import { isValidSecret } from './auth.js';
 
 const HEARTBEAT_INTERVAL = 30_000;
 
@@ -42,7 +43,7 @@ export class WssHub {
     this._commandHandlers = new Map();
 
     this._wss = new WebSocketServer({ server: httpServer });
-    this._wss.on('connection', (ws) => this._onConnection(ws));
+    this._wss.on('connection', (ws, req) => this._onConnection(ws, req));
     this._startHeartbeat();
 
     console.log('[hub:wss] WebSocket server attached');
@@ -100,7 +101,13 @@ export class WssHub {
 
   // ── Internal ─────────────────────────────────────────────────────────────
 
-  _onConnection(ws) {
+  _onConnection(ws, req) {
+    const url = new URL(req.url, 'ws://localhost');
+    if (!isValidSecret(url.searchParams.get('secret') || '')) {
+      ws.close(4001, 'Unauthorized');
+      console.warn('[hub:wss] rejected unauthenticated connection');
+      return;
+    }
     ws.isAlive = true;
     this._clients.add(ws);
     console.log(`[hub:wss] client connected (total: ${this._clients.size})`);

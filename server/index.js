@@ -23,6 +23,7 @@ import express from 'express';
 import cors from 'cors';
 import { HubState } from './lib/state.js';
 import { WssHub } from './lib/wss.js';
+import { requireSecret } from './lib/auth.js';
 
 // ── Env ───────────────────────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ app.use('/api/plejd', async (req, res) => {
  *
  * POST /command  { integration, action, params }
  */
-app.post('/command', async (req, res) => {
+app.post('/command', requireSecret(), async (req, res) => {
   const { integration, action, params } = req.body || {};
   if (!integration || !action) {
     return res.status(400).json({ ok: false, error: 'integration and action are required' });
@@ -128,7 +129,7 @@ app.post('/command', async (req, res) => {
 });
 
 /** Trigger a LAN scan and return results as JSON (for debugging/testing). */
-app.post('/scan', async (req, res) => {
+app.post('/scan', requireSecret(), async (req, res) => {
   const { subnet = '192.168.1' } = req.body || {};
   const { scanLAN } = await import('./lib/discovery/lan-scan.js');
   const found = [];
