@@ -2180,6 +2180,54 @@ img.avatar { display: block; }
   .rooms-grid { grid-template-columns: 1fr; }
 }
 
+/* Room filter strip — horizontal scrollable pill bar above the rooms grid.
+   Pills are derived from Plejd's room configuration, not hardcoded. */
+.room-filter {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.room-filter::-webkit-scrollbar { display: none; }
+.room-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  background: transparent;
+  transition: color var(--motion-duration-fast), border-color var(--motion-duration-fast), background var(--motion-duration-fast);
+}
+.room-filter-pill:hover { color: var(--foreground); border-color: var(--border-strong); }
+.room-filter-pill[data-active="true"] {
+  background: color-mix(in oklch, var(--amber-400) 18%, transparent);
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--amber-400) 35%, transparent);
+}
+.room-filter-pill-count {
+  font-size: 10px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+.room-filter-pill[data-active="true"] .room-filter-pill-count { opacity: 0.85; }
+
+/* Plejd room label shown on device cards when "All rooms" is selected */
+.rooms-room-group {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+}
+
 /* Persistent music player -- the Spotify iframe is mounted once at App level
    and positioned via fixed coords. On the Music page it overlays the anchor
    div (full size, visible). Off the Music page it's stashed off-screen so

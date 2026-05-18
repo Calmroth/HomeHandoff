@@ -1862,6 +1862,7 @@ function App() {
           const lights = devices.filter(d => !isPlug(d)).map(d => ({
             id: d.id,
             name: d.title,
+            room: d.room || '',  // Plejd room grouping (e.g. "Kitchen") — used by the room filter menu
             bulbs: 1,
             on: !!d.isOn,
             brightness: typeof d.dim === 'number' ? Math.round((d.dim / 255) * 100) : (d.isOn ? 100 : 0),
@@ -2465,6 +2466,7 @@ function App() {
               toggleSpeaker={toggleSpeaker} setVolume={setVolume}
               activeScene={activeScene} activeSceneAt={activeSceneAt} now={now}
               applyScene={applyScene} breakScene={breakScene}
+              plejdScenes={plejdScenes} activatePlejdScene={activatePlejdScene}
               activity={activity}
               spotify={spotify}
               sendingIds={sendingIds} failedIds={failedIds} failedCommands={failedCommands}
@@ -2559,6 +2561,7 @@ function HomePage({
   toggleSpeaker, setVolume,
   activeScene, activeSceneAt, now,
   applyScene, breakScene,
+  plejdScenes = [], activatePlejdScene,
   activity,
   spotify,
   sendingIds, failedIds, failedCommands,
@@ -3576,9 +3579,39 @@ const ROOM_SCENES = [
 ];
 
 function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene, activeScene, plejdScenes = [], activatePlejdScene }) {
-  const onCount = rooms.filter(r => r.on).length;
+  const onCount    = rooms.filter(r => r.on).length;
   const totalBulbs = rooms.reduce((a, r) => a + r.bulbs, 0);
   const litBulbs   = rooms.reduce((a, r) => a + (r.on ? r.bulbs : 0), 0);
+
+  // Room filter menu — unique group labels derived from live Plejd data.
+  // For hub-pushed cards, r.name IS the room (no r.room set).
+  // For direct-cloud devices, r.room is the Plejd room name.
+  const [selectedRoom, setSelectedRoom] = useState(null); // null = All
+
+  const roomGroups = useMemo(() => {
+    const labels = new Set();
+    rooms.forEach(r => { if (r.room || r.name) labels.add(r.room || r.name); });
+    return Array.from(labels).sort();
+  }, [rooms]);
+
+  // Reset selection if the chosen room disappears (e.g. Plejd refresh).
+  useEffect(() => {
+    if (selectedRoom && !roomGroups.includes(selectedRoom)) setSelectedRoom(null);
+  }, [roomGroups, selectedRoom]);
+
+  const visibleRooms = selectedRoom
+    ? rooms.filter(r => (r.room || r.name) === selectedRoom)
+    : rooms;
+
+  const visOnCount    = visibleRooms.filter(r => r.on).length;
+  const visTotalBulbs = visibleRooms.reduce((a, r) => a + r.bulbs, 0);
+  const visLitBulbs   = visibleRooms.reduce((a, r) => a + (r.on ? r.bulbs : 0), 0);
+
+  // Toggle all lights in the active filter selection.
+  const toggleAllVisible = useCallback(() => {
+    const anyOn = visibleRooms.some(r => r.on);
+    visibleRooms.forEach(r => { if (anyOn ? r.on : !r.on) toggleRoom(r.id); });
+  }, [visibleRooms, toggleRoom]);
 
   // Helper: apply a per-room "scene" (just sets brightness, optionally turns
   // the room off). Keeps the existing room API; doesn't introduce a new
@@ -3609,23 +3642,64 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene,
       <Section
         title="Rooms"
         source="lights · live"
-        summary={<><b>{onCount}</b> of <b>{rooms.length}</b> rooms · <b>{litBulbs}</b> of <b>{totalBulbs}</b> bulbs lit</>}
+        summary={<>
+          <b>{visOnCount}</b> of <b>{visibleRooms.length}</b> {selectedRoom ? `lights in ${selectedRoom}` : 'rooms'}
+          {' · '}<b>{visLitBulbs}</b> of <b>{visTotalBulbs}</b> bulbs lit
+        </>}
       >
         <div className="stack">
+          {/* Room filter strip — pills derived from Plejd room configuration */}
+          {roomGroups.length > 1 && (
+            <div className="room-filter" role="toolbar" aria-label="Filter by room">
+              <button
+                className="room-filter-pill"
+                data-active={selectedRoom === null}
+                onClick={() => setSelectedRoom(null)}
+              >
+                All rooms
+                <span className="room-filter-pill-count">{onCount}/{rooms.length}</span>
+              </button>
+              {roomGroups.map(group => {
+                const groupRooms = rooms.filter(r => (r.room || r.name) === group);
+                const groupOn    = groupRooms.filter(r => r.on).length;
+                return (
+                  <button
+                    key={group}
+                    className="room-filter-pill"
+                    data-active={selectedRoom === group}
+                    onClick={() => setSelectedRoom(g => g === group ? null : group)}
+                  >
+                    {group}
+                    <span className="room-filter-pill-count">{groupOn}/{groupRooms.length}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="master">
             <div>
-              <div className="master-title">All rooms</div>
-              <div className="master-sub">{litBulbs} bulbs lit across {onCount} rooms</div>
+              <div className="master-title">{selectedRoom ?? 'All rooms'}</div>
+              <div className="master-sub">
+                {visLitBulbs} bulbs lit · {visOnCount} of {visibleRooms.length} on
+              </div>
             </div>
-            <div className="master-count mono">{onCount}/{rooms.length}</div>
-            <HoldToggle on={onCount > 0} onToggle={() => setAllLights(onCount === 0)} ariaLabel="Toggle every room" />
+            <div className="master-count mono">{visOnCount}/{visibleRooms.length}</div>
+            <HoldToggle
+              on={visOnCount > 0}
+              onToggle={selectedRoom ? toggleAllVisible : () => setAllLights(visOnCount === 0)}
+              ariaLabel={`Toggle ${selectedRoom ?? 'every room'}`}
+            />
           </div>
           <div className="rooms-grid">
-            {rooms.map(r => (
+            {visibleRooms.map(r => (
               <div key={r.id} className="rooms-room" data-on={r.on}>
                 <div className="rooms-room-head">
                   <div>
                     <div className="rooms-room-name">{r.name}</div>
+                    {!selectedRoom && r.room && (
+                      <div className="rooms-room-group">{r.room}</div>
+                    )}
                     <span className="bulb-pill">
                       <span className="dot-on" />
                       {r.bulbs} {r.bulbs === 1 ? 'bulb' : 'bulbs'}
