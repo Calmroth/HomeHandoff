@@ -5926,8 +5926,17 @@ function PlejdConfig({ integrations }) {
       const siteNames = sites.map(s => s.title).join(', ') || cfg.cloudSiteTitle || 'site';
       setSessionTestResult({ ok: true, msg: `Session valid · ${siteNames}` });
     } catch (e) {
-      const expired = /unauthorized|session|expired/i.test(String(e.message || e));
-      setSessionTestResult({ ok: false, msg: expired ? 'Session expired — sign in again' : String(e.message || e).slice(0, 60) });
+      const msg = String(e.message || e);
+      const isExpired = /unauthorized|session|expired/i.test(msg);
+      const isProxyErr = /proxy error/i.test(msg);
+      const is5xx = /HTTP 5\d\d/.test(msg);
+      setSessionTestResult({
+        ok: false,
+        msg: isExpired  ? 'Session expired — sign out and sign in again'
+           : isProxyErr ? 'Cannot reach Plejd cloud — check network connection'
+           : is5xx      ? 'Plejd server error — sign out and sign in again to refresh your session'
+           : msg.slice(0, 80),
+      });
     } finally {
       setSessionTesting(false);
     }

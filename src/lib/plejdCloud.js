@@ -47,9 +47,16 @@ function parseHeaders(sessionToken) {
 // Best-effort error text extraction -- Plejd's parse errors have a `code`
 // and `error` field; passing those through helps the user understand
 // "wrong password" vs "rate limited" vs "server down".
+// Reads body as text first so we can detect Vite proxy HTML error pages
+// (which aren't JSON and would cause json() to throw, losing the status).
 async function parsedError(res) {
   try {
-    const j = await res.json();
+    const text = await res.text();
+    if (text.trimStart().startsWith('<')) {
+      // Vite dev proxy returns an HTML error page when it can't reach cloud.plejd.com
+      return `Plejd proxy error [HTTP ${res.status}]`;
+    }
+    const j = JSON.parse(text);
     if (j?.error) return `${j.error}${j.code ? ` (code ${j.code})` : ''} [HTTP ${res.status}]`;
   } catch {}
   return `Plejd HTTP ${res.status}`;

@@ -12,18 +12,20 @@ See: `.planning/PROJECT.md` (updated 2026-05-18)
 **Phase:** 1 of 5
 **Phase name:** Security Hardening
 **Phase goal:** Secure all credentials and API endpoints before deploying publicly or adding new integrations.
-**Phase status:** Not started
+**Phase status:** Planned — ready to execute
 
 ## Phase Progress
 
-### Phase 1: Security Hardening — NOT STARTED
+### Phase 1: Security Hardening — PLANNED
 
 Requirements: SEC-01, SEC-02, SEC-03, SEC-04
 
 Plans:
-- [ ] 1-1: Hub authentication
-- [ ] 1-2: Token migration
-- [ ] 1-3: Plejd production proxy + env var audit
+- [ ] 1-1: Hub authentication — `01-01-PLAN.md`
+- [ ] 1-2: Token migration — `01-02-PLAN.md`
+- [ ] 1-3: Plejd production proxy + env var audit — `01-03-PLAN.md`
+
+Research: `01-RESEARCH.md` (completed 2026-05-18)
 
 ### Phase 2: Reliability & Architecture — PENDING
 
@@ -46,6 +48,7 @@ Requirements: OB-01, OB-02
 | Date | Action | Notes |
 |------|--------|-------|
 | 2026-05-18 | Project initialized | Brownfield codebase mapped; PROJECT.md, REQUIREMENTS.md, ROADMAP.md created |
+| 2026-05-18 | Phase 1 planned | Research + 3 plan files written; Plejd 500 error fixed (proxy HTML detection + better error messages) |
 
 ---
-*State last updated: 2026-05-18 after initialization*
+*State last updated: 2026-05-18 after Phase 1 planning*
