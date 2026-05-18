@@ -161,7 +161,7 @@ export async function listSecrets() {
 // On first run after the Vite migration, copy them into the secure store
 // and clear the originals. Idempotent: a flag in IDB marks completion.
 
-const MIGRATION_FLAG = '__migrated_from_localstorage_v1__';
+const MIGRATION_FLAG = '__migrated_from_localstorage_v2__';
 
 const MIGRATE_KEYS = [
   { src: 'hdg-sp-token',     dst: 'spotify.token' },
@@ -181,9 +181,7 @@ export async function migrateFromLocalStorage() {
       try {
         const value = JSON.parse(raw);
         await setSecret(dst, value);
-        // We deliberately keep the legacy localStorage entries in place for
-        // one release cycle so an interrupted migration is recoverable. A
-        // later release can delete them outright.
+        localStorage.removeItem(src); // clear plaintext original after confirmed write
         count++;
       } catch (e) {
         // Non-JSON value (shouldn't happen for these keys) -- skip rather
