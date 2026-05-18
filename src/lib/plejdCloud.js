@@ -26,7 +26,13 @@
 const PLEJD_APP_ID = 'zHtVqXt8k4yFyk2QGmgp48D9xZr2G94xWYnF4dak';
 
 // Base path -- when running under Vite dev, this is /api/plejd (rewritten by
-// the proxy). For prod deploys with a different proxy path, change here.
+// the proxy to cloud.plejd.com). For prod deploys with a different proxy
+// path, change here. See vite.config.js server.proxy.
+//
+// Note: auth.api.plejd.cloud (the newer auth host) requires a proprietary
+// app-level token embedded in the Plejd mobile binary before it accepts
+// user credentials. cloud.plejd.com/parse/login is the stable public path
+// used by all known third-party integrations and does not have that gate.
 const BASE = '/api/plejd';
 
 function parseHeaders(sessionToken) {

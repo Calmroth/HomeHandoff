@@ -58,6 +58,10 @@ export default defineConfig({
     // SETUP_CERT.md.
     
     proxy: {
+      // Plejd cloud API — login, site list, device discovery, sendStateToDevice.
+      // All routes through cloud.plejd.com (Parse server).
+      // sendStateToDevice routes commands to the GWY-01 via its persistent
+      // Plejd-cloud connection; the GWY-01 executes the BLE command locally.
       '/api/plejd': {
         target: 'https://cloud.plejd.com',
         changeOrigin: true,

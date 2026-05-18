@@ -701,6 +701,38 @@ const NAV_ITEMS = [
   { id: 'news',     label: 'News',     Icon: I.News },
 ];
 
+// Bottom nav shows the five daily-control destinations on mobile (≤720px).
+// Weather and News are sidebar-only; they're informational, not control pages.
+const BOTTOM_NAV_ITEMS = [
+  { id: 'home',     label: 'Home',     Icon: I.Home },
+  { id: 'rooms',    label: 'Rooms',    Icon: I.Light },
+  { id: 'music',    label: 'Music',    Icon: I.Music },
+  { id: 'energy',   label: 'Energy',   Icon: I.Zap },
+  { id: 'settings', label: 'Settings', Icon: I.Settings },
+];
+
+function BottomNav({ route, onNavigate }) {
+  return (
+    <nav className="bottom-nav" aria-label="Main navigation">
+      {BOTTOM_NAV_ITEMS.map(item => {
+        const Ic = item.Icon;
+        const active = route === item.id;
+        return (
+          <button
+            key={item.id}
+            className="bottom-nav-item"
+            onClick={() => onNavigate(item.id)}
+            aria-current={active ? 'page' : undefined}
+          >
+            <Ic size={22} strokeWidth={active ? 2 : 1.5} />
+            <span className="bottom-nav-label">{item.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function Sidebar({ route, onNavigate, google }) {
   return (
     <aside className="sidebar">
@@ -1859,15 +1891,53 @@ function App() {
           // `type` field from Plejd tells us whether a device is dimmable
           // (Light/Dimmer) or just on/off (Relay/Switch).
           const isPlug = (d) => /relay|outlet|plug|switch/i.test(d.type || '');
-          const lights = devices.filter(d => !isPlug(d)).map(d => ({
-            id: d.id,
-            name: d.title,
-            room: d.room || '',  // Plejd room grouping (e.g. "Kitchen") — used by the room filter menu
-            bulbs: 1,
-            on: !!d.isOn,
-            brightness: typeof d.dim === 'number' ? Math.round((d.dim / 255) * 100) : (d.isOn ? 100 : 0),
-            _cloudDevice: d, // discriminator for toggleRoom dispatch
-          }));
+          // Group devices by their user-configured Plejd room name so the
+          // dashboard shows "Kitchen", "Bedroom", etc. — exactly as the user
+          // named them in the Plejd app — not individual device IDs or model
+          // names. Devices with no room assignment appear as individual cards.
+          const roomGroups = new Map();
+          const ungrouped = [];
+          devices.filter(d => !isPlug(d)).forEach(d => {
+            if (d.room) {
+              if (!roomGroups.has(d.room)) roomGroups.set(d.room, []);
+              roomGroups.get(d.room).push(d);
+            } else {
+              ungrouped.push(d);
+            }
+          });
+          const mkRoomCard = (roomName, devs) => {
+            const litDevs = devs.filter(d => d.isOn);
+            const avgBrightness = litDevs.length
+              ? Math.round(litDevs.reduce((a, d) =>
+                  a + (typeof d.dim === 'number' ? Math.round((d.dim / 255) * 100) : 100), 0) / litDevs.length)
+              : 0;
+            return {
+              id: `plejd-room:${roomName}`,
+              name: roomName,                 // user-set Plejd room name
+              room: roomName,
+              bulbs: devs.length,
+              on: devs.some(d => d.isOn),
+              brightness: avgBrightness,
+              dimmable: devs.some(d => d.dimmable !== false),
+              _cloudDevices: devs,            // all devices in this room
+              _cloudDevice: devs[0],          // primary (for undo/hub compat)
+            };
+          };
+          const lights = [
+            ...Array.from(roomGroups.entries()).map(([name, devs]) => mkRoomCard(name, devs)),
+            // ungrouped devices fall through as individual cards using their
+            // user-set output name (out0.name → d.title)
+            ...ungrouped.map(d => ({
+              id: d.id,
+              name: d.title,
+              room: '',
+              bulbs: 1,
+              on: !!d.isOn,
+              brightness: typeof d.dim === 'number' ? Math.round((d.dim / 255) * 100) : (d.isOn ? 100 : 0),
+              dimmable: d.dimmable !== false,
+              _cloudDevice: d,
+            })),
+          ];
           const plugs = devices.filter(isPlug).map(d => ({
             id: d.id,
             name: d.title,
@@ -1883,7 +1953,8 @@ function App() {
             const shellyOrHaOnly = (prev || []).filter(o => (o.ip || o._entity) && !o._cloudDevice);
             return [...shellyOrHaOnly, ...plugs];
           });
-          useHomeStore.getState().markOk('plejd', `${lights.length} lights · ${plugs.length} plugs · ${cfg.cloudSiteTitle || 'Plejd cloud'}`);
+          const lightDeviceCount = devices.filter(d => !isPlug(d)).length;
+          useHomeStore.getState().markOk('plejd', `${lights.length} rooms · ${lightDeviceCount} lights · ${plugs.length} plugs · ${cfg.cloudSiteTitle || 'Plejd cloud'}`);
           schedule();
         })
         .catch(e => {
@@ -2152,9 +2223,11 @@ function App() {
     }
     // Plejd cloud path: works only if the user has a Plejd Hub paired. If
     // sendStateToDevice fails, revert + surface "needs Hub" honestly.
-    if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
+    // _cloudDevices is set for grouped room cards; _cloudDevice for single-device compat.
+    if (cfg?.cloudSession && cfg?.cloudSiteId && (r._cloudDevices || r._cloudDevice)) {
       setCardSending(r.id);
-      plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: next })
+      const devs = r._cloudDevices || [r._cloudDevice];
+      Promise.all(devs.map(d => plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: d.id, on: next })))
         .catch(e => {
           setCardFailed(r.id, () => toggleRoom(id));
           setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
@@ -2175,9 +2248,10 @@ function App() {
       hubCommand('plejd', 'dim', { deviceId: r._cloudDevice.id, brightness: b });
       return;
     }
-    if (cfg?.cloudSession && cfg?.cloudSiteId && r._cloudDevice) {
+    if (cfg?.cloudSession && cfg?.cloudSiteId && (r._cloudDevices || r._cloudDevice)) {
       const dim255 = Math.round((b / 100) * 255);
-      plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: r._cloudDevice.id, on: b > 0, dim: dim255 })
+      const devs = r._cloudDevices || [r._cloudDevice];
+      Promise.all(devs.map(d => plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: d.id, on: b > 0, dim: dim255 })))
         .catch(e => {
           setCardFailed(r.id);
           logActivity('light', `**Needs Plejd Hub** — dim reverted (${String(e.message || e).slice(0, 40)})`);
@@ -2420,6 +2494,7 @@ function App() {
   return (
     <div className="app">
       <Sidebar route={route} onNavigate={navigate} google={google} />
+      <BottomNav route={route} onNavigate={navigate} />
       <PersistentMusicPlayer attach={embed.attach} isOnMusic={route === 'music'} />
       <main className="main">
         <div className="page-stack">

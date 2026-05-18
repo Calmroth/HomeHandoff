@@ -273,6 +273,25 @@ img.avatar { display: block; }
 .account-name { font-size: 13px; font-weight: 500; transition: color var(--motion-duration-fast); }
 .account-email { font-size: 11px; color: var(--muted-foreground); }
 
+/* Bottom navigation -- mobile replacement for sidebar (≤720px only).
+   Fixed to viewport bottom; uses the same clay surface and blur as the
+   sidebar so the two look like one system at different breakpoints. */
+.bottom-nav { display: none; }
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 4px;
+  color: var(--muted-foreground);
+  min-height: 44px;
+  transition: color var(--motion-duration-fast);
+}
+.bottom-nav-item[aria-current="page"] { color: var(--primary); }
+.bottom-nav-label { font-size: 10px; font-weight: 500; letter-spacing: 0.03em; }
+
 /* Main */
 .main {
   padding: 8px var(--page-pad-x) var(--page-pad-y);
@@ -3211,6 +3230,32 @@ img.avatar { display: block; }
 @media (max-width: 720px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { display: none; }
+
+  /* Bottom nav replaces sidebar. Height 56px + iOS home-indicator safe area. */
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    align-items: stretch;
+    background-color: var(--sidebar);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border-top: 1px solid var(--border);
+    z-index: 45;
+  }
+
+  /* Push page content above the bottom nav */
+  .main {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px) + var(--page-pad-y));
+  }
+
+  /* Undo chip floats above the bottom nav, not behind it */
+  .undo-chip {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 56px + 12px);
+  }
+
   .lights-grid { grid-template-columns: 1fr; }
   .sound-grid { grid-template-columns: 1fr; }
   .speaker-grid { grid-template-columns: 1fr; }
