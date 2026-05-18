@@ -5098,43 +5098,43 @@ const BRAND_LOGOS = {
 // ─────────────────────────────────────────────────────────────────────────────
 const INTEGRATION_CATALOG = [
   {
-    id: 'plejd', name: 'Plejd lights', icon: 'Light', kind: 'Plejd account',
+    id: 'plejd', name: 'Plejd lights', icon: 'Light', kind: 'Sign in required',
     tagline: 'Wireless lights and dimmers, made in Sweden.',
     keywords: ['plejd', 'lights', 'bulbs', 'lighting', 'sign in', 'account'],
     status: (i) => (i.config.plejd?.cloudSession || (i.config.plejd?.url && i.config.plejd?.token)) ? 'configured' : 'not-configured',
   },
   {
-    id: 'sonos', name: 'Sonos speakers', icon: 'Speaker', kind: 'LAN bridge',
+    id: 'sonos', name: 'Sonos speakers', icon: 'Speaker', kind: 'Local network',
     tagline: 'Multi-room speakers, all zones in sync.',
     keywords: ['sonos', 'speakers', 'audio', 'multi-room', 'sound'],
     status: (i) => i.config.sonos?.url ? 'configured' : 'not-configured',
   },
   {
-    id: 'shelly', name: 'Shelly outlets', icon: 'Plug', kind: 'LAN devices',
+    id: 'shelly', name: 'Shelly outlets', icon: 'Plug', kind: 'Local network',
     tagline: 'Smart plugs with live power readings.',
     keywords: ['shelly', 'outlets', 'plugs', 'power', 'switches'],
     status: (i) => (i.config.shelly?.devices?.length ?? 0) > 0 ? 'configured' : 'not-configured',
   },
   {
-    id: 'spotify', name: 'Spotify', icon: 'Music', kind: 'Cloud OAuth',
+    id: 'spotify', name: 'Spotify', icon: 'Music', kind: 'Personal sign-in',
     tagline: 'Music streaming for every household member.',
     keywords: ['spotify', 'music', 'playback', 'streaming'],
     status: (i, sp) => sp?.token ? 'configured' : (sp?.clientId ? 'partial' : 'not-configured'),
   },
   {
-    id: 'tibber', name: 'Tibber energy', icon: 'Zap', kind: 'Cloud token',
+    id: 'tibber', name: 'Tibber energy', icon: 'Zap', kind: 'API token',
     tagline: 'Live electricity prices, Nordic power grid.',
     keywords: ['tibber', 'energy', 'price', 'electricity', 'nordic'],
     status: (i) => i.config.tibber?.token ? 'configured' : 'not-configured',
   },
   {
-    id: 'weather', name: 'Local weather', icon: 'Cloud', kind: 'Cloud, no key',
+    id: 'weather', name: 'Local weather', icon: 'Cloud', kind: 'No account needed',
     tagline: 'Local forecast, no account needed.',
     keywords: ['weather', 'forecast', 'open-meteo', 'temperature', 'rain'],
     status: (i) => i.config.weather?.lat && i.config.weather?.lon ? 'configured' : 'default',
   },
   {
-    id: 'ha-sensors', name: 'Home Assistant sensors', icon: 'Home', kind: 'LAN bridge (HA)',
+    id: 'ha-sensors', name: 'Home Assistant sensors', icon: 'Home', kind: 'Home Assistant',
     tagline: 'Dashboard tiles from any Home Assistant entity.',
     keywords: ['sensors', 'home assistant', 'ha', 'temperature', 'motion', 'door', 'entities', 'plejd', 'hass'],
     status: (i) => (i.config.ha?.entities?.length ?? 0) > 0 ? 'configured' : 'not-configured',
@@ -5914,6 +5914,24 @@ function PlejdConfig({ integrations }) {
   // HA connection test
   const [haTesting, setHaTesting] = useState(false);
   const [haTestResult, setHaTestResult] = useState(null);
+  // Plejd cloud session test (verify stored token is still valid)
+  const [sessionTesting, setSessionTesting] = useState(false);
+  const [sessionTestResult, setSessionTestResult] = useState(null);
+
+  const testPlejdSession = async () => {
+    if (!cfg.cloudSession) return;
+    setSessionTesting(true); setSessionTestResult(null);
+    try {
+      const sites = await plejdFetchSites(cfg.cloudSession);
+      const siteNames = sites.map(s => s.title).join(', ') || cfg.cloudSiteTitle || 'site';
+      setSessionTestResult({ ok: true, msg: `Session valid · ${siteNames}` });
+    } catch (e) {
+      const expired = /unauthorized|session|expired/i.test(String(e.message || e));
+      setSessionTestResult({ ok: false, msg: expired ? 'Session expired — sign in again' : String(e.message || e).slice(0, 60) });
+    } finally {
+      setSessionTesting(false);
+    }
+  };
 
   const testHaConnection = async () => {
     const base = (cfg.url || '').trim().replace(/\/$/, '');
@@ -5989,6 +6007,14 @@ function PlejdConfig({ integrations }) {
           Cloud sign-in gives the dashboard <b>read access</b> to your device names, rooms, and state. <b>Toggle control</b> requires a <a href="https://www.plejd.com/products/gwy-01" target="_blank" rel="noreferrer">Plejd GWY-01 gateway</a> paired to your installation — it bridges cloud commands to the local BLE mesh. Without GWY-01, the dashboard shows your rooms accurately but tiles are read-only; the Plejd app on your phone remains the control surface.
         </p>
         <div className="catalog-actions" style={{ marginTop: 12 }}>
+          <button className="group-toggle" onClick={testPlejdSession} disabled={sessionTesting}>
+            {sessionTesting ? 'Testing…' : 'Test connection'}
+          </button>
+          {sessionTestResult && (
+            <span style={{ fontSize: 12, color: sessionTestResult.ok ? 'var(--primary)' : 'var(--destructive)' }}>
+              {sessionTestResult.ok ? `✓ ${sessionTestResult.msg}` : `✗ ${sessionTestResult.msg}`}
+            </span>
+          )}
           <button className="group-toggle" onClick={disconnectCloud}>Sign out of Plejd</button>
         </div>
       </div>
@@ -6176,6 +6202,28 @@ function ShellyConfig({ integrations }) {
   const [ip, setIp] = useState('');
   const [name, setName] = useState('');
   const [room, setRoom] = useState('');
+  // Per-device test state: { [ip]: { testing: bool, ok: bool|null, msg: string } }
+  const [deviceTests, setDeviceTests] = useState({});
+
+  const testDevice = async (deviceIp) => {
+    setDeviceTests(t => ({ ...t, [deviceIp]: { testing: true, ok: null, msg: '' } }));
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 3000);
+      let r = await fetch(`http://${deviceIp}/rpc/Shelly.GetDeviceInfo`, { signal: ctrl.signal }).catch(() => null);
+      if (!r?.ok) r = await fetch(`http://${deviceIp}/shelly`, { signal: ctrl.signal }).catch(() => null);
+      clearTimeout(timer);
+      if (r?.ok) {
+        const j = await r.json().catch(() => null);
+        const model = j?.model || j?.type || 'Shelly';
+        setDeviceTests(t => ({ ...t, [deviceIp]: { testing: false, ok: true, msg: model } }));
+      } else {
+        setDeviceTests(t => ({ ...t, [deviceIp]: { testing: false, ok: false, msg: 'Not reachable' } }));
+      }
+    } catch {
+      setDeviceTests(t => ({ ...t, [deviceIp]: { testing: false, ok: false, msg: 'Not reachable' } }));
+    }
+  };
 
   const addDevice = (dev) => {
     const next = [...(cfg.devices || []), { id: dev.id || `shelly-${Date.now().toString(36)}`, name: dev.name, ip: dev.ip, room: dev.room || '', icon: dev.icon || 'Plug', alwaysOn: false }];
@@ -6212,12 +6260,27 @@ function ShellyConfig({ integrations }) {
       </p>
       {(cfg.devices || []).length > 0 && (
         <div className="catalog-list">
-          {(cfg.devices || []).map((d, i) => (
-            <div key={i} className="catalog-list-row">
-              <span><b>{d.name}</b> <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{d.ip}</span> {d.room && <>· {d.room}</>}</span>
-              <button className="group-toggle" onClick={() => removeDevice(i)}>Remove</button>
-            </div>
-          ))}
+          {(cfg.devices || []).map((d, i) => {
+            const t = deviceTests[d.ip];
+            return (
+              <div key={i} className="catalog-list-row">
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <b>{d.name}</b>{' '}
+                  <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{d.ip}</span>
+                  {d.room && <> · {d.room}</>}
+                  {t && !t.testing && (
+                    <span style={{ marginLeft: 8, fontSize: 11, color: t.ok ? 'var(--primary)' : 'var(--destructive)' }}>
+                      {t.ok ? `✓ ${t.msg}` : `✗ ${t.msg}`}
+                    </span>
+                  )}
+                </span>
+                <button className="group-toggle" onClick={() => testDevice(d.ip)} disabled={t?.testing}>
+                  {t?.testing ? '…' : 'Test'}
+                </button>
+                <button className="group-toggle" onClick={() => removeDevice(i)}>Remove</button>
+              </div>
+            );
+          })}
         </div>
       )}
       <div className="catalog-add-grid">
