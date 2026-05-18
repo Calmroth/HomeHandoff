@@ -102,12 +102,31 @@ async function fetchSiteDetails(sessionToken, siteId) {
   console.log('[hub:plejd] cryptoKey paths: plejdMesh=', !!detail.plejdMesh?.cryptoKey,
     'site=', !!detail.site?.cryptoKey, 'root=', !!detail.cryptoKey);
 
-  // Room name lookup — index by BOTH roomId and objectId so either reference works
+  // Room name lookup — index by BOTH roomId and objectId so either reference works.
+  // getSiteById sometimes returns rooms as Parse pointers {__type:'Pointer', objectId}
+  // with no title field. In that case we fall back to a direct /parse/classes/Room query.
   const roomNames = new Map();
   for (const r of (detail.rooms || [])) {
-    const title = r.title || r.name || r.roomId || r.objectId;
-    if (r.roomId)   roomNames.set(r.roomId,   title);
+    const title = r.title || r.name || r.roomTitle || r.roomName || null;
     if (r.objectId) roomNames.set(r.objectId, title);
+    if (r.roomId && r.roomId !== r.objectId) roomNames.set(r.roomId, title);
+  }
+
+  // If all (or any) rooms came back without a title, fetch full Room objects directly
+  const missingTitles = roomNames.size === 0 || [...roomNames.values()].some(v => !v);
+  if (missingTitles) {
+    try {
+      const roomsJ = await plejdFetch('/parse/classes/Room', { sessionToken });
+      for (const r of (roomsJ.results || [])) {
+        const title = r.title || r.name || null;
+        if (r.objectId) roomNames.set(r.objectId, title || roomNames.get(r.objectId) || null);
+        if (r.roomId)   roomNames.set(r.roomId,   title || roomNames.get(r.roomId)   || null);
+      }
+      console.log('[hub:plejd] Room titles (direct fetch):',
+        [...new Set(roomNames.values())].filter(Boolean).join(', ') || '(none found)');
+    } catch (e) {
+      console.warn('[hub:plejd] Could not fetch room titles directly:', e.message);
+    }
   }
 
   // BLE address lookup — try deviceAddresses first, then outputAddress
@@ -136,8 +155,9 @@ async function fetchSiteDetails(sessionToken, siteId) {
   const devices = [];
   for (const d of (detail.plejdDevices || detail.devices || [])) {
     const objectId = d.objectId || String(d.deviceId ?? '');
-    const roomId   = d.roomId || null;
-    const room     = (roomId ? roomNames.get(roomId) : '') || d.room || '';
+    const roomId   = d.roomId || (typeof d.room === 'object' ? d.room?.objectId : null) || null;
+    const roomTitle = roomId ? (roomNames.get(roomId) || null) : null;
+    const room     = roomTitle || (typeof d.room === 'string' ? d.room : '') || '';
     const bleAddr  = deviceBleAddr.get(objectId);
 
     // Per-device outputSettings (nested) or matched from top-level list

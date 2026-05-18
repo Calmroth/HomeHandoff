@@ -112,6 +112,10 @@ export async function plejdFetchDevices({ sessionToken, siteId }) {
   const j = await res.json();
   // getSiteById returns result as an array; getSiteDetails returned a plain object
   const detail = (Array.isArray(j.result) ? j.result[0] : j.result) || j;
+  // DEBUG — remove once room names are confirmed correct
+  console.log('[plejd:raw] top-level keys:', Object.keys(detail));
+  console.log('[plejd:raw] rooms[0]:', JSON.stringify((detail.rooms || [])[0], null, 2));
+  console.log('[plejd:raw] device[0] room fields:', JSON.stringify({ roomId: (detail.plejdDevices||[])[0]?.roomId, room: (detail.plejdDevices||[])[0]?.room }, null, 2));
   // Index room titles by every ID variant the API might use as a key.
   // The rooms array occasionally contains Parse pointers (no title field) on
   // some API versions — only store entries where we have a real title.
