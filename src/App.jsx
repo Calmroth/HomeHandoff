@@ -2211,19 +2211,28 @@ function App() {
     logActivity('light', `${r.name} lights turned **${next ? 'on' : 'off'}**`);
     pushUndo(`${r.name} ${next ? 'on' : 'off'}`, () => {
       setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
-      if (hubConnected && r._platform === 'plejd' && r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: !next });
+      if (hubConnected) {
+        if (r._cloudDevices) r._cloudDevices.forEach(d => hubCommand('plejd', 'toggle', { deviceId: d.id, on: !next }));
+        else if (r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: !next });
+      }
     });
     const cfg = integrations.config.plejd;
     // Hub path: only for hub-sourced rooms (_platform === 'plejd'); server
     // holds the session token and can command the device.
-    if (hubConnected && r._platform === 'plejd' && r._cloudDevice) {
+    // Hub path: both hub-sourced rooms (_platform==='plejd') and browser-cloud rooms
+    // (_cloudDevices/_cloudDevice) route via hub when it's connected — hub holds the
+    // TCP connection and server-side session, so it's faster and doesn't require
+    // GWY-01 cloud pairing. Fan out to individual objectIds for cloud-fetched rooms.
+    if (hubConnected && (r._platform === 'plejd' || r._cloudDevices || r._cloudDevice)) {
       setCardSending(r.id);
-      hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: next });
+      if (r._cloudDevices) {
+        r._cloudDevices.forEach(d => hubCommand('plejd', 'toggle', { deviceId: d.id, on: next }));
+      } else if (r._cloudDevice) {
+        hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: next });
+      }
       return;
     }
-    // Plejd cloud path: works only if the user has a Plejd Hub paired. If
-    // sendStateToDevice fails, revert + surface "needs Hub" honestly.
-    // _cloudDevices is set for grouped room cards; _cloudDevice for single-device compat.
+    // Direct cloud API fallback (hub offline): works only if a GWY-01 Hub is cloud-paired.
     if (cfg?.cloudSession && cfg?.cloudSiteId && (r._cloudDevices || r._cloudDevice)) {
       setCardSending(r.id);
       const devs = r._cloudDevices || [r._cloudDevice];
@@ -2243,11 +2252,16 @@ function App() {
     const r = rooms.find(rr => rr.id === id);
     const cfg = integrations.config.plejd;
     if (!r) return;
-    // Hub path: only for hub-sourced rooms (_platform === 'plejd').
-    if (hubConnected && r._platform === 'plejd' && r._cloudDevice) {
-      hubCommand('plejd', 'dim', { deviceId: r._cloudDevice.id, brightness: b });
+    // Hub path: both hub-sourced and browser-cloud rooms when hub is connected.
+    if (hubConnected && (r._platform === 'plejd' || r._cloudDevices || r._cloudDevice)) {
+      if (r._cloudDevices) {
+        r._cloudDevices.forEach(d => hubCommand('plejd', 'dim', { deviceId: d.id, brightness: b }));
+      } else if (r._cloudDevice) {
+        hubCommand('plejd', 'dim', { deviceId: r._cloudDevice.id, brightness: b });
+      }
       return;
     }
+    // Direct cloud API fallback (hub offline).
     if (cfg?.cloudSession && cfg?.cloudSiteId && (r._cloudDevices || r._cloudDevice)) {
       const dim255 = Math.round((b / 100) * 255);
       const devs = r._cloudDevices || [r._cloudDevice];
@@ -2268,14 +2282,17 @@ function App() {
       setRooms(prevRooms);
       if (hubConnected) {
         prevRooms.forEach(r => {
-          if (r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: r.on });
+          if (r._cloudDevices) r._cloudDevices.forEach(d => hubCommand('plejd', 'toggle', { deviceId: d.id, on: r.on }));
+          else if (r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: r.on });
         });
       }
     });
-    // Send individual toggle commands through the hub for each Plejd light.
+    // Fan out through hub — cloud-fetched rooms use individual objectIds;
+    // hub-sourced rooms use the 'room:' prefix for server-side fan-out.
     if (hubConnected) {
       rooms.forEach(r => {
-        if (r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on });
+        if (r._cloudDevices) r._cloudDevices.forEach(d => hubCommand('plejd', 'toggle', { deviceId: d.id, on }));
+        else if (r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on });
       });
     }
   };
@@ -2311,11 +2328,14 @@ function App() {
       logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
       useHomeStore.getState().markFailed(statusId, String(err.message || err));
     };
-    // Plejd cloud plug: route via the cloud sendStateToDevice endpoint.
-    // Same Hub-required caveat as lights -- discovery works without a Hub
-    // but actuation requires one. The _cloudDevice discriminator is the
-    // signal that this plug came from plejdFetchDevices.
+    // Plejd cloud plug — prefer hub routing when connected (local TCP, no GWY-01
+    // cloud-pairing required). Falls back to direct cloud API when hub is offline.
     if (o._cloudDevice) {
+      if (hubConnected) {
+        hubCommand('plejd', 'toggle', { deviceId: o._cloudDevice.id, on: next });
+        setSendingIds(s => { const n = new Set(s); n.delete(o.id); return n; });
+        return;
+      }
       const cfg = integrations.config.plejd;
       if (!cfg?.cloudSession || !cfg?.cloudSiteId) { setSendingIds(s => { const n = new Set(s); n.delete(o.id); return n; }); return; }
       plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: o._cloudDevice.id, on: next })
@@ -6013,7 +6033,7 @@ function PlejdConfig({ integrations }) {
           Your real rooms, devices, and names appear on the home page automatically.
         </p>
         <p className="catalog-help" style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>
-          Cloud sign-in gives the dashboard <b>read access</b> to your device names, rooms, and state. <b>Toggle control</b> requires a <a href="https://www.plejd.com/products/gwy-01" target="_blank" rel="noreferrer">Plejd GWY-01 gateway</a> paired to your installation — it bridges cloud commands to the local BLE mesh. Without GWY-01, the dashboard shows your rooms accurately but tiles are read-only; the Plejd app on your phone remains the control surface.
+          Cloud sign-in gives the dashboard your real room names, device names, and state. When the home hub is running, toggle control works immediately over your local network. Without the hub, control requires a <a href="https://www.plejd.com/products/gwy-01" target="_blank" rel="noreferrer">Plejd GWY-01 gateway</a> paired to your installation.
         </p>
         <div className="catalog-actions" style={{ marginTop: 12 }}>
           <button className="group-toggle" onClick={testPlejdSession} disabled={sessionTesting}>
