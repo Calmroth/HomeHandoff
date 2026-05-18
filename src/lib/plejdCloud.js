@@ -99,19 +99,31 @@ export async function plejdFetchDevices({ sessionToken, siteId }) {
   const j = await res.json();
   // getSiteById returns result as an array; getSiteDetails returned a plain object
   const detail = (Array.isArray(j.result) ? j.result[0] : j.result) || j;
-  const rooms = (detail.rooms || []).reduce((acc, r) => { acc[r.roomId || r.objectId] = r.title; return acc; }, {});
-  const devices = (detail.plejdDevices || detail.devices || []).map(d => ({
-    id: d.deviceId || d.objectId,
-    title: d.title || d.name || d.deviceId || d.objectId,
-    room: rooms[d.roomId] || d.room || '',
-    type: d.outputType || d.deviceType || d.traits || 'Light',
-    // State / dim come from the Outputs list if available.
-    isOn: !!d.outputSettings?.state || !!d.state,
-    dim:  d.outputSettings?.dim ?? d.dim ?? null,
-    // Carry through fields the control endpoint may need.
-    _device: d,
-  }));
-  return { devices, rooms: detail.rooms || [], cryptoKey: detail.cryptoKey || detail.site?.cryptoKey };
+  // Index room names by both roomId and objectId — the API uses either field
+  const rooms = (detail.rooms || []).reduce((acc, r) => {
+    const title = r.title || r.name || r.roomId || r.objectId;
+    if (r.roomId)   acc[r.roomId]   = title;
+    if (r.objectId) acc[r.objectId] = title;
+    return acc;
+  }, {});
+  const devices = (detail.plejdDevices || detail.devices || []).map(d => {
+    // outputSettings is an array of per-output configs. Access index 0 for the
+    // first (usually only) output. Accessing .state directly on the array gives
+    // undefined — that was causing everything to show as off.
+    const out0 = Array.isArray(d.outputSettings) ? d.outputSettings[0] : d.outputSettings;
+    return {
+      id: d.objectId || d.deviceId,
+      title: out0?.name || d.title || d.name || d.objectId || d.deviceId,
+      room: rooms[d.roomId] || rooms[d.objectId] || d.room || '',
+      type: out0?.outputType || d.outputType || d.deviceType || d.traits || 'Light',
+      isOn: !!(out0?.state ?? d.state),
+      dim:  out0?.dim ?? d.dim ?? null,
+      dimmable: out0?.dimmable ?? d.dimmable ?? true,
+      roomId: d.roomId || null,
+      _device: d,
+    };
+  });
+  return { devices, rooms: detail.rooms || [], cryptoKey: detail.plejdMesh?.cryptoKey || detail.cryptoKey || detail.site?.cryptoKey };
 }
 
 // Cloud-control attempt -- works only if the user's installation has a

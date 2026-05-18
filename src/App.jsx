@@ -62,6 +62,8 @@ const I = {
   Blinds:      (p) => <Icon {...p}><path d="M3 3h18v4H3zM3 10h18v4H3zM3 17h18v4H3"/></Icon>,
   ArrowUp:     (p) => <Icon {...p}><path d="m18 15-6-6-6 6"/></Icon>,
   ArrowDown:   (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>,
+  Heart:       (p) => <Icon {...p}><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1 7.8 7.8 7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8Z"/></Icon>,
+  Clock:       (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></Icon>,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1392,6 +1394,7 @@ function App() {
   const [outlets, setOutlets] = useState(() => demoMode ? DEMO_OUTLETS : INITIAL_OUTLETS);
   const [speakers, setSpeakers] = useState(() => demoMode ? DEMO_SPEAKERS : INITIAL_SPEAKERS);
   const [plejdScenes, setPlejdScenes] = useState([]);  // live scenes from Plejd cloud
+  const [hubHasPlejd, setHubHasPlejd] = useState(false); // true once hub pushes plejd_lights
   // Latch the "touched" flag so the auto-demo doesn't re-arm on every reload.
   useEffect(() => {
     if (localStorage.getItem('hdg-touched') !== '1') {
@@ -1445,6 +1448,12 @@ function App() {
       console.warn(`[hub:${integration || 'general'}]`, message);
     }, []),
   });
+
+  // Reset the hub-has-plejd latch whenever the hub drops so the frontend-direct
+  // path re-activates until the hub reconnects and pushes plejd_lights again.
+  useEffect(() => {
+    if (!hubConnected) setHubHasPlejd(false);
+  }, [hubConnected]);
 
   // Per-action undo stack (3-second window after each toggle).
   const [undoStack, setUndoStack] = useState([]);
@@ -1527,7 +1536,7 @@ function App() {
   hubDispatchRef.current = (integration, payload) => {
     switch (integration) {
       case 'plejd_lights':
-        if (!demoMode) setRooms(payload);
+        if (!demoMode) { setRooms(payload); setHubHasPlejd(true); }
         break;
       case 'plejd_switches':
         if (!demoMode) setOutlets(prev => {
@@ -1836,7 +1845,8 @@ function App() {
     // attempted via the Hub-cloud path and gracefully degrades if there's
     // no Hub paired.
     if (cfg?.cloudSession && cfg?.cloudSiteId) {
-      setPlejdErr(null);
+      // Hub is supplying Plejd data — skip redundant direct-cloud poll.
+      if (hubHasPlejd) { setPlejdErr(null); return; }
       let cancelled = false;
       let backoffMs = 30_000;   // doubles on consecutive errors, cap 5 min
       let timer;
@@ -1889,7 +1899,7 @@ function App() {
     // No credentials configured; hub pushes plejd_lights when server has PLEJD_EMAIL/PASSWORD.
     setPlejdErr(null);
     useHomeStore.getState().setStatus('plejd', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
-  }, [pageVisible, integrations.config.plejd?.cloudSession, integrations.config.plejd?.cloudSiteId, demoMode]);
+  }, [pageVisible, integrations.config.plejd?.cloudSession, integrations.config.plejd?.cloudSiteId, demoMode, hubHasPlejd]);
 
   // Fetch live Sonos state when configured. Poll 15s — playback changes
   // faster than light state so the UI feels responsive.
@@ -2129,11 +2139,12 @@ function App() {
     logActivity('light', `${r.name} lights turned **${next ? 'on' : 'off'}**`);
     pushUndo(`${r.name} ${next ? 'on' : 'off'}`, () => {
       setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
-      if (hubConnected && r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: !next });
+      if (hubConnected && r._platform === 'plejd' && r._cloudDevice) hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: !next });
     });
     const cfg = integrations.config.plejd;
-    // Hub path: server holds the Plejd session token, handles the API call.
-    if (hubConnected && r._cloudDevice) {
+    // Hub path: only for hub-sourced rooms (_platform === 'plejd'); server
+    // holds the session token and can command the device.
+    if (hubConnected && r._platform === 'plejd' && r._cloudDevice) {
       setCardSending(r.id);
       hubCommand('plejd', 'toggle', { deviceId: r._cloudDevice.id, on: next });
       return;
@@ -2158,8 +2169,8 @@ function App() {
     const r = rooms.find(rr => rr.id === id);
     const cfg = integrations.config.plejd;
     if (!r) return;
-    // Hub path: server holds Plejd session token, all tabs see the update.
-    if (hubConnected && r._cloudDevice) {
+    // Hub path: only for hub-sourced rooms (_platform === 'plejd').
+    if (hubConnected && r._platform === 'plejd' && r._cloudDevice) {
       hubCommand('plejd', 'dim', { deviceId: r._cloudDevice.id, brightness: b });
       return;
     }
@@ -3737,18 +3748,37 @@ function MusicPage({
   const [searchErr, setSearchErr] = useState(null);
   const [library, setLibrary] = useState(null);   // user's playlists
   const [libErr, setLibErr] = useState(null);
+  const [recentlyPlayed, setRecentlyPlayed] = useState(null);  // recently played tracks
+  const [likedSongs, setLikedSongs] = useState(null);          // saved tracks sample
   const [picker, setPicker] = useState(null);     // { trackUri, trackName } when user wants to "add to playlist"
   const [pickerMsg, setPickerMsg] = useState(null);
 
   // Load the user's playlists once when connected.
   useEffect(() => {
-    if (!spotify.token) { setLibrary(null); return; }
+    if (!spotify.token) { setLibrary(null); setRecentlyPlayed(null); setLikedSongs(null); return; }
     // fields param forces tracks(total) to be included — without it some clients
     // receive simplified objects where tracks.total is 0 or absent.
     const fields = 'items(id,name,description,images,owner(id,display_name),tracks(total)),total,next';
     spotify.api(`/me/playlists?limit=50&fields=${encodeURIComponent(fields)}`)
       .then(r => setLibrary(r?.items ?? []))
       .catch(e => setLibErr(String(e.message || e)));
+    // Recently played (last 8 unique tracks).
+    spotify.api('/me/player/recently-played?limit=8')
+      .then(r => {
+        // Deduplicate by track ID — same song can appear many times in history.
+        const seen = new Set();
+        const items = (r?.items ?? []).filter(i => {
+          if (!i?.track?.id || seen.has(i.track.id)) return false;
+          seen.add(i.track.id);
+          return true;
+        });
+        setRecentlyPlayed(items.slice(0, 8).map(i => i.track));
+      })
+      .catch(() => setRecentlyPlayed([]));
+    // Liked songs — first 10 for display; play the whole collection by URI.
+    spotify.api('/me/tracks?limit=10')
+      .then(r => setLikedSongs({ total: r?.total ?? 0, items: (r?.items ?? []).map(i => i.track) }))
+      .catch(() => setLikedSongs({ total: 0, items: [] }));
   }, [spotify.token, spotify.api]);
 
   // Debounced search. When not connected, just filter the curated list. When
@@ -3891,6 +3921,64 @@ function MusicPage({
             })}
           </div>
 
+          {/* Liked songs + recently played (only when connected) */}
+          {spotify.token && (
+            <>
+              {/* Liked songs collection */}
+              <div className="music-side-card">
+                <div className="music-side-head">
+                  <div className="np-label">Liked songs</div>
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                    {likedSongs ? likedSongs.total : '…'}
+                  </span>
+                </div>
+                {/* Single row to play the whole collection */}
+                <button
+                  className="music-source-row"
+                  onClick={() => playSpotify('collection', 'tracks', 'Liked songs')}
+                  data-active={musicCustom?.type === 'collection' && musicCustom.id === 'tracks'}
+                >
+                  <span className="src-icon"><I.Heart size={12} /></span>
+                  <div>
+                    <div className="music-source-name">Play all liked songs</div>
+                    <div className="music-source-sub">{likedSongs ? `${likedSongs.total} tracks` : 'Loading…'}</div>
+                  </div>
+                  <span className="music-source-state">Play</span>
+                </button>
+                {/* Preview of first 5 liked tracks */}
+                {likedSongs?.items?.slice(0, 5).map(t => (
+                  <button key={t.id} className="music-source-row" onClick={() => playTrack(t)}>
+                    <span className="src-icon">
+                      {spImg(t) ? <img src={spImg(t)} alt="" width={20} height={20} style={{ borderRadius: 4 }} /> : <I.Music size={12} />}
+                    </span>
+                    <div>
+                      <div className="music-source-name">{t.name}</div>
+                      <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Recently played */}
+              {recentlyPlayed && recentlyPlayed.length > 0 && (
+                <div className="music-side-card">
+                  <div className="np-label">Recently played</div>
+                  {recentlyPlayed.map(t => (
+                    <button key={t.id} className="music-source-row" onClick={() => playTrack(t)}>
+                      <span className="src-icon">
+                        {spImg(t) ? <img src={spImg(t)} alt="" width={20} height={20} style={{ borderRadius: 4 }} /> : <I.Clock size={12} />}
+                      </span>
+                      <div>
+                        <div className="music-source-name">{t.name}</div>
+                        <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
           {/* User's Spotify playlists (only when connected) */}
           {spotify.token && (
             <div className="music-side-card">
@@ -3901,7 +3989,7 @@ function MusicPage({
               {libErr && <div className="music-empty">{libErr}</div>}
               {library === null && !libErr && <div className="music-empty">Loading…</div>}
               {library?.length === 0 && <div className="music-empty">No playlists in your library.</div>}
-              {library?.slice(0, 8).map(p => (
+              {library?.slice(0, 20).map(p => (
                 <button
                   key={p.id}
                   className="music-source-row"
