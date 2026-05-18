@@ -1885,7 +1885,7 @@ function App() {
       let timer;
       const schedule = () => { timer = setTimeout(load, backoffMs); };
       const load = () => plejdFetchDevices({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId })
-        .then(({ devices }) => {
+        .then(({ devices, stateKnown }) => {
           if (cancelled) return;
           backoffMs = 30_000; // reset on success
           // Map Plejd cloud devices onto the dashboard's Room shape. The
@@ -1949,7 +1949,18 @@ function App() {
             icon: 'Plug',
             _cloudDevice: d,
           }));
-          setRooms(lights);
+          // Cloud API (getSiteById) never returns live device state — stateKnown
+          // is false for Plejd. Preserve the existing on/brightness across polls
+          // so user-toggled state isn't wiped every 8 seconds. New rooms (first
+          // appearance) start as off until the user or the Hub sets them.
+          setRooms(prevRooms => {
+            if (stateKnown) return lights;
+            const prevMap = new Map(prevRooms.map(r => [r.id, r]));
+            return lights.map(r => {
+              const prev = prevMap.get(r.id);
+              return prev ? { ...r, on: prev.on, brightness: prev.brightness } : r;
+            });
+          });
           setOutlets((prev) => {
             const shellyOrHaOnly = (prev || []).filter(o => (o.ip || o._entity) && !o._cloudDevice);
             return [...shellyOrHaOnly, ...plugs];

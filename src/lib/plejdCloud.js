@@ -95,14 +95,15 @@ export async function plejdFetchSites(sessionToken) {
   });
 }
 
-// Fetch every device on a site + the room layout. Plejd uses a few classes
-// (Device, Room, Outputs) and stitches them together client-side; this
-// function does the same and returns one flat list of { id, title, room,
-// type, isOn, dim } rows.
+// Fetch every device on a site + the room layout. Returns a flat list of
+// { id, title, room, type, isOn, dim } rows.
+//
+// getSiteById returns two device arrays:
+//   detail.devices      — user-configured virtual outputs: names, rooms, types
+//   detail.plejdDevices — raw hardware records (MAC, firmware) — no user names
+// We use detail.devices as the authoritative source.
 export async function plejdFetchDevices({ sessionToken, siteId }) {
   if (!siteId) throw new Error('siteId required');
-  // The site detail endpoint Plejd's app uses is /parse/functions/getSiteDetails.
-  // It returns: { site, plejdDevices, rooms, scenes, deviceAddresses, ... }.
   const res = await fetch(`${BASE}/parse/functions/getSiteById`, {
     method: 'POST',
     headers: parseHeaders(sessionToken),
@@ -110,30 +111,39 @@ export async function plejdFetchDevices({ sessionToken, siteId }) {
   });
   if (!res.ok) throw new Error(await parsedError(res));
   const j = await res.json();
-  // getSiteById returns result as an array; getSiteDetails returned a plain object
   const detail = (Array.isArray(j.result) ? j.result[0] : j.result) || j;
-  // DEBUG — remove once room names are confirmed correct
-  console.log('[plejd:raw] top-level keys:', Object.keys(detail));
-  console.log('[plejd:raw] rooms[0]:', JSON.stringify((detail.rooms || [])[0], null, 2));
-  console.log('[plejd:raw] device[0] room fields:', JSON.stringify({ roomId: (detail.plejdDevices||[])[0]?.roomId, room: (detail.plejdDevices||[])[0]?.room }, null, 2));
-  // Index room titles by every ID variant the API might use as a key.
-  // The rooms array occasionally contains Parse pointers (no title field) on
-  // some API versions — only store entries where we have a real title.
-  const roomsArr = detail.rooms || detail.site?.rooms || [];
-  const roomMap = roomsArr.reduce((acc, r) => {
-    const title = r.title || r.name || r.roomTitle || r.roomName || null;
-    if (r.objectId) acc[r.objectId] = title;
-    if (r.roomId && r.roomId !== r.objectId) acc[r.roomId] = title;
-    return acc;
-  }, {});
 
-  // Resolve a room name for a device using all the forms the API may use:
-  //   d.roomId        — direct string ID (most common)
-  //   d.room.objectId — Parse pointer  { __type:'Pointer', objectId:'xxx' }
-  //   d.room.title    — embedded full object with title already present
-  //   d.room (string) — raw id or name string
-  //   out0.room.*     — same variants inside outputSettings[0]
-  const resolveRoom = (d, out0) => {
+  // Build roomMap. Rooms come back as full objects with title fields.
+  const roomsArr = detail.rooms || detail.site?.rooms || [];
+  const roomMap = {};
+  for (const r of roomsArr) {
+    const title = r.title || r.name || r.roomTitle || r.roomName || null;
+    if (r.objectId) roomMap[r.objectId] = title;
+    if (r.roomId && r.roomId !== r.objectId) roomMap[r.roomId] = title;
+  }
+
+  // Backfill any room pointers that arrived without a title.
+  const missingIds = Object.keys(roomMap).filter(id => !roomMap[id]);
+  if (missingIds.length > 0) {
+    try {
+      const where = encodeURIComponent(JSON.stringify({ objectId: { $in: missingIds } }));
+      const rRes = await fetch(`${BASE}/parse/classes/Room?where=${where}`, {
+        headers: parseHeaders(sessionToken),
+      });
+      if (rRes.ok) {
+        const rJ = await rRes.json();
+        for (const r of (rJ.results || [])) {
+          const title = r.title || r.name || null;
+          if (title) {
+            if (r.objectId) roomMap[r.objectId] = title;
+            if (r.roomId)   roomMap[r.roomId]   = title;
+          }
+        }
+      }
+    } catch (e) { console.warn('[plejd] Room fetch error:', e.message); }
+  }
+
+  const resolveRoom = (d) => {
     if (d.roomId && roomMap[d.roomId]) return roomMap[d.roomId];
     const ref = d.room;
     if (ref && typeof ref === 'object') {
@@ -142,37 +152,40 @@ export async function plejdFetchDevices({ sessionToken, siteId }) {
     }
     if (typeof ref === 'string' && ref) {
       if (roomMap[ref]) return roomMap[ref];
-      // Only use the string directly if it looks like a human name, not a bare objectId.
-      // Parse objectIds are exactly 10 alphanumeric chars; anything else is a real name.
       if (!/^[A-Za-z0-9]{10}$/.test(ref)) return ref;
     }
-    const outRef = out0?.room;
-    if (outRef && typeof outRef === 'object') {
-      if (outRef.title) return outRef.title;
-      if (outRef.objectId && roomMap[outRef.objectId]) return roomMap[outRef.objectId];
-    }
-    if (typeof outRef === 'string' && outRef && roomMap[outRef]) return roomMap[outRef];
     return '';
   };
 
-  const devices = (detail.plejdDevices || detail.devices || []).map(d => {
-    // outputSettings is an array of per-output configs. Access index 0 for the
-    // first (usually only) output. Accessing .state directly on the array gives
-    // undefined — that was causing everything to show as off.
-    const out0 = Array.isArray(d.outputSettings) ? d.outputSettings[0] : d.outputSettings;
+  const userDevices = detail.devices || detail.plejdDevices || [];
+
+  const devices = userDevices.map(d => {
+    const devId = d.objectId || d.deviceId;
     return {
-      id: d.objectId || d.deviceId,
-      title: out0?.name || d.title || d.name || d.objectId || d.deviceId,
-      room: resolveRoom(d, out0),
-      type: out0?.outputType || d.outputType || d.deviceType || d.traits || 'Light',
-      isOn: !!(out0?.state ?? d.state),
-      dim:  out0?.dim ?? d.dim ?? null,
-      dimmable: out0?.dimmable ?? d.dimmable ?? true,
+      id: devId,
+      title: d.title || d.name || devId,
+      room: resolveRoom(d),
+      type: d.outputType || d.deviceType || d.traits || 'Light',
+      isOn: !!(d.state),
+      dim:  d.dim ?? null,
+      dimmable: d.dimmable ?? true,
       roomId: d.roomId || null,
       _device: d,
     };
   });
-  return { devices, rooms: detail.rooms || [], cryptoKey: detail.plejdMesh?.cryptoKey || detail.cryptoKey || detail.site?.cryptoKey };
+
+  // The cloud API (getSiteById) does not return real-time device state — the
+  // `state` and `dim` fields are absent from detail.devices items. Callers use
+  // this flag to decide whether to trust the returned isOn/dim values or
+  // preserve whatever the UI already shows from prior toggles / hub events.
+  const stateKnown = userDevices.some(d => 'state' in d);
+
+  return {
+    devices,
+    stateKnown,
+    rooms: detail.rooms || [],
+    cryptoKey: detail.plejdMesh?.cryptoKey || detail.cryptoKey || detail.site?.cryptoKey,
+  };
 }
 
 // Cloud-control attempt -- works only if the user's installation has a

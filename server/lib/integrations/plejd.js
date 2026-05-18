@@ -112,20 +112,33 @@ async function fetchSiteDetails(sessionToken, siteId) {
     if (r.roomId && r.roomId !== r.objectId) roomNames.set(r.roomId, title);
   }
 
-  // If all (or any) rooms came back without a title, fetch full Room objects directly
+  // If all (or any) rooms came back without a title, fetch full Room objects directly.
+  // Filter by site so we only get rooms belonging to this installation.
   const missingTitles = roomNames.size === 0 || [...roomNames.values()].some(v => !v);
   if (missingTitles) {
-    try {
-      const roomsJ = await plejdFetch('/parse/classes/Room', { sessionToken });
-      for (const r of (roomsJ.results || [])) {
-        const title = r.title || r.name || null;
-        if (r.objectId) roomNames.set(r.objectId, title || roomNames.get(r.objectId) || null);
-        if (r.roomId)   roomNames.set(r.roomId,   title || roomNames.get(r.roomId)   || null);
+    // Try two query forms: pointer to Installation (new API) and plain siteId field (old API)
+    const queries = [
+      `/parse/classes/Room?where=${encodeURIComponent(JSON.stringify({ site: { __type: 'Pointer', className: 'Installation', objectId: siteId } }))}`,
+      `/parse/classes/Room?where=${encodeURIComponent(JSON.stringify({ siteId }))}`,
+      `/parse/classes/Room`,
+    ];
+    for (const q of queries) {
+      try {
+        const roomsJ = await plejdFetch(q, { sessionToken });
+        const results = roomsJ.results || [];
+        console.log(`[hub:plejd] Room query "${q.split('?')[0]}" returned ${results.length} rooms`);
+        if (results.length === 0) continue;
+        for (const r of results) {
+          const title = r.title || r.name || r.roomTitle || r.roomName || null;
+          if (r.objectId) roomNames.set(r.objectId, title || roomNames.get(r.objectId) || null);
+          if (r.roomId && r.roomId !== r.objectId) roomNames.set(r.roomId, title || roomNames.get(r.roomId) || null);
+        }
+        console.log('[hub:plejd] Room titles resolved:',
+          [...new Set(roomNames.values())].filter(Boolean).join(', ') || '(none found)');
+        break; // stop after first query that returns results
+      } catch (e) {
+        console.warn(`[hub:plejd] Room query failed (${q.split('?')[0]}):`, e.message);
       }
-      console.log('[hub:plejd] Room titles (direct fetch):',
-        [...new Set(roomNames.values())].filter(Boolean).join(', ') || '(none found)');
-    } catch (e) {
-      console.warn('[hub:plejd] Could not fetch room titles directly:', e.message);
     }
   }
 
@@ -160,8 +173,11 @@ async function fetchSiteDetails(sessionToken, siteId) {
     const room     = roomTitle || (typeof d.room === 'string' ? d.room : '') || '';
     const bleAddr  = deviceBleAddr.get(objectId);
 
-    // Per-device outputSettings (nested) or matched from top-level list
+    // Per-device outputSettings — may be an array, a single object, or absent.
+    // The Plejd API returns either [{name,outputType,...}] or {name,outputType,...} per device.
+    // Fall back to top-level list if neither is present.
     const perDeviceOutputs = Array.isArray(d.outputSettings) ? d.outputSettings
+      : d.outputSettings && typeof d.outputSettings === 'object' ? [d.outputSettings]
       : topLevelOutputSettings.filter(o => o.deviceParseId === objectId || o.deviceId === objectId);
 
     if (perDeviceOutputs.length > 0) {
