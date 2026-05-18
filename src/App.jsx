@@ -1669,15 +1669,16 @@ function App() {
       case 'google':  if (env.VITE_GOOGLE_CLIENT_ID)  google.setClientId(env.VITE_GOOGLE_CLIENT_ID); break;
       case 'spotify': if (env.VITE_SPOTIFY_CLIENT_ID) spotify.setClientId(env.VITE_SPOTIFY_CLIENT_ID); break;
       case 'plejd':
-        if (env.VITE_HOME_ASSISTANT_URL || env.VITE_HOME_ASSISTANT_TOKEN) {
+        if (env.VITE_HOME_ASSISTANT_URL) {
           integrations.setIntegration('plejd', {
-            url: env.VITE_HOME_ASSISTANT_URL || integrations.config.plejd?.url || '',
-            token: env.VITE_HOME_ASSISTANT_TOKEN || integrations.config.plejd?.token || '',
+            url: env.VITE_HOME_ASSISTANT_URL,
+            token: integrations.config.plejd?.token || '',
           });
         }
         break;
       case 'tibber':
-        if (env.VITE_TIBBER_TOKEN) integrations.setIntegration('tibber', { token: env.VITE_TIBBER_TOKEN });
+        // VITE_TIBBER_TOKEN is deprecated — token baked into bundle is a security risk.
+        // Set the token via Settings → Tibber instead.
         break;
       case 'sonos':
         if (env.VITE_SONOS_URL) integrations.setIntegration('sonos', { url: env.VITE_SONOS_URL });

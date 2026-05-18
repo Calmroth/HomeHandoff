@@ -78,6 +78,33 @@ app.get('/health', (_req, res) => {
 });
 
 /**
+ * Plejd cloud API proxy — forwards browser requests to cloud.plejd.com.
+ * Required for production builds (no Vite dev proxy) and for the Settings UI
+ * to reach Plejd login/device endpoints without CORS errors.
+ * Must be before any auth middleware so the Settings page can log in.
+ */
+app.use('/api/plejd', async (req, res) => {
+  const upstream = `https://cloud.plejd.com${req.path}`;
+  try {
+    const { host, connection, 'transfer-encoding': _te, ...forwardHeaders } = req.headers;
+    const upRes = await fetch(upstream, {
+      method:  req.method,
+      headers: { ...forwardHeaders, host: 'cloud.plejd.com' },
+      body:    ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body),
+    });
+    res.status(upRes.status);
+    upRes.headers.forEach((v, k) => {
+      if (!['transfer-encoding', 'connection', 'keep-alive'].includes(k.toLowerCase())) {
+        res.setHeader(k, v);
+      }
+    });
+    res.send(await upRes.text());
+  } catch (e) {
+    res.status(502).json({ ok: false, error: `Plejd proxy: ${e.message}` });
+  }
+});
+
+/**
  * REST command relay — alternative to WebSocket for simple one-shot commands
  * (e.g. from curl during debugging).
  *
