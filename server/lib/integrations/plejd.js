@@ -443,9 +443,15 @@ export function startPlejdPoller(hub, {
   siteId: envSiteId,
   gatewayIp: envGatewayIp,
 } = {}) {
-  if (!email || !password) {
-    console.log('[hub:plejd] Skipped — set PLEJD_EMAIL + PLEJD_PASSWORD in .env.local');
-    return;
+  // Two boot paths:
+  //   1. email + password in env → hub authenticates itself, auto-starts
+  //   2. No env credentials → register command handler and wait for browser
+  //      to send a `setSession` command with its cloud session token.
+  //      The user logs in once via the Settings UI; the browser hands the
+  //      token to the hub on each WebSocket connect.
+  const hasCredentials = !!(email && password);
+  if (!hasCredentials) {
+    console.log('[hub:plejd] No PLEJD_EMAIL/PASSWORD — will bootstrap session from browser setSession command');
   }
 
   // ── Mutable state ──────────────────────────────────────────────────────────
@@ -618,37 +624,56 @@ export function startPlejdPoller(hub, {
   async function start() {
     try {
       await ensureAuth();
-      await fetchAndSeedDevices();
-
-      // Try to find the gateway even if we have no crypto key yet
-      // (fetchSiteDetails should have given us the key — warn if not)
-      if (!cryptoKey) {
-        console.warn('[hub:plejd] No crypto key returned by cloud — local TCP commands unavailable');
-      }
-
-      // Discover gateway IP, then open TCP if we have the key
-      gatewayIp = await discoverGatewayIP(gatewayIp);
-
-      if (gatewayIp && cryptoKey) {
-        connectLocal();
-        // Still run a slow cloud poll so device metadata stays fresh
-        // and we recover if the TCP socket silently stalls
-        startFallbackPoller();
-      } else {
-        console.log('[hub:plejd] Running in cloud-only mode');
-        startFallbackPoller();
-      }
+      await initFromSession();
     } catch (e) {
       console.error(`[hub:plejd] Startup failed: ${e.message}`);
       hub.pushError('plejd', `Startup failed: ${e.message}`);
     }
   }
 
-  start();
+  // Shared post-auth initialization — runs whether we booted via credentials
+  // or via a browser-provided session token.
+  async function initFromSession() {
+    await fetchAndSeedDevices();
+    if (!cryptoKey) {
+      console.warn('[hub:plejd] No crypto key — local TCP commands unavailable');
+    }
+    gatewayIp = await discoverGatewayIP(gatewayIp);
+    if (gatewayIp && cryptoKey) {
+      connectLocal();
+      startFallbackPoller();
+    } else {
+      console.log('[hub:plejd] Running in cloud-only mode');
+      startFallbackPoller();
+    }
+  }
+
+  if (hasCredentials) {
+    start();
+  }
+  // else: wait for setSession from browser
 
   // ── Command handler ────────────────────────────────────────────────────────
   hub.onCommand('plejd', async (action, params = {}) => {
-    if (!sessionToken || !siteId) throw new Error('Plejd not yet initialized');
+    // ── Session bootstrap from browser ───────────────────────────────────────
+    // Browser sends this on every hub connect after a successful Plejd cloud
+    // login. Allows the hub to work without PLEJD_EMAIL/PASSWORD in .env.local.
+    if (action === 'setSession') {
+      const { sessionToken: tok, siteId: sid } = params || {};
+      if (!tok) throw new Error('setSession requires sessionToken');
+      sessionToken = tok;
+      if (sid) siteId = sid;
+      console.log('[hub:plejd] Session bootstrapped from browser, siteId:', siteId);
+      try {
+        await initFromSession();
+      } catch (e) {
+        hub.pushError('plejd', `Session init failed: ${e.message}`);
+        throw e;
+      }
+      return { ok: true };
+    }
+
+    if (!sessionToken || !siteId) throw new Error('Plejd not yet initialized — waiting for setSession');
 
     const { deviceId, on, brightness, sceneId } = params;
 

@@ -1487,6 +1487,20 @@ function App() {
     if (!hubConnected) setHubHasPlejd(false);
   }, [hubConnected]);
 
+  // When the hub connects, hand it the browser's Plejd session token so it can
+  // use the local TCP GWY-01 path without needing PLEJD_EMAIL/PASSWORD in .env.local.
+  // The hub's setSession handler initialises the gateway connection and starts
+  // pushing real-time plejd_lights events back to the browser.
+  useEffect(() => {
+    if (!hubConnected) return;
+    const cfg = integrations.config.plejd;
+    if (!cfg?.cloudSession || !cfg?.cloudSiteId) return;
+    hubCommand('plejd', 'setSession', {
+      sessionToken: cfg.cloudSession,
+      siteId: cfg.cloudSiteId,
+    });
+  }, [hubConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Per-action undo stack (3-second window after each toggle).
   const [undoStack, setUndoStack] = useState([]);
   // Per-card command-send feedback (amber pulse while sending, red outline on failure).
