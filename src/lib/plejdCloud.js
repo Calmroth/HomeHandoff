@@ -112,13 +112,45 @@ export async function plejdFetchDevices({ sessionToken, siteId }) {
   const j = await res.json();
   // getSiteById returns result as an array; getSiteDetails returned a plain object
   const detail = (Array.isArray(j.result) ? j.result[0] : j.result) || j;
-  // Index room names by both roomId and objectId — the API uses either field
-  const rooms = (detail.rooms || []).reduce((acc, r) => {
-    const title = r.title || r.name || r.roomId || r.objectId;
-    if (r.roomId)   acc[r.roomId]   = title;
+  // Index room titles by every ID variant the API might use as a key.
+  // The rooms array occasionally contains Parse pointers (no title field) on
+  // some API versions — only store entries where we have a real title.
+  const roomsArr = detail.rooms || detail.site?.rooms || [];
+  const roomMap = roomsArr.reduce((acc, r) => {
+    const title = r.title || r.name || r.roomTitle || r.roomName || null;
     if (r.objectId) acc[r.objectId] = title;
+    if (r.roomId && r.roomId !== r.objectId) acc[r.roomId] = title;
     return acc;
   }, {});
+
+  // Resolve a room name for a device using all the forms the API may use:
+  //   d.roomId        — direct string ID (most common)
+  //   d.room.objectId — Parse pointer  { __type:'Pointer', objectId:'xxx' }
+  //   d.room.title    — embedded full object with title already present
+  //   d.room (string) — raw id or name string
+  //   out0.room.*     — same variants inside outputSettings[0]
+  const resolveRoom = (d, out0) => {
+    if (d.roomId && roomMap[d.roomId]) return roomMap[d.roomId];
+    const ref = d.room;
+    if (ref && typeof ref === 'object') {
+      if (ref.title) return ref.title;
+      if (ref.objectId && roomMap[ref.objectId]) return roomMap[ref.objectId];
+    }
+    if (typeof ref === 'string' && ref) {
+      if (roomMap[ref]) return roomMap[ref];
+      // Only use the string directly if it looks like a human name, not a bare objectId.
+      // Parse objectIds are exactly 10 alphanumeric chars; anything else is a real name.
+      if (!/^[A-Za-z0-9]{10}$/.test(ref)) return ref;
+    }
+    const outRef = out0?.room;
+    if (outRef && typeof outRef === 'object') {
+      if (outRef.title) return outRef.title;
+      if (outRef.objectId && roomMap[outRef.objectId]) return roomMap[outRef.objectId];
+    }
+    if (typeof outRef === 'string' && outRef && roomMap[outRef]) return roomMap[outRef];
+    return '';
+  };
+
   const devices = (detail.plejdDevices || detail.devices || []).map(d => {
     // outputSettings is an array of per-output configs. Access index 0 for the
     // first (usually only) output. Accessing .state directly on the array gives
@@ -127,7 +159,7 @@ export async function plejdFetchDevices({ sessionToken, siteId }) {
     return {
       id: d.objectId || d.deviceId,
       title: out0?.name || d.title || d.name || d.objectId || d.deviceId,
-      room: rooms[d.roomId] || rooms[d.objectId] || d.room || '',
+      room: resolveRoom(d, out0),
       type: out0?.outputType || d.outputType || d.deviceType || d.traits || 'Light',
       isOn: !!(out0?.state ?? d.state),
       dim:  out0?.dim ?? d.dim ?? null,
