@@ -4076,6 +4076,171 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, toggleDevic
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── PlayerStage ──────────────────────────────────────────────────────────────
+// Replaces the Spotify embed red-branded iframe with a custom clay-theme player.
+// When Spotify is connected the iframe is kept off-screen (audio continues),
+// while this component renders track art, progress, transport, and upcoming queue.
+// Falls back to the iframe anchor when Spotify is not connected.
+// ─────────────────────────────────────────────────────────────────────────────
+function PlayerStage({ spotify, recentlyPlayed, queue }) {
+  const playback = useHomeStore(s => s.playback);
+  const hasTrack = !!playback.track;
+  const isPlaying = playback.isPlaying;
+
+  // Interpolate progress locally between 8-second API polls.
+  const [localMs, setLocalMs] = useState(playback.progressMs || 0);
+  useEffect(() => { setLocalMs(playback.progressMs || 0); }, [playback.progressMs]);
+  useEffect(() => {
+    if (!isPlaying || !playback.durationMs) return;
+    const t = setInterval(() => setLocalMs(ms => Math.min(ms + 1000, playback.durationMs)), 1000);
+    return () => clearInterval(t);
+  }, [isPlaying, playback.durationMs]);
+
+  const progress = playback.durationMs ? (localMs / playback.durationMs) * 100 : 0;
+  const fmt = (ms) => {
+    const s = Math.floor((ms ?? 0) / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+
+  const handlePlayPause = () => {
+    if (!spotify.token) return;
+    const next = !isPlaying;
+    useHomeStore.getState().setPlayback({ ...useHomeStore.getState().playback, isPlaying: next });
+    if (next) spotify.resumePlay(playback.deviceId);
+    else      spotify.pausePlay(playback.deviceId);
+  };
+  const handleNext = () => spotify.api('/me/player/next',     { method: 'POST' }).catch(() => {});
+  const handlePrev = () => spotify.api('/me/player/previous', { method: 'POST' }).catch(() => {});
+  const handleSeek = (e) => {
+    if (!playback.durationMs) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const ms = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * playback.durationMs);
+    setLocalMs(ms);
+    spotify.api('/me/player/seek?position_ms=' + ms, { method: 'PUT' }).catch(() => {});
+  };
+
+  // ── Not connected — show the iframe embed unchanged ──────────────────────
+  if (!spotify.token) {
+    return <div id="music-stage-anchor" className="music-page-frame music-page-frame-anchor" />;
+  }
+
+  // ── Connected, nothing playing — recently played grid ────────────────────
+  if (!hasTrack) {
+    return (
+      <div className="player-stage player-stage--idle">
+        <div className="player-stage-idle-head">
+          <span className="np-label">Recently played</span>
+          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>tap to play</span>
+        </div>
+        <div className="player-recent-grid">
+          {(recentlyPlayed ?? []).slice(0, 6).map(t => (
+            <button
+              key={t.id}
+              className="player-recent-tile"
+              onClick={() =>
+                spotify.api('/me/player/play', {
+                  method: 'PUT',
+                  body: JSON.stringify({ uris: [t.uri] }),
+                }).catch(() => {})
+              }
+            >
+              {spImg(t)
+                ? <img src={spImg(t)} alt="" className="player-recent-art" />
+                : <div className="player-recent-art player-recent-art--empty"><I.Music size={22} /></div>
+              }
+              <div className="player-recent-name">{t.name}</div>
+              <div className="player-recent-sub">{t.artists?.[0]?.name ?? ''}</div>
+            </button>
+          ))}
+          {!recentlyPlayed?.length && (
+            <div className="music-empty" style={{ gridColumn: '1 / -1', padding: '32px 0' }}>
+              Nothing recent yet. Play something on Spotify to see it here.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Connected + playing — full player ────────────────────────────────────
+  return (
+    <div className="player-stage player-stage--playing">
+      <div className="player-stage-body">
+        {/* Album art */}
+        <div className="player-stage-art-wrap">
+          {playback.art
+            ? <img src={playback.art} alt="" className="player-stage-art" />
+            : <div className="player-stage-art player-stage-art--empty"><I.Music size={40} /></div>
+          }
+        </div>
+
+        {/* Track info + controls */}
+        <div className="player-stage-detail">
+          <div>
+            <div className="player-stage-track">{playback.track}</div>
+            <div className="player-stage-artist">{playback.artist}</div>
+          </div>
+
+          {/* Scrubable progress bar */}
+          <div
+            className="player-stage-progress"
+            onClick={handleSeek}
+            role="slider"
+            aria-label="Seek"
+            aria-valuenow={localMs}
+            aria-valuemin={0}
+            aria-valuemax={playback.durationMs || 1}
+          >
+            <div className="player-stage-progress-bar">
+              <div className="player-stage-progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+          <div className="player-stage-times">
+            <span className="mono">{fmt(localMs)}</span>
+            <span className="mono">{fmt(playback.durationMs)}</span>
+          </div>
+
+          {/* Transport */}
+          <div className="player-stage-controls">
+            <button className="player-ctrl" onClick={handlePrev} aria-label="Previous track">
+              <Icon size={17}><polygon points="19,20 9,12 19,4"/><line x1="5" y1="19" x2="5" y2="5"/></Icon>
+            </button>
+            <button className="player-ctrl player-ctrl--primary" onClick={handlePlayPause} aria-label={isPlaying ? 'Pause' : 'Play'}>
+              {isPlaying
+                ? <Icon size={22}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></Icon>
+                : <Icon size={22}><polygon points="5,3 19,12 5,21"/></Icon>
+              }
+            </button>
+            <button className="player-ctrl" onClick={handleNext} aria-label="Next track">
+              <Icon size={17}><polygon points="5,4 15,12 5,20"/><line x1="19" y1="5" x2="19" y2="19"/></Icon>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Queue — up next */}
+      {queue?.length > 0 && (
+        <div className="player-stage-queue">
+          <span className="micro-label">Up next</span>
+          {queue.slice(0, 3).map((t, i) => (
+            <div key={`${t.id ?? i}`} className="player-stage-queue-row">
+              {spImg(t)
+                ? <img src={spImg(t)} alt="" width={30} height={30} style={{ borderRadius: 6, flexShrink: 0 }} />
+                : <span className="src-icon" style={{ flexShrink: 0 }}><I.Music size={12} /></span>
+              }
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="music-source-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
+              </div>
+              <span className="mono" style={{ fontSize: 11, color: 'var(--muted-foreground)', flexShrink: 0 }}>{fmt(t.duration_ms)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // MusicPage — full Spotify Web Embed + a sidecar of switchable sources.
 // All sources are Spotify embed URLs (no API key required) per the product
 // philosophy of hosting vendor web UIs as iframes rather than calling APIs.
@@ -4100,14 +4265,18 @@ function MusicPage({
   spotify, favourites, addFav, removeFav, musicNowLabel,
 }) {
   const onCount = speakers.filter(s => s.on).length;
+  const playback = useHomeStore(s => s.playback);
 
-  // onCastToggle mirrors the home-page logic: find the first active speaker,
-  // or the first idle one, or fall back to [0].
-  const handleCast = useCallback((activeSpeaker) => {
-    if (!speakers.length) return;
-    const target = activeSpeaker || speakers.find(s => !s.on) || speakers[0];
-    toggleSpeaker(target.id);
-  }, [speakers, toggleSpeaker]);
+  // Queue — upcoming tracks. Re-fetch when the track changes.
+  const [queue, setQueue] = useState(null);
+  useEffect(() => {
+    if (!spotify.token || !playback.track) { setQueue(null); return; }
+    let cancelled = false;
+    spotify.api('/me/player/queue')
+      .then(r => { if (!cancelled) setQueue(r?.queue?.slice(0, 5) ?? []); })
+      .catch(() => { if (!cancelled) setQueue([]); });
+    return () => { cancelled = true; };
+  }, [spotify.token, spotify.api, playback.track]);
 
   // Search + library state
   const [query, setQuery] = useState('');
@@ -4218,9 +4387,6 @@ function MusicPage({
     >
       <div className="music-page">
         <div className="music-page-stage">
-          {/* NowPlaying hero — identical to home dashboard; suppress nav buttons since we're already here */}
-          <NowPlaying speakers={speakers} onCastToggle={handleCast} spotify={spotify} hideNavActions />
-
           {/* Toolbar — search input + connect/disconnect state */}
           <div className="music-toolbar">
             <div className="music-search">
@@ -4246,7 +4412,7 @@ function MusicPage({
             )}
           </div>
 
-          {/* Either show search results or the persistent player anchor */}
+          {/* Search results overlay, or the custom player stage */}
           {results ? (
             <SearchResults
               results={results}
@@ -4259,7 +4425,11 @@ function MusicPage({
               err={searchErr}
             />
           ) : (
-            <div id="music-stage-anchor" className="music-page-frame music-page-frame-anchor" />
+            <PlayerStage
+              spotify={spotify}
+              recentlyPlayed={recentlyPlayed}
+              queue={queue}
+            />
           )}
         </div>
 

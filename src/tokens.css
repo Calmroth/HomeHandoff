@@ -2333,6 +2333,171 @@ img.avatar { display: block; }
   opacity: 0.6;
 }
 
+/* ── PlayerStage — custom clay-theme player (replaces Spotify red embed) ── */
+.player-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--clay-50) 3%, transparent);
+  padding: 20px;
+  flex: 1;
+  min-height: 260px;
+}
+
+/* Idle state: recently played 3-col grid */
+.player-stage--idle { justify-content: flex-start; }
+.player-stage-idle-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.player-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.player-recent-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.player-recent-tile:hover .player-recent-art,
+.player-recent-tile:hover .player-recent-art--empty { opacity: 0.8; }
+.player-recent-art {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  object-fit: cover;
+  transition: opacity var(--motion-duration-fast);
+  display: block;
+}
+.player-recent-art--empty {
+  width: 100%; aspect-ratio: 1 / 1; border-radius: 10px;
+  background: color-mix(in oklch, var(--clay-50) 6%, transparent);
+  display: grid; place-items: center;
+  color: var(--muted-foreground);
+  transition: opacity var(--motion-duration-fast);
+}
+.player-recent-name {
+  font-size: 12px; font-weight: 500; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.player-recent-sub {
+  font-size: 10px; color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Playing state */
+.player-stage--playing { justify-content: space-between; }
+.player-stage-body {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 20px;
+  align-items: flex-start;
+}
+.player-stage-art-wrap { flex-shrink: 0; }
+.player-stage-art {
+  width: clamp(100px, 18vw, 200px);
+  height: clamp(100px, 18vw, 200px);
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 8px 28px color-mix(in oklch, var(--clay-950) 50%, transparent);
+  display: block;
+}
+.player-stage-art--empty {
+  width: clamp(100px, 18vw, 200px);
+  height: clamp(100px, 18vw, 200px);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--clay-50) 6%, transparent);
+  display: grid; place-items: center;
+  color: var(--muted-foreground);
+}
+.player-stage-detail {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0;
+}
+.player-stage-track {
+  font-size: clamp(15px, 2vw, 20px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.player-stage-artist {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.player-stage-progress {
+  cursor: pointer; padding: 6px 0; user-select: none;
+}
+.player-stage-progress-bar {
+  height: 3px;
+  background: color-mix(in oklch, var(--clay-50) 10%, transparent);
+  border-radius: 999px; overflow: hidden;
+}
+.player-stage-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  /* linear transition synced with the 1-second interval timer */
+  transition: width 1s linear;
+}
+.player-stage-times {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: var(--muted-foreground);
+  margin-top: -4px;
+}
+.player-stage-controls {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 2px;
+}
+.player-ctrl {
+  width: 36px; height: 36px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--clay-50) 6%, transparent);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  display: grid; place-items: center;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast), color var(--motion-duration-fast);
+}
+.player-ctrl:hover {
+  background: color-mix(in oklch, var(--clay-50) 12%, transparent);
+  color: var(--foreground);
+}
+.player-ctrl--primary {
+  width: 48px; height: 48px;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 0 18px color-mix(in oklch, var(--primary) 28%, transparent);
+}
+.player-ctrl--primary:hover {
+  background: var(--amber-500);
+  border-color: var(--amber-500);
+  color: var(--primary-foreground);
+}
+.player-stage-queue {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.player-stage-queue-row {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 10px; align-items: center;
+  padding: 5px 4px;
+  font-size: 13px;
+}
+
 /* HeaderMusic — always-visible compact player in the header. No background,
    no card chrome. Text and icons get clock-style text-shadow so they read
    over any photo. Sits in the middle column of the 3-col header grid. */
