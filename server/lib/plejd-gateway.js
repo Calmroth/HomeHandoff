@@ -295,7 +295,9 @@ export class PlejdGateway extends EventEmitter {
 
     if (cmd === 0x0097) {
       this.emit('state', { deviceId, on, brightness: on ? 100 : 0 });
-    } else if (cmd === 0x0098) {
+    } else if (cmd === 0x0098 || cmd === 0x00c8) {
+      // 0x0098 = dim ack (older GWY-01 firmware)
+      // 0x00c8 = dim ack (GWY-01 firmware v1.7+) — same payload layout
       this.emit('state', {
         deviceId,
         on,

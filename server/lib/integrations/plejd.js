@@ -696,6 +696,7 @@ export function startPlejdPoller(hub, {
 
     gateway.on('close', () => {
       localActive = false;
+      hub.pushHealth('plejd', 'down', 'TCP disconnected — reconnecting');
       console.log('[hub:plejd] Gateway connection closed — will retry');
       if (!cleanedUp) {
         reconnectTimer = setTimeout(connectLocal, RECONNECT_MS);
@@ -705,6 +706,7 @@ export function startPlejdPoller(hub, {
     gateway.connect()
       .then(() => {
         localActive = true;
+        hub.pushHealth('plejd', 'ok', `Local TCP active — ${gatewayIp}:${GWY_TCP_PORT}`);
         console.log(`[hub:plejd] Local TCP active — real-time state updates enabled`);
       })
       .catch((err) => {
@@ -812,7 +814,10 @@ export function startPlejdPoller(hub, {
         const dev = deviceMap.get(devObjectId);
         const devMeshId = dev?.meshId
           ?? [...meshToCloudId.entries()].find(([, cid]) => cid === devObjectId)?.[0];
-        if (localActive && gateway && devMeshId != null) {
+        // Guard: devMeshId must be a valid 1-byte integer.
+        // NaN passes the old `!= null` check, silently becoming 0 in Buffer — sending to device 0.
+        const devMeshIdValid = Number.isInteger(devMeshId) && devMeshId >= 0 && devMeshId <= 255;
+        if (localActive && gateway && devMeshIdValid) {
           if (action === 'toggle')      gateway.sendCommand(devMeshId, !!on);
           else if (action === 'dim')    gateway.sendCommand(devMeshId, (brightness ?? 0) > 0, brightness ?? 0);
           if (dev) {
@@ -844,12 +849,20 @@ export function startPlejdPoller(hub, {
     // Resolve cloud objectId and meshId from whatever the UI sent
     const d = deviceMap.get(deviceId) || deviceMap.get(String(deviceId));
     const cloudObjectId = d ? (d.id ?? deviceId) : String(deviceId);
-    // meshId for TCP: from device record, or from meshToCloudId reverse lookup, or parseInt
+    // meshId for TCP: from device record, or from meshToCloudId reverse lookup, or parseInt.
+    // WARNING: parseInt(cloudObjectId, 10) can produce NaN for non-numeric cloud objectIds
+    // (e.g. "zP4jDsm8Fk"). NaN is silently coerced to 0 by Buffer.from(), sending every
+    // command to device 0. We validate before routing to the local TCP path.
     const meshId = d?.meshId
       ?? [...meshToCloudId.entries()].find(([, cid]) => cid === cloudObjectId)?.[0]
       ?? (typeof deviceId === 'number' ? deviceId : parseInt(deviceId, 10));
+    const meshIdValid = Number.isInteger(meshId) && meshId >= 0 && meshId <= 255;
 
-    if (localActive && gateway) {
+    if (!meshIdValid && localActive && gateway) {
+      console.warn(`[hub:plejd] meshId unresolved for "${cloudObjectId}" (got ${meshId}) — falling back to cloud REST`);
+    }
+
+    if (localActive && gateway && meshIdValid) {
       // Fast path: local TCP — sendCommand expects brightness in 0-100
       if (action === 'toggle') {
         gateway.sendCommand(meshId, !!on);
