@@ -1,4 +1,4 @@
-// Home Domain — Home control surface: Lights, Power, Sound.
+﻿// Home Domain â€” Home control surface: Lights, Power, Sound.
 // Match DESIGN.md exactly: dark, clay/amber, flat translucent cards, 2px stack.
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -10,9 +10,9 @@ import { useHaEntities } from './lib/haEntities.js';
 import { plejdLogin, plejdFetchSites, plejdFetchDevices, plejdSetDeviceState } from './lib/plejdCloud.js';
 import { useWebSocketHub } from './lib/useWebSocketHub.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Icons (inline SVG, 1.5 stroke — matches lucide weight)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Icons (inline SVG, 1.5 stroke â€” matches lucide weight)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const Icon = ({ d, size = 16, fill = "none", stroke = 1.5, children, ...p }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" {...p}>
     {d ? <path d={d} /> : children}
@@ -67,12 +67,12 @@ const I = {
   Clock:       (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></Icon>,
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Integrations — one persisted blob of per-service config (URLs, tokens,
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Integrations â€” one persisted blob of per-service config (URLs, tokens,
 // device lists). Lives in localStorage so each browser keeps its own setup.
 // Each integration's "status" is derived: a non-empty URL/token = configured.
 // Network calls live here so components can stay declarative.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const DEFAULT_INTEGRATIONS = {
   // Stockholm fallback; Settings lets the user change this.
   weather:    { lat: '59.3293', lon: '18.0686', city: 'Stockholm' },
@@ -122,7 +122,7 @@ function useIntegrations() {
   return { config, setIntegration, status };
 }
 
-// Weather — open-meteo is free, no key, CORS-open. WMO weather codes map
+// Weather â€” open-meteo is free, no key, CORS-open. WMO weather codes map
 // to our four buckets for the photo backdrop. Hourly+daily arrays populate
 // the Weather page.
 function wmoToBucket(code) {
@@ -156,16 +156,16 @@ async function fetchWeather(lat, lon) {
   return r.json();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Google sign-in (Google Identity Services, client-only).
 // User registers a Google OAuth Client ID at console.cloud.google.com,
 // pastes it into Settings, then signs in via Google's One Tap / button.
 // We decode the returned JWT for { sub, email, name, picture } and store
-// in localStorage. No backend — identity is verified by Google's signed JWT,
+// in localStorage. No backend â€” identity is verified by Google's signed JWT,
 // but we don't verify the signature locally (any malicious actor with dev
 // tools can forge a local user object; that's an acceptable trade-off for a
 // home dashboard where the threat model is "my flatmate, not the NSA").
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function decodeJwtPayload(jwt) {
   try {
     const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -237,7 +237,7 @@ function useGoogleAuth() {
 
   const promptSignIn = useCallback(() => {
     if (!clientId) { setError('Set a Google Client ID in Settings first.'); return; }
-    if (!window.google?.accounts?.id) { setError('Google sign-in is still loading…'); return; }
+    if (!window.google?.accounts?.id) { setError('Google sign-in is still loadingâ€¦'); return; }
     setError(null);
     window.google.accounts.id.prompt(); // One Tap. If suppressed, falls back to renderButton below.
   }, [clientId]);
@@ -304,11 +304,11 @@ function useGoogleAuth() {
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Sonos via node-sonos-http-api (https://github.com/jishi/node-sonos-http-api).
 // GET /zones returns current zone state; GET /<room>/play|pause|volume/<n>
 // drive playback. CORS is open by default in that project.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function sonosFetchSpeakers({ url }) {
   if (!url) throw new Error('Sonos not configured');
   const base = url.replace(/\/$/, '');
@@ -345,7 +345,7 @@ async function sonosCmd({ url }, room, command, ...args) {
   return r.json();
 }
 
-// Tibber — GraphQL. Today's hourly spot prices for the user's first home.
+// Tibber â€” GraphQL. Today's hourly spot prices for the user's first home.
 async function fetchTibberPrices(token) {
   const query = `{ viewer { homes { currentSubscription { priceInfo { today { total startsAt } } } } } }`;
   const r = await fetch('https://api.tibber.com/v1-beta/gql', {
@@ -359,14 +359,14 @@ async function fetchTibberPrices(token) {
   return j.data?.viewer?.homes?.[0]?.currentSubscription?.priceInfo?.today || [];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Spotify — PKCE OAuth + Web API client.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Spotify â€” PKCE OAuth + Web API client.
 // Pure browser flow, no backend: the user opens Settings, pastes a Client ID
-// they got from developer.spotify.com, clicks Connect → we run PKCE,
+// they got from developer.spotify.com, clicks Connect â†’ we run PKCE,
 // Spotify redirects back with ?code, we exchange it for an access_token, and
 // store {access, refresh, expires_at} in localStorage. Refresh happens on
 // demand inside spotifyApi() before each call. Disconnect drops tokens.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SP_AUTH_URL   = 'https://accounts.spotify.com/authorize';
 const SP_TOKEN_URL  = 'https://accounts.spotify.com/api/token';
 const SP_API        = 'https://api.spotify.com/v1';
@@ -616,7 +616,7 @@ function useSpotify() {
     }
   }, [token, api]);
 
-  // Transport controls — skip, resume, pause on the active/any device.
+  // Transport controls â€” skip, resume, pause on the active/any device.
   const skipNext = useCallback(async () => {
     if (!token) return;
     try { await api('/me/player/next', { method: 'POST' }); } catch (e) { setError(String(e.message || e)); }
@@ -644,9 +644,9 @@ function useSpotify() {
   return { clientId, setClientId, token, me, error, connect, disconnect, api, devices, refreshDevices, transferTo, pauseDevice, setDeviceVolume, skipNext, skipPrev, resumePlay, pausePlay };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Routing — hash-based so the prototype works as a flat file with no router lib
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Routing â€” hash-based so the prototype works as a flat file with no router lib
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ROUTES = ['home', 'rooms', 'music', 'energy', 'weather', 'news', 'settings'];
 const LAST_ROUTE_KEY = 'hdg-last-route';
 
@@ -690,9 +690,9 @@ function useRoute() {
   return [route, navigate];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Sidebar — visual continuity with Sidebar.tsx; active row reflects hash route
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Sidebar â€” visual continuity with Sidebar.tsx; active row reflects hash route
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const NAV_ITEMS = [
   { id: 'home',     label: 'Home',     Icon: I.Home },
   { id: 'rooms',    label: 'Rooms',    Icon: I.Light },
@@ -702,7 +702,7 @@ const NAV_ITEMS = [
   { id: 'news',     label: 'News',     Icon: I.News },
 ];
 
-// Bottom nav shows the five daily-control destinations on mobile (≤720px).
+// Bottom nav shows the five daily-control destinations on mobile (â‰¤720px).
 // Weather and News are sidebar-only; they're informational, not control pages.
 const BOTTOM_NAV_ITEMS = [
   { id: 'home',     label: 'Home',     Icon: I.Home },
@@ -800,9 +800,9 @@ function Sidebar({ route, onNavigate, google }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Slider — drag-to-set, used by light brightness + speaker volume
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Slider â€” drag-to-set, used by light brightness + speaker volume
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function Slider({ value, onChange, disabled, compact }) {
   const ref = useRef(null);
   const dragging = useRef(false);
@@ -841,9 +841,9 @@ function Slider({ value, onChange, disabled, compact }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Power toggle (Switch)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function Toggle({ on, onToggle, ariaLabel }) {
   return (
     <button
@@ -858,9 +858,9 @@ function Toggle({ on, onToggle, ariaLabel }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Flicker pulse — quick acknowledgement when a state changes
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Flicker pulse â€” quick acknowledgement when a state changes
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function useFlicker(deps) {
   const [k, setK] = useState(0);
   const first = useRef(true);
@@ -871,9 +871,9 @@ function useFlicker(deps) {
   return k;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Domain state — initial fixture
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Domain state â€” initial fixture
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // All device state starts empty. Real devices are pulled from the bridges
 // configured in Settings (Plejd via Home Assistant, Sonos via node-sonos-
 // http-api, Shelly per-device HTTP). Until a bridge is configured the
@@ -953,14 +953,14 @@ const SCENES = [
   },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Backdrop selection — time-of-day + weather → photo
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Backdrop selection â€” time-of-day + weather â†’ photo
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const WEATHER_OPTIONS = [
-  { id: 'clear',  label: 'Clear',         temp: '+14°', icon: 'Sun' },
-  { id: 'cloudy', label: 'Light cloud',   temp: '+11°', icon: 'Cloud' },
-  { id: 'rain',   label: 'Rain',          temp: '+8°',  icon: 'Cloud' },
-  { id: 'snow',   label: 'Snow',          temp: '-2°',  icon: 'Cloud' },
+  { id: 'clear',  label: 'Clear',         temp: '+14Â°', icon: 'Sun' },
+  { id: 'cloudy', label: 'Light cloud',   temp: '+11Â°', icon: 'Cloud' },
+  { id: 'rain',   label: 'Rain',          temp: '+8Â°',  icon: 'Cloud' },
+  { id: 'snow',   label: 'Snow',          temp: '-2Â°',  icon: 'Cloud' },
 ];
 
 // pickBackdrop is now in src/lib/sunPhase.js -- it uses suncalc + the saved
@@ -989,7 +989,7 @@ function fmtAgo(then, now) {
   return `${h}h ago`;
 }
 
-// Spotify iFrame API loader — exposes a single promise that resolves to the
+// Spotify iFrame API loader â€” exposes a single promise that resolves to the
 // global IFrameAPI object once the async script has finished loading. The
 // script may load before or after React mounts; this handles both cases by
 // swapping in our callback if Spotify hasn't called it yet, or resolving
@@ -1005,7 +1005,7 @@ const spotifyIFrameApi = new Promise((resolve) => {
   };
 });
 
-// useSpotifyEmbed — wraps the iFrame API into a React-friendly hook. Returns
+// useSpotifyEmbed â€” wraps the iFrame API into a React-friendly hook. Returns
 // an `attach` ref-callback for the container div (the API injects an iframe
 // inside it), a `state` object with isPaused/position/duration, and play/
 // pause/seek/skip helpers. The controller is created once; URI changes call
@@ -1040,7 +1040,7 @@ function useSpotifyEmbed(uri) {
     spotifyIFrameApi.then(create);
   }, [create]);
 
-  // Load new URI when it changes — the controller stays the same, just
+  // Load new URI when it changes â€” the controller stays the same, just
   // tells the embed to point at a new resource.
   useEffect(() => {
     if (lastUriRef.current === uri) return;
@@ -1066,7 +1066,7 @@ function useSpotifyEmbed(uri) {
   return { attach, state, togglePlay, play, pause, seekRel };
 }
 
-// useSpotifyOEmbed — fetches the public oEmbed thumbnail + title for any
+// useSpotifyOEmbed â€” fetches the public oEmbed thumbnail + title for any
 // Spotify resource (album/playlist/track/artist). No auth needed and CORS-
 // friendly. Used for the album cover and human-readable title in the header
 // player. Cached in-memory so navigating back to the same source is instant.
@@ -1093,7 +1093,7 @@ function useSpotifyOEmbed(type, id) {
   return data;
 }
 
-// PersistentMusicPlayer — same role as before (own the iframe, position it),
+// PersistentMusicPlayer â€” same role as before (own the iframe, position it),
 // but now the iframe is created by Spotify's iFrame API via the `attach`
 // callback. On Music it overlays the stage anchor; otherwise it's stashed
 // off-screen so audio keeps playing while the user is on a different page.
@@ -1139,9 +1139,9 @@ function PersistentMusicPlayer({ attach, isOnMusic }) {
   );
 }
 
-// HeaderMusic — the always-visible compact player that sits between the clock
+// HeaderMusic â€” the always-visible compact player that sits between the clock
 // and the weather hero. No background, white-on-photo typography, clock-style
-// text-shadow for legibility. Cover click → Music page. Controls drive the
+// text-shadow for legibility. Cover click â†’ Music page. Controls drive the
 // Spotify iFrame API directly.
 function HeaderMusic({ playback, oembed, sourceLabel, sourceSub, onClickArt, togglePlay, seekRel }) {
   // Prefer our local label (curated or user pick) over oEmbed's. For artist,
@@ -1204,7 +1204,7 @@ function EnvSeedPrompt({ items, onApply, onApplyAll, onSkipAll }) {
         <div>
           <div className="env-seed-title">We found connection details in your environment.</div>
           <div className="env-seed-sub">
-            The dashboard isn't connecting anything automatically — pick what you want to wire up.
+            The dashboard isn't connecting anything automatically â€” pick what you want to wire up.
           </div>
         </div>
         <div className="env-seed-head-actions">
@@ -1359,10 +1359,10 @@ function StartupScreen({ google }) {
         <h1 id="startup-title" className="startup-title">Home Domain</h1>
         <p className="startup-sub">
           Sign in to take ownership of this household. The dashboard reads your lights,
-          music, energy use, and weather — then quietly gets out of the way.
+          music, energy use, and weather â€” then quietly gets out of the way.
         </p>
 
-        {/* Google sign-in — only rendered when VITE_GOOGLE_CLIENT_ID is set in .env */}
+        {/* Google sign-in â€” only rendered when VITE_GOOGLE_CLIENT_ID is set in .env */}
         {google?.clientId && (
           <>
             <div className="startup-gsi">
@@ -1373,7 +1373,7 @@ function StartupScreen({ google }) {
           </>
         )}
 
-        {/* Email / local profile — always available, no credentials required */}
+        {/* Email / local profile â€” always available, no credentials required */}
         <div className="startup-form">
           <div className="startup-email-grid">
             <input
@@ -1454,18 +1454,18 @@ function App() {
   const [route, navigate] = useRoute();
   const [musicSource, setMusicSource] = useState(null);          // Curated source key; null = nothing selected yet
   const [musicCustom, setMusicCustom] = useState(null);          // { type, id, label } when playing a search/library pick
-  const [musicFavs, setMusicFavs] = useState(() => {             // Local favourites — works without Spotify auth
+  const [musicFavs, setMusicFavs] = useState(() => {             // Local favourites â€” works without Spotify auth
     try { return JSON.parse(localStorage.getItem('hdg-music-favs') || '[]'); } catch (e) { return []; }
   });
   const spotify = useSpotify();
   const google = useGoogleAuth();
   const integrations = useIntegrations();
 
-  // Real-time hub — WebSocket to server/index.js running on the LAN.
+  // Real-time hub â€” WebSocket to server/index.js running on the LAN.
   // Falls back gracefully (hubConnected=false) when the hub isn't running;
   // the rest of the app uses direct polling in that case, unchanged.
   // hubDispatchRef lets the callbacks (defined here) call state setters that
-  // are declared later in the component — the ref is assigned each render so
+  // are declared later in the component â€” the ref is assigned each render so
   // it always has the freshest setters without causing re-renders.
   const hubStateRef    = useRef({});
   const hubDispatchRef = useRef(null);
@@ -1587,7 +1587,7 @@ function App() {
   const [tibberPrices, setTibberPrices] = useState(null);
   const [tibberErr, setTibberErr] = useState(null);
 
-  // Hub state dispatch — updated every render so the hub callbacks always
+  // Hub state dispatch â€” updated every render so the hub callbacks always
   // have stable access to the latest state setters without stale closures.
   // Called by onDeviceUpdate when the server pushes an integration update.
   hubDispatchRef.current = (integration, payload) => {
@@ -1622,12 +1622,12 @@ function App() {
   };
 
   // Push a single entry into the activity log; we cap at 8 so the panel
-  // never grows unbounded — the rest live in History (future surface).
+  // never grows unbounded â€” the rest live in History (future surface).
   const logActivity = useCallback((kind, text) => {
     setActivity(a => [{ id: Date.now() + Math.random(), kind, text, t: new Date() }, ...a].slice(0, 8));
   }, []);
 
-  // Single theme product — Clay only. Set once and forget.
+  // Single theme product â€” Clay only. Set once and forget.
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'clay');
   }, []);
@@ -1637,7 +1637,7 @@ function App() {
     try { localStorage.setItem('hdg-music-favs', JSON.stringify(musicFavs)); } catch (e) {}
   }, [musicFavs]);
 
-  // Music favourite helpers — item = { id, type, name, sub, embed }
+  // Music favourite helpers â€” item = { id, type, name, sub, embed }
   const addFav = useCallback((item) => {
     setMusicFavs(f => f.some(x => x.id === item.id) ? f : [item, ...f].slice(0, 50));
     logActivity('music', `Saved **${item.name}** to favourites`);
@@ -1702,8 +1702,8 @@ function App() {
         }
         break;
       case 'tibber':
-        // VITE_TIBBER_TOKEN is deprecated — token baked into bundle is a security risk.
-        // Set the token via Settings → Tibber instead.
+        // VITE_TIBBER_TOKEN is deprecated â€” token baked into bundle is a security risk.
+        // Set the token via Settings â†’ Tibber instead.
         break;
       case 'sonos':
         if (env.VITE_SONOS_URL) integrations.setIntegration('sonos', { url: env.VITE_SONOS_URL });
@@ -1763,7 +1763,7 @@ function App() {
     );
   }, [google.user, integrations.config.weather?.lat, integrations.config.weather?.lon, integrations.setIntegration]);
 
-  // Time + weather + solar phase → backdrop photo. Crossfade by swapping
+  // Time + weather + solar phase â†’ backdrop photo. Crossfade by swapping
   // background-image. Now driven by actual sunrise/sunset from the user's
   // lat/lon rather than arbitrary hour buckets (council Q2 ship list, item
   // 5). Falls back to the old hour heuristic when no location is saved yet.
@@ -1814,7 +1814,7 @@ function App() {
           useHomeStore.getState().setPlayback(nextPb);
           // Persist track + position for cross-session resume. Written on every
           // poll so the saved position stays fresh. Only the track fields are
-          // stored — device info is session-specific and not useful to persist.
+          // stored â€” device info is session-specific and not useful to persist.
           try {
             localStorage.setItem('hdg-last-playback', JSON.stringify({
               track: nextPb.track, artist: nextPb.artist, art: nextPb.art,
@@ -1914,7 +1914,7 @@ function App() {
     // attempted via the Hub-cloud path and gracefully degrades if there's
     // no Hub paired.
     if (cfg?.cloudSession && cfg?.cloudSiteId) {
-      // Hub is supplying Plejd data — skip redundant direct-cloud poll.
+      // Hub is supplying Plejd data â€” skip redundant direct-cloud poll.
       if (hubHasPlejd) { setPlejdErr(null); return; }
       let cancelled = false;
       let backoffMs = 30_000;   // doubles on consecutive errors, cap 5 min
@@ -1929,8 +1929,8 @@ function App() {
           // (Light/Dimmer) or just on/off (Relay/Switch).
           const isPlug = (d) => /relay|outlet|plug|switch/i.test(d.type || '');
           // Group devices by their user-configured Plejd room name so the
-          // dashboard shows "Kitchen", "Bedroom", etc. — exactly as the user
-          // named them in the Plejd app — not individual device IDs or model
+          // dashboard shows "Kitchen", "Bedroom", etc. â€” exactly as the user
+          // named them in the Plejd app â€” not individual device IDs or model
           // names. Devices with no room assignment appear as individual cards.
           const roomGroups = new Map();
           const ungrouped = [];
@@ -1963,7 +1963,7 @@ function App() {
           const lights = [
             ...Array.from(roomGroups.entries()).map(([name, devs]) => mkRoomCard(name, devs)),
             // ungrouped devices fall through as individual cards using their
-            // user-set output name (out0.name → d.title)
+            // user-set output name (out0.name â†’ d.title)
             ...ungrouped.map(d => ({
               id: d.id,
               name: d.title,
@@ -1985,7 +1985,7 @@ function App() {
             icon: 'Plug',
             _cloudDevice: d,
           }));
-          // Cloud API (getSiteById) never returns live device state — stateKnown
+          // Cloud API (getSiteById) never returns live device state â€” stateKnown
           // is false for Plejd. Preserve the existing on/brightness across polls
           // so user-toggled state isn't wiped every 8 seconds. New rooms (first
           // appearance) start as off until the user or the Hub sets them.
@@ -2013,7 +2013,7 @@ function App() {
             return [...shellyOrHaOnly, ...plugs];
           });
           const lightDeviceCount = devices.filter(d => !isPlug(d)).length;
-          useHomeStore.getState().markOk('plejd', `${lights.length} rooms · ${lightDeviceCount} lights · ${plugs.length} plugs · ${cfg.cloudSiteTitle || 'Plejd cloud'}`);
+          useHomeStore.getState().markOk('plejd', `${lights.length} rooms Â· ${lightDeviceCount} lights Â· ${plugs.length} plugs Â· ${cfg.cloudSiteTitle || 'Plejd cloud'}`);
           schedule();
         })
         .catch(e => {
@@ -2032,7 +2032,7 @@ function App() {
     useHomeStore.getState().setStatus('plejd', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
   }, [pageVisible, integrations.config.plejd?.cloudSession, integrations.config.plejd?.cloudSiteId, demoMode, hubHasPlejd]);
 
-  // Fetch live Sonos state when configured. Poll 15s — playback changes
+  // Fetch live Sonos state when configured. Poll 15s â€” playback changes
   // faster than light state so the UI feels responsive.
   useEffect(() => {
     if (demoMode) return; // demo fixtures take precedence over live bridges
@@ -2090,7 +2090,7 @@ function App() {
   // Poll discovered Sonos speakers directly via UPnP (no bridge configured).
   // Runs parallel to the Spotify Connect path; bridge URL wins when present.
   // Uses sonosUPnPState() which may be blocked by CORS on some firmware versions
-  // — fails silently, optimistic local state remains.
+  // â€” fails silently, optimistic local state remains.
   useEffect(() => {
     if (demoMode) return;
     if (!pageVisible) return;
@@ -2173,7 +2173,7 @@ function App() {
     return () => { cancelled = true; clearInterval(t); };
   }, [pageVisible, integrations.config.tibber?.token]);
 
-  // Live clock — slow tick (30s) for the wall clock; fast tick (15s) only
+  // Live clock â€” slow tick (30s) for the wall clock; fast tick (15s) only
   // while a scene timer is showing so the "Active 12m" stays fresh.
   useEffect(() => {
     const period = activeScene ? 15_000 : 30_000;
@@ -2234,7 +2234,7 @@ function App() {
   }, [speakers, integrations.config.discovered?.devices]);
   const totalW = Math.round(litWatts + outletWatts + speakerWatts);
 
-  // Clear active scene whenever the user adjusts anything manually — the
+  // Clear active scene whenever the user adjusts anything manually â€” the
   // preset no longer matches reality. Centralised so handlers stay terse.
   const breakScene = useCallback(() => {
     setActiveScene(null);
@@ -2258,7 +2258,7 @@ function App() {
     logActivity('scene', `Scene **${title}** activated`);
   }, [hubConnected, hubCommand, logActivity]);
 
-  // Light handlers — optimistic local update + real Plejd call when configured.
+  // Light handlers â€” optimistic local update + real Plejd call when configured.
   // Hub path routes through the server (no CORS, all tabs see the update).
   // Falls back to direct Plejd cloud call when hub is offline.
   const toggleRoom = (id) => {
@@ -2279,7 +2279,7 @@ function App() {
     // Hub path: only for hub-sourced rooms (_platform === 'plejd'); server
     // holds the session token and can command the device.
     // Hub path: both hub-sourced rooms (_platform==='plejd') and browser-cloud rooms
-    // (_cloudDevices/_cloudDevice) route via hub when it's connected — hub holds the
+    // (_cloudDevices/_cloudDevice) route via hub when it's connected â€” hub holds the
     // TCP connection and server-side session, so it's faster and doesn't require
     // GWY-01 cloud pairing. Fan out to individual objectIds for cloud-fetched rooms.
     if (hubConnected && (r._platform === 'plejd' || r._cloudDevices || r._cloudDevice)) {
@@ -2299,7 +2299,7 @@ function App() {
         .catch(e => {
           setCardFailed(r.id, () => toggleRoom(id));
           setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
-          logActivity('light', `**Needs Plejd Hub** — toggle reverted (${String(e.message || e).slice(0, 40)})`);
+          logActivity('light', `**Needs Plejd Hub** â€” toggle reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud control needs a Plejd Hub. Discovery still works.' });
         });
       return;
@@ -2327,7 +2327,7 @@ function App() {
       Promise.all(devs.map(d => plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: d.id, on: b > 0, dim: dim255 })))
         .catch(e => {
           setCardFailed(r.id);
-          logActivity('light', `**Needs Plejd Hub** — dim reverted (${String(e.message || e).slice(0, 40)})`);
+          logActivity('light', `**Needs Plejd Hub** â€” dim reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud dim needs a Plejd Hub.' });
         });
     }
@@ -2346,7 +2346,7 @@ function App() {
         });
       }
     });
-    // Fan out through hub — cloud-fetched rooms use individual objectIds;
+    // Fan out through hub â€” cloud-fetched rooms use individual objectIds;
     // hub-sourced rooms use the 'room:' prefix for server-side fan-out.
     if (hubConnected) {
       rooms.forEach(r => {
@@ -2356,7 +2356,7 @@ function App() {
     }
   };
 
-  // Per-device handlers — control a single Plejd device inside a room card.
+  // Per-device handlers â€” control a single Plejd device inside a room card.
   // The room aggregate state is recalculated from the updated _cloudDevices list
   // so the room-level toggle and brightness stay accurate without a full re-poll.
   const toggleDevice = (roomId, deviceId, on) => {
@@ -2436,7 +2436,7 @@ function App() {
       logActivity('outlet', `${o.name} **rollback** (${String(err.message || err).slice(0, 40)})`);
       useHomeStore.getState().markFailed(statusId, String(err.message || err));
     };
-    // Plejd cloud plug — prefer hub routing when connected (local TCP, no GWY-01
+    // Plejd cloud plug â€” prefer hub routing when connected (local TCP, no GWY-01
     // cloud-pairing required). Falls back to direct cloud API when hub is offline.
     if (o._cloudDevice) {
       if (hubConnected) {
@@ -2510,7 +2510,7 @@ function App() {
         .catch(e => logActivity('speaker', `Sonos error: ${e.message || e}`));
       return;
     }
-    // Direct Sonos UPnP path — discovered speaker with IP but no bridge configured.
+    // Direct Sonos UPnP path â€” discovered speaker with IP but no bridge configured.
     if (s._protocol === 'sonos' && s._ip) {
       sonosUPnPCmd(s._ip, next ? 'play' : 'pause').catch(() => {});
     }
@@ -2541,7 +2541,7 @@ function App() {
   };
   // Group all: ON groups every speaker to the lead room and turns them on;
   // OFF restores each speaker to "Standalone" (we don't remember prior sources
-  // — keeping the model simple. Future: stash sources per-speaker on group).
+  // â€” keeping the model simple. Future: stash sources per-speaker on group).
   const setGroup = () => {
     const next = !groupAll;
     setGroupAll(next);
@@ -2553,18 +2553,18 @@ function App() {
   };
 
   // Keyboard shortcuts (Home page scenes):
-  //   1–5  → apply Scenes in order
-  //   0    → All off (last scene)
-  //   Esc  → clear active scene (return to free-form)
-  //   g    → go to Home (the global default)
+  //   1â€“5  â†’ apply Scenes in order
+  //   0    â†’ All off (last scene)
+  //   Esc  â†’ clear active scene (return to free-form)
+  //   g    â†’ go to Home (the global default)
   // We bail when focus is inside an input/textarea/contenteditable so the
   // shortcuts don't fight form input. (Handler registered after embed so
   // embed.togglePlay is in scope when the dependency array is evaluated.)
 
   // Per-page sub-headers share a thinner version of the welcome row from Home
-  // — the photo + clock makes everything feel like one product.
+  // â€” the photo + clock makes everything feel like one product.
 
-  // Resolve the active music source → Spotify URI (e.g. spotify:album:xxx).
+  // Resolve the active music source â†’ Spotify URI (e.g. spotify:album:xxx).
   // The iFrame API loads URIs, not full embed URLs. Custom (search/library/
   // favourite picks) wins over curated.
   const [musicType, musicId] = useMemo(() => {
@@ -2573,17 +2573,23 @@ function App() {
     const s = MUSIC_SOURCES.find(s => s.id === musicSource) ?? MUSIC_SOURCES[0];
     return s.embed.split('/');
   }, [musicSource, musicCustom]);
-  // null URI → embed stays blank; only loads when user explicitly picks something.
+  // null URI â†’ embed stays blank; only loads when user explicitly picks something.
   const musicUri = musicType && musicId ? `spotify:${musicType}:${musicId}` : null;
   const musicNowLabel = musicCustom?.label ?? (musicSource ? (MUSIC_SOURCES.find(s => s.id === musicSource)?.name ?? 'Music') : 'Music');
   const musicNowSub   = musicCustom?.sub   ?? (musicSource ? (MUSIC_SOURCES.find(s => s.id === musicSource)?.sub  ?? '') : '');
 
+  // When connected but no source is explicitly chosen, fall back to the
+  // currently-playing album so the embed shows the user's own content rather
+  // than the hardcoded Top Hits default. Explicit picks always win.
+  const playbackAlbumUri = useHomeStore(s => s.playback.albumUri);
+  const effectiveMusicUri = musicUri ?? (spotify.token ? (playbackAlbumUri || null) : null);
+
   // Wire the Spotify iFrame API + oEmbed metadata at App level so both the
   // header player and the Music page can read playback state and drive it.
-  const embed = useSpotifyEmbed(musicUri);
+  const embed = useSpotifyEmbed(effectiveMusicUri);
   const oembed = useSpotifyOEmbed(musicType, musicId);
 
-  // Keyboard shortcuts — registered here so embed.togglePlay is available.
+  // Keyboard shortcuts â€” registered here so embed.togglePlay is available.
   const togglePlay = embed.togglePlay;
   useEffect(() => {
     const onKey = (e) => {
@@ -2725,7 +2731,7 @@ function App() {
           )}
 
           <footer className="page-footer">
-            <span>Home Domain Server · LAN-only · every device reached over Wi‑Fi, never via vendor cloud</span>
+            <span>Home Domain Server Â· LAN-only Â· every device reached over Wiâ€‘Fi, never via vendor cloud</span>
             <span className="mono">{now.toLocaleString('en-GB', { dateStyle: 'medium' })}</span>
           </footer>
         </div>
@@ -2742,7 +2748,7 @@ function App() {
       )}
       {route === 'home' && (
         <div className="key-hints">
-          <span><kbd>1–5</kbd>scenes</span>
+          <span><kbd>1â€“5</kbd>scenes</span>
           <span><kbd>G</kbd>home</span>
           <span><kbd>Esc</kbd>clear scene</span>
         </div>
@@ -2756,9 +2762,9 @@ function App() {
   );
 }
 
-// HomePage — Music + Sound + Lights + Power + Scenes + Activity
+// HomePage â€” Music + Sound + Lights + Power + Scenes + Activity
 // (extracted from App so each page can render independently)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function HomePage({
   rooms, outlets, speakers,
   onCount, litWatts, outletWatts, speakerWatts, totalW,
@@ -2802,7 +2808,7 @@ function HomePage({
       <Section
         title="Sound"
         statusId="sonos"
-        source={speakers.length ? `${speakers.length} ${speakers.length === 1 ? 'zone' : 'zones'} · live` : 'no speakers yet'}
+        source={speakers.length ? `${speakers.length} ${speakers.length === 1 ? 'zone' : 'zones'} Â· live` : 'no speakers yet'}
         summary={
           speakers.length ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
@@ -2821,16 +2827,16 @@ function HomePage({
             ))}
           </div>
         ) : (
-          <EmptyIntegration title="No speakers found" sub="Add a Sonos bridge URL in Settings → Integrations." />
+          <EmptyIntegration title="No speakers found" sub="Add a Sonos bridge URL in Settings â†’ Integrations." />
         )}
       </Section>
 
       <Section
         title="Lights"
         statusId="plejd"
-        source={rooms.length ? `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'} · live` : 'no rooms yet'}
+        source={rooms.length ? `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'} Â· live` : 'no rooms yet'}
         summary={rooms.length
-          ? <><b>{onCount}</b> of <b>{rooms.length}</b> rooms · <b>{Math.round(litWatts)} W</b> drawn</>
+          ? <><b>{onCount}</b> of <b>{rooms.length}</b> rooms Â· <b>{Math.round(litWatts)} W</b> drawn</>
           : <>No rooms loaded</>}
       >
         {rooms.length ? (
@@ -2866,14 +2872,14 @@ function HomePage({
             </div>
           </div>
         ) : (
-          <EmptyIntegration title="No rooms found" sub="Add a Home Assistant URL + token in Settings → Integrations to surface your Plejd lights." />
+          <EmptyIntegration title="No rooms found" sub="Add a Home Assistant URL + token in Settings â†’ Integrations to surface your Plejd lights." />
         )}
       </Section>
 
       <Section
         title="Power"
         statusId="shelly"
-        source={outlets.length ? `${outlets.length} ${outlets.length === 1 ? 'outlet' : 'outlets'} · live` : 'no outlets yet'}
+        source={outlets.length ? `${outlets.length} ${outlets.length === 1 ? 'outlet' : 'outlets'} Â· live` : 'no outlets yet'}
         summary={outlets.length
           ? <>Live load <b className="mono">{outletWatts} W</b> across {outlets.filter(o=>o.on).length} outlets</>
           : <>No outlets configured</>}
@@ -2886,7 +2892,7 @@ function HomePage({
             <PowerLive outlets={outlets} totalW={totalW} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts} />
           </div>
         ) : (
-          <EmptyIntegration title="No outlets configured" sub="Add Shelly device IPs in Settings → Integrations." />
+          <EmptyIntegration title="No outlets configured" sub="Add Shelly device IPs in Settings â†’ Integrations." />
         )}
       </Section>
 
@@ -2899,8 +2905,8 @@ function HomePage({
             {activeScene && activeSceneAt && (
               <span className="scene-timer">
                 <span className="mono">{SCENES.find(s => s.id === activeScene)?.label || plejdScenes.find(s => s.id === activeScene)?.title}</span>
-                · Active <span className="mono">{fmtAgo(activeSceneAt, now)}</span>
-                <button className="clear-btn" onClick={breakScene} title="Clear active scene" aria-label="Clear active scene">×</button>
+                Â· Active <span className="mono">{fmtAgo(activeSceneAt, now)}</span>
+                <button className="clear-btn" onClick={breakScene} title="Clear active scene" aria-label="Clear active scene">Ã—</button>
               </span>
             )}
           </span>
@@ -3005,7 +3011,7 @@ function SensorsSection() {
                 <div className="sensor-tile-label">{meta.label || meta.id}</div>
               </div>
               <div className="sensor-tile-value mono">
-                {row?.err ? '—' : (row?.state ?? '…')}
+                {row?.err ? 'â€”' : (row?.state ?? 'â€¦')}
                 {meta.unit && row?.state != null && !row.err && <span className="sensor-tile-unit">{meta.unit}</span>}
               </div>
               {row?.err && <div className="sensor-tile-err">{row.err.slice(0, 50)}</div>}
@@ -3017,9 +3023,9 @@ function SensorsSection() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Pieces
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, city, route, playback, togglePlay, seekRel, oembed, musicLabel, musicSub, onOpenMusic, user }) {
   const lanLost = useHomeStore(s => s.lanLost);
   const greeting = (() => {
@@ -3033,25 +3039,25 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
   const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const tempC = weatherData?.current?.temperature_2m;
   const code = weatherData?.current?.weather_code;
-  const tempStr = tempC != null ? `${tempC > 0 ? '+' : ''}${Math.round(tempC)}°` : '—';
+  const tempStr = tempC != null ? `${tempC > 0 ? '+' : ''}${Math.round(tempC)}Â°` : 'â€”';
   const condLabel = wmoLabel(code) || 'Weather';
   const WIcon = I[{ clear: 'Sun', cloudy: 'Cloud', rain: 'Cloud', snow: 'Cloud' }[weather] || 'Cloud'];
   // The welcome subtitle changes per-route so the header stays meaningful when
   // the page below isn't the dashboard.
   const subByRoute = {
-    home:     `${onCount} rooms lit · ${totalW} W now`,
-    rooms:    `Lights · ${onCount} on now`,
-    music:    `Streaming to home · ${deviceCount} devices online`,
-    energy:   `${totalW} W now · live`,
-    weather:  `${condLabel} · ${city}`,
-    news:     `Sveriges Radio · TT`,
+    home:     `${onCount} rooms lit Â· ${totalW} W now`,
+    rooms:    `Lights Â· ${onCount} on now`,
+    music:    `Streaming to home Â· ${deviceCount} devices online`,
+    energy:   `${totalW} W now Â· live`,
+    weather:  `${condLabel} Â· ${city}`,
+    news:     `Sveriges Radio Â· TT`,
     settings: `Devices, integrations, and about`,
   };
   return (
     <header className="page-header">
       <div className="welcome-row">
         <span className="welcome-text">{greeting}{user?.given_name || user?.name ? `, ${user.given_name || user.name.split(' ')[0]}` : ''}.</span>
-        <span className="welcome-sep">·</span>
+        <span className="welcome-sep">Â·</span>
         <span className="welcome-sub">{subByRoute[route] ?? subByRoute.home}</span>
       </div>
       <div className="header-meta">
@@ -3059,7 +3065,7 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
           <div className="clock-hero-time mono">{timeStr}</div>
           <div className="clock-hero-date">{dayStr}</div>
         </div>
-        {/* Always-visible compact player — no background, white-on-photo
+        {/* Always-visible compact player â€” no background, white-on-photo
             like the clock. Sits between the clock and the weather. */}
         <HeaderMusic
           playback={playback}
@@ -3076,12 +3082,12 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
               className="wifi-pill"
               data-lost={lanLost || undefined}
               onClick={lanLost ? () => window.location.reload() : undefined}
-              title={lanLost ? 'Network lost — tap to retry' : undefined}
+              title={lanLost ? 'Network lost â€” tap to retry' : undefined}
             >
               <span className="wifi-dot" />
               {lanLost
                 ? 'Network lost'
-                : <>{deviceCount} on Wi‑Fi<span className="wifi-sub mono">home.local</span></>}
+                : <>{deviceCount} on Wiâ€‘Fi<span className="wifi-sub mono">home.local</span></>}
             </span>
           </div>
           <div className="weather-hero">
@@ -3092,7 +3098,7 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
               <div className="weather-hero-temp"><span className="mono">{tempStr}</span></div>
               <div className="weather-hero-meta">
                 <span className="weather-hero-cond">{condLabel}</span>
-                <span className="weather-hero-time">{timeSlotLabel(now)} · {city}</span>
+                <span className="weather-hero-time">{timeSlotLabel(now)} Â· {city}</span>
               </div>
             </div>
           </div>
@@ -3122,19 +3128,19 @@ function Section({ title, summary, source, statusId, children }) {
 
 // MaskedSecret -- one component handles every "the value is set, don't make
 // the user stare at it; let them change it when they want to" interaction.
-// The default view shows ••••••••••<last 4 chars> in a read-only input. Click
+// The default view shows â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢<last 4 chars> in a read-only input. Click
 // "Change" to swap to a real password input + Save / Cancel. Empty values
 // start in edit mode (there's nothing to mask yet).
 //
 // Why not just <input type="password">? Browsers reveal the value on focus or
-// via DevTools, the read-only "•••e9c" pattern is the idiot-proof default the
+// via DevTools, the read-only "â€¢â€¢â€¢e9c" pattern is the idiot-proof default the
 // user asked for. Tokens stop appearing in over-the-shoulder screenshots.
 function MaskedSecret({ value, onSave, placeholder, type = 'password', autoComplete = 'off' }) {
   const [editing, setEditing] = useState(!value);
   const [draft, setDraft] = useState(value || '');
   useEffect(() => { setDraft(value || ''); setEditing(!value); }, [value]);
   const masked = value
-    ? '••••••••' + String(value).slice(-4)
+    ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' + String(value).slice(-4)
     : '';
 
   if (editing) {
@@ -3345,7 +3351,7 @@ function OutletRow({ outlet, onToggle, sending, failed, retryFn }) {
         )}
       </div>
       <div className="outlet-watts">
-        {outlet.on ? <>{outlet.watts}<span style={{ fontSize: 10, color: 'var(--muted-foreground)', marginLeft: 3 }}>W</span></> : '—'}
+        {outlet.on ? <>{outlet.watts}<span style={{ fontSize: 10, color: 'var(--muted-foreground)', marginLeft: 3 }}>W</span></> : 'â€”'}
         <small>{outlet.on ? 'Live' : 'Off'}</small>
       </div>
       <Toggle on={outlet.on} onToggle={onToggle} ariaLabel={`Toggle ${outlet.name}`} />
@@ -3418,8 +3424,8 @@ function TibberPriceCell({ totalW }) {
   const hasPrice = price.current != null && Number.isFinite(price.current);
   if (hasPrice) {
     return (
-      <span title={`Tibber · ${price.current.toFixed(4)} ${price.currency}/kWh`}>
-        Tibber · <b className="mono">{price.current.toFixed(2)} {price.currency}/kWh</b>
+      <span title={`Tibber Â· ${price.current.toFixed(4)} ${price.currency}/kWh`}>
+        Tibber Â· <b className="mono">{price.current.toFixed(2)} {price.currency}/kWh</b>
       </span>
     );
   }
@@ -3427,7 +3433,7 @@ function TibberPriceCell({ totalW }) {
   // inside the section header already shows the dot; we keep this cell quiet.
   return (
     <span title={status?.detail || 'Tibber not configured'} style={{ opacity: 0.7 }}>
-      Tibber · <b className="mono">— {price.currency}/kWh</b>
+      Tibber Â· <b className="mono">â€” {price.currency}/kWh</b>
     </span>
   );
 }
@@ -3466,7 +3472,7 @@ function SpeakerPicker({ speakers, onToggle, onClose }) {
             <span className="np-picker-name">{sp.name}</span>
             {(sp.source) && (
               <span className="np-picker-track">
-                {sp.paused && !sp.on ? '⏸ ' : ''}{sp.source}
+                {sp.paused && !sp.on ? 'â¸ ' : ''}{sp.source}
               </span>
             )}
           </span>
@@ -3531,7 +3537,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
   // Show real player if connected + has a track.
   if (!isConnected || !hasTrack) {
     // If the Sonos bridge has something paused/playing, show a Sonos mini-
-    // player instead of the generic embed — much more honest and actionable.
+    // player instead of the generic embed â€” much more honest and actionable.
     if (sonosSpeaker) {
       return (
         <div className="music-hero music-hero--live">
@@ -3542,7 +3548,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
             <div className="np-meta">
               <div className="np-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 {sonosSpeaker.on ? 'Now playing' : 'Paused'}
-                <span style={{ color: 'var(--muted-foreground)', fontSize: 9 }}> · </span>
+                <span style={{ color: 'var(--muted-foreground)', fontSize: 9 }}> Â· </span>
                 <div className="np-picker-wrap" ref={pickerWrapRef}>
                   <button
                     className="np-room-btn"
@@ -3592,7 +3598,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
       );
     }
 
-    // Nothing playing — clean idle state, no demo iframe.
+    // Nothing playing â€” clean idle state, no demo iframe.
     return (
       <div className="music-hero music-hero--live">
         <div className="np-art-wrap">
@@ -3607,7 +3613,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
               {isConnected ? 'Nothing playing' : 'Connect Spotify'}
             </div>
             <div className="np-source mono">
-              {isConnected ? 'Start something on any Spotify device' : 'Sign in via Settings → Spotify'}
+              {isConnected ? 'Start something on any Spotify device' : 'Sign in via Settings â†’ Spotify'}
             </div>
           </div>
           {!hideNavActions && !isConnected && (
@@ -3639,7 +3645,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
             {playback.isPlaying ? 'Now playing' : 'Paused'}
             {(playback.deviceName || speakers.length > 0) && (
               <>
-                <span style={{ color: 'var(--muted-foreground)', fontSize: 9 }}> · </span>
+                <span style={{ color: 'var(--muted-foreground)', fontSize: 9 }}> Â· </span>
                 <div className="np-picker-wrap">
                   <button
                     className="np-room-btn"
@@ -3720,7 +3726,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
               <div className="hero-room-row" data-on={false}>
                 <span className="hero-room-dot" />
                 <span className="hero-room-name">No speakers</span>
-                <span className="hero-room-state mono">—</span>
+                <span className="hero-room-state mono">â€”</span>
               </div>
             )}
             {speakers.map(sp => (
@@ -3761,7 +3767,7 @@ function SpeakerCard({ speaker, onToggle, onVolume }) {
             {speaker.on ? (
               speaker.source || 'Playing'
             ) : speaker.paused && speaker.source ? (
-              <><span style={{ opacity: 0.5, marginRight: 4 }}>⏸</span>{speaker.source}</>
+              <><span style={{ opacity: 0.5, marginRight: 4 }}>â¸</span>{speaker.source}</>
             ) : (
               'Off'
             )}
@@ -3776,18 +3782,18 @@ function SpeakerCard({ speaker, onToggle, onVolume }) {
         <div style={{ flex: 1 }}>
           <Slider value={speaker.on ? speaker.volume : 0} onChange={onVolume} disabled={!speaker.on} />
         </div>
-        <span className="vol-num mono">{speaker.on ? speaker.volume : '—'}</span>
+        <span className="vol-num mono">{speaker.on ? speaker.volume : 'â€”'}</span>
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ActivityLog — newest-first feed of recent user actions
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ActivityLog â€” newest-first feed of recent user actions
 // Text supports a light markdown-bold (**word**) so callers can highlight
-// names without manual span juggling. We split on **…** and emit <b>; safe
+// names without manual span juggling. We split on **â€¦** and emit <b>; safe
 // because the source strings are produced by the page itself, not user input.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderActivityText(text) {
   const parts = text.split(/\*\*(.+?)\*\*/g);
   return parts.map((p, i) => i % 2 === 1 ? <b key={i}>{p}</b> : <React.Fragment key={i}>{p}</React.Fragment>);
@@ -3798,10 +3804,10 @@ function ActivityLog({ items, now }) {
     <div className="activity-log">
       <div className="activity-head">
         <span className="micro-label">Recent</span>
-        <span className="activity-count">{items.length} · live</span>
+        <span className="activity-count">{items.length} Â· live</span>
       </div>
       {items.length === 0 ? (
-        <div className="activity-empty">No actions yet — toggle a light or apply a scene.</div>
+        <div className="activity-empty">No actions yet â€” toggle a light or apply a scene.</div>
       ) : (
         <div className="activity-rows">
           {items.map(it => (
@@ -3824,20 +3830,20 @@ function EmptyIntegration({ title, sub }) {
       <div className="integration-empty-icon"><I.PowerOff size={20} /></div>
       <div>
         <div className="integration-empty-title">{title}</div>
-        <div className="integration-empty-sub">{sub} <a href="#settings" className="integration-empty-link">Open Settings ↗</a></div>
+        <div className="integration-empty-sub">{sub} <a href="#settings" className="integration-empty-link">Open Settings â†—</a></div>
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RoomsPage — Plejd-style detail view, one card per room with everything the
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// RoomsPage â€” Plejd-style detail view, one card per room with everything the
 // Plejd app exposes for that room: name, bulb count, on/off, brightness, and
 // per-room scene shortcuts ("All on", "Half", "Dim", "Off"). Mirrors what the
 // real Plejd web/iOS app does. In a real deployment this state would round-
 // trip to a local Plejd agent (see DEPLOY.md); here it edits the same shared
 // room state the Home page uses, so changes show up everywhere.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ROOM_SCENES = [
   { id: 'all-on',  label: 'All on',  brightness: 100 },
   { id: 'normal',  label: 'Normal',  brightness: 70 },
@@ -3851,7 +3857,7 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, toggleDevic
   const totalBulbs = rooms.reduce((a, r) => a + r.bulbs, 0);
   const litBulbs   = rooms.reduce((a, r) => a + (r.on ? r.bulbs : 0), 0);
 
-  // Room filter menu — unique group labels derived from live Plejd data.
+  // Room filter menu â€” unique group labels derived from live Plejd data.
   // For hub-pushed cards, r.name IS the room (no r.room set).
   // For direct-cloud devices, r.room is the Plejd room name.
   const [selectedRoom, setSelectedRoom] = useState(null); // null = All
@@ -3899,7 +3905,7 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, toggleDevic
       <Section title="Rooms" summary={<>Add a Plejd bridge to surface your room setup.</>}>
         <EmptyIntegration
           title="No Plejd rooms found"
-          sub="Add a Home Assistant URL + long-lived token in Settings → Integrations. Your Plejd rooms will appear here exactly as you've set them up in the Plejd app."
+          sub="Add a Home Assistant URL + long-lived token in Settings â†’ Integrations. Your Plejd rooms will appear here exactly as you've set them up in the Plejd app."
         />
       </Section>
     );
@@ -3909,14 +3915,14 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, toggleDevic
     <>
       <Section
         title="Rooms"
-        source="lights · live"
+        source="lights Â· live"
         summary={<>
           <b>{visOnCount}</b> of <b>{visibleRooms.length}</b> {selectedRoom ? `lights in ${selectedRoom}` : 'rooms'}
-          {' · '}<b>{visLitBulbs}</b> of <b>{visTotalBulbs}</b> bulbs lit
+          {' Â· '}<b>{visLitBulbs}</b> of <b>{visTotalBulbs}</b> bulbs lit
         </>}
       >
         <div className="stack">
-          {/* Room filter strip — pills derived from Plejd room configuration */}
+          {/* Room filter strip â€” pills derived from Plejd room configuration */}
           {roomGroups.length > 1 && (
             <div className="room-filter" role="toolbar" aria-label="Filter by room">
               <button
@@ -3949,7 +3955,7 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, toggleDevic
             <div>
               <div className="master-title">{selectedRoom ?? 'All rooms'}</div>
               <div className="master-sub">
-                {visLitBulbs} bulbs lit · {visOnCount} of {visibleRooms.length} on
+                {visLitBulbs} bulbs lit Â· {visOnCount} of {visibleRooms.length} on
               </div>
             </div>
             <div className="master-count mono">{visOnCount}/{visibleRooms.length}</div>
@@ -4086,13 +4092,13 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, toggleDevic
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ── PlayerStage ──────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ PlayerStage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Replaces the Spotify embed red-branded iframe with a custom clay-theme player.
 // When Spotify is connected the iframe is kept off-screen (audio continues),
 // while this component renders track art, progress, transport, and upcoming queue.
 // Falls back to the iframe anchor when Spotify is not connected.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PlayerStage({ spotify, recentlyPlayed, queue }) {
   const playback = useHomeStore(s => s.playback);
   const hasTrack = !!playback.track;
@@ -4130,7 +4136,7 @@ function PlayerStage({ spotify, recentlyPlayed, queue }) {
     spotify.api('/me/player/seek?position_ms=' + ms, { method: 'PUT' }).catch(() => {});
   };
 
-  // ── Cross-session resume ──────────────────────────────────────────────────
+  // â”€â”€ Cross-session resume â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Read the last-played track from localStorage. The polling effect writes
   // it on every successful poll, so it always reflects the most recent track
   // and position. We only need it while idle, so skip the read while playing.
@@ -4139,175 +4145,133 @@ function PlayerStage({ spotify, recentlyPlayed, queue }) {
     try { return JSON.parse(localStorage.getItem('hdg-last-playback') || 'null'); } catch { return null; }
   }, [hasTrack]); // recomputes when track state flips
 
-  // ── Not connected — show the iframe embed unchanged ──────────────────────
+  // -- Not connected: show iframe with hardcoded default
   if (!spotify.token) {
     return <div id="music-stage-anchor" className="music-page-frame music-page-frame-anchor" />;
   }
 
-  // ── Connected, nothing playing — resume card + recently played grid ──────
-  if (!hasTrack) {
-    const hasResume = !!(lastPlayback?.track && lastPlayback?.uri);
-    return (
-      <div className="player-stage player-stage--idle">
-
-        {/* ── Resume last session ── */}
-        {hasResume && (
-          <div className="player-resume-card">
-            <div className="player-resume-art-wrap">
-              {lastPlayback.art
-                ? <img src={lastPlayback.art} alt="" className="player-resume-art" />
-                : <div className="player-resume-art player-resume-art--empty"><I.Music size={16} /></div>
-              }
-            </div>
-            <div className="player-resume-info">
-              <div className="player-resume-track">{lastPlayback.track}</div>
-              <div className="player-resume-artist">{lastPlayback.artist}</div>
-              {lastPlayback.progressMs > 5000 && lastPlayback.durationMs > 0 && (
-                <div className="player-resume-pos">
-                  <span className="mono">{fmt(lastPlayback.progressMs)}</span>
-                  <span style={{ margin: '0 3px', opacity: 0.45 }}>/</span>
-                  <span className="mono">{fmt(lastPlayback.durationMs)}</span>
-                </div>
-              )}
-            </div>
-            <button
-              className="player-resume-btn"
-              onClick={() =>
-                spotify.api('/me/player/play', {
-                  method: 'PUT',
-                  body: JSON.stringify({
-                    uris: [lastPlayback.uri],
-                    position_ms: lastPlayback.progressMs > 5000 ? lastPlayback.progressMs : 0,
-                  }),
-                }).catch(() => {})
-              }
-            >
-              <Icon size={11}><polygon points="5,3 19,12 5,21"/></Icon>
-              {lastPlayback.progressMs > 5000 ? `Resume ${fmt(lastPlayback.progressMs)}` : 'Play'}
-            </button>
-          </div>
-        )}
-
-        {/* ── Recently played ── */}
-        <div className="player-stage-idle-head">
-          <span className="np-label">Recently played</span>
-          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>tap to play</span>
-        </div>
-        <div className="player-recent-grid">
-          {(recentlyPlayed ?? []).slice(0, hasResume ? 3 : 6).map(t => (
-            <button
-              key={t.id}
-              className="player-recent-tile"
-              onClick={() =>
-                spotify.api('/me/player/play', {
-                  method: 'PUT',
-                  body: JSON.stringify({ uris: [t.uri] }),
-                }).catch(() => {})
-              }
-            >
-              {spImg(t)
-                ? <img src={spImg(t)} alt="" className="player-recent-art" />
-                : <div className="player-recent-art player-recent-art--empty"><I.Music size={22} /></div>
-              }
-              <div className="player-recent-name">{t.name}</div>
-              <div className="player-recent-sub">{t.artists?.[0]?.name ?? ''}</div>
-            </button>
-          ))}
-          {!recentlyPlayed?.length && (
-            <div className="music-empty" style={{ gridColumn: '1 / -1', padding: '32px 0' }}>
-              Nothing recent yet. Play something on Spotify to see it here.
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Connected + playing — full player ────────────────────────────────────
+  // -- Connected: Spotify iFrame (account-linked) + our transport below
+  // Always render the anchor so PersistentMusicPlayer overlays the Spotify
+  // web player. Transport controls sit below the iframe in normal flow.
+  const hasResume = !!(lastPlayback?.track && lastPlayback?.uri);
   return (
-    <div className="player-stage player-stage--playing">
-      <div className="player-stage-body">
-        {/* Album art */}
-        <div className="player-stage-art-wrap">
-          {playback.art
-            ? <img src={playback.art} alt="" className="player-stage-art" />
-            : <div className="player-stage-art player-stage-art--empty"><I.Music size={40} /></div>
-          }
-        </div>
+    <div className="player-stage player-stage--connected">
+      {/* iFrame anchor -- PersistentMusicPlayer overlays Spotify web player here */}
+      <div id="music-stage-anchor" className="player-embed-anchor" />
 
-        {/* Track info + controls */}
-        <div className="player-stage-detail">
-          <div>
-            <div className="player-stage-track">{playback.track}</div>
-            <div className="player-stage-artist">{playback.artist}</div>
+      {/* Transport strip -- shown below iframe when a track is active */}
+      {hasTrack && (
+        <div className="player-transport-strip">
+          <div className="player-transport-art-wrap">
+            {playback.art
+              ? <img src={playback.art} alt="" className="player-transport-art" />
+              : <div className="player-transport-art player-transport-art--empty"><I.Music size={14} /></div>
+            }
           </div>
-
-          {/* Scrubable progress bar */}
-          <div
-            className="player-stage-progress"
-            onClick={handleSeek}
-            role="slider"
-            aria-label="Seek"
-            aria-valuenow={localMs}
-            aria-valuemin={0}
-            aria-valuemax={playback.durationMs || 1}
-          >
-            <div className="player-stage-progress-bar">
-              <div className="player-stage-progress-fill" style={{ width: `${progress}%` }} />
+          <div className="player-transport-meta">
+            <div className="player-transport-track">{playback.track}</div>
+            <div className="player-transport-artist">{playback.artist}</div>
+            <div
+              className="player-stage-progress"
+              onClick={handleSeek}
+              role="slider" aria-label="Seek"
+              aria-valuenow={localMs} aria-valuemin={0} aria-valuemax={playback.durationMs || 1}
+              style={{ paddingBottom: 2 }}
+            >
+              <div className="player-stage-progress-bar">
+                <div className="player-stage-progress-fill" style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+            <div className="player-stage-times">
+              <span className="mono">{fmt(localMs)}</span>
+              <span className="mono">{fmt(playback.durationMs)}</span>
             </div>
           </div>
-          <div className="player-stage-times">
-            <span className="mono">{fmt(localMs)}</span>
-            <span className="mono">{fmt(playback.durationMs)}</span>
-          </div>
-
-          {/* Transport */}
-          <div className="player-stage-controls">
+          <div className="player-transport-controls">
             <button className="player-ctrl" onClick={handlePrev} aria-label="Previous track">
-              <Icon size={17}><polygon points="19,20 9,12 19,4"/><line x1="5" y1="19" x2="5" y2="5"/></Icon>
+              <Icon size={15}><polygon points="19,20 9,12 19,4"/><line x1="5" y1="19" x2="5" y2="5"/></Icon>
             </button>
             <button className="player-ctrl player-ctrl--primary" onClick={handlePlayPause} aria-label={isPlaying ? 'Pause' : 'Play'}>
               {isPlaying
-                ? <Icon size={22}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></Icon>
-                : <Icon size={22}><polygon points="5,3 19,12 5,21"/></Icon>
+                ? <Icon size={20}><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></Icon>
+                : <Icon size={20}><polygon points="5,3 19,12 5,21"/></Icon>
               }
             </button>
             <button className="player-ctrl" onClick={handleNext} aria-label="Next track">
-              <Icon size={17}><polygon points="5,4 15,12 5,20"/><line x1="19" y1="5" x2="19" y2="19"/></Icon>
+              <Icon size={15}><polygon points="5,4 15,12 5,20"/><line x1="19" y1="5" x2="19" y2="19"/></Icon>
             </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Queue — up next */}
-      {queue?.length > 0 && (
-        <div className="player-stage-queue">
+      {/* Queue -- up next (compact, 2 rows) */}
+      {hasTrack && queue?.length > 0 && (
+        <div className="player-stage-queue player-stage-queue--inset">
           <span className="micro-label">Up next</span>
-          {queue.slice(0, 3).map((t, i) => (
+          {queue.slice(0, 2).map((t, i) => (
             <div key={`${t.id ?? i}`} className="player-stage-queue-row">
               {spImg(t)
-                ? <img src={spImg(t)} alt="" width={30} height={30} style={{ borderRadius: 6, flexShrink: 0 }} />
-                : <span className="src-icon" style={{ flexShrink: 0 }}><I.Music size={12} /></span>
+                ? <img src={spImg(t)} alt="" width={28} height={28} style={{ borderRadius: 5, flexShrink: 0 }} />
+                : <span className="src-icon" style={{ flexShrink: 0 }}><I.Music size={11} /></span>
               }
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="music-source-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
                 <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
               </div>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--muted-foreground)', flexShrink: 0 }}>{fmt(t.duration_ms)}</span>
+              <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)', flexShrink: 0 }}>{fmt(t.duration_ms)}</span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Resume last session (when nothing is playing) */}
+      {!hasTrack && hasResume && (
+        <div className="player-resume-card player-resume-card--inset">
+          <div className="player-resume-art-wrap">
+            {lastPlayback.art
+              ? <img src={lastPlayback.art} alt="" className="player-resume-art" />
+              : <div className="player-resume-art player-resume-art--empty"><I.Music size={16} /></div>
+            }
+          </div>
+          <div className="player-resume-info">
+            <div className="player-resume-track">{lastPlayback.track}</div>
+            <div className="player-resume-artist">{lastPlayback.artist}</div>
+            {lastPlayback.progressMs > 5000 && lastPlayback.durationMs > 0 && (
+              <div className="player-resume-pos">
+                <span className="mono">{fmt(lastPlayback.progressMs)}</span>
+                <span style={{ margin: '0 3px', opacity: 0.45 }}>/</span>
+                <span className="mono">{fmt(lastPlayback.durationMs)}</span>
+              </div>
+            )}
+          </div>
+          <button
+            className="player-resume-btn"
+            onClick={() =>
+              spotify.api('/me/player/play', {
+                method: 'PUT',
+                body: JSON.stringify({
+                  uris: [lastPlayback.uri],
+                  position_ms: lastPlayback.progressMs > 5000 ? lastPlayback.progressMs : 0,
+                }),
+              }).catch(() => {})
+            }
+          >
+            <Icon size={11}><polygon points="5,3 19,12 5,21"/></Icon>
+            {lastPlayback.progressMs > 5000 ? `Resume ${fmt(lastPlayback.progressMs)}` : 'Play'}
+          </button>
         </div>
       )}
     </div>
   );
 }
+}
 
-// MusicPage — full Spotify Web Embed + a sidecar of switchable sources.
+// MusicPage â€” full Spotify Web Embed + a sidecar of switchable sources.
 // All sources are Spotify embed URLs (no API key required) per the product
 // philosophy of hosting vendor web UIs as iframes rather than calling APIs.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MUSIC_SOURCES = [
-  { id: 'emotion',     icon: 'Disc',    name: 'E•MO•TION',                 sub: 'Carly Rae Jepsen',   embed: 'album/1DFixLWuPkv3KT3TnV35m3' },
+  { id: 'emotion',     icon: 'Disc',    name: 'Eâ€¢MOâ€¢TION',                 sub: 'Carly Rae Jepsen',   embed: 'album/1DFixLWuPkv3KT3TnV35m3' },
   { id: 'liked',       icon: 'Music',   name: 'Liked songs (sample)',      sub: 'Curated playlist',   embed: 'playlist/37i9dQZF1DXcBWIGoYBM5M' },
   { id: 'dinner',      icon: 'Utensils',name: 'Dinner Jazz',               sub: 'Editorial playlist', embed: 'playlist/37i9dQZF1DXbITWG1ZJKYt' },
   { id: 'morning',     icon: 'Sun',     name: 'Morning Acoustic',          sub: 'Editorial playlist', embed: 'playlist/37i9dQZF1DX4E3UdUs7fUx' },
@@ -4328,7 +4292,7 @@ function MusicPage({
   const onCount = speakers.filter(s => s.on).length;
   const playback = useHomeStore(s => s.playback);
 
-  // Queue — upcoming tracks. Re-fetch when the track changes.
+  // Queue â€” upcoming tracks. Re-fetch when the track changes.
   const [queue, setQueue] = useState(null);
   useEffect(() => {
     if (!spotify.token || !playback.track) { setQueue(null); return; }
@@ -4355,7 +4319,7 @@ function MusicPage({
   // Load the user's playlists once when connected.
   useEffect(() => {
     if (!spotify.token) { setLibrary(null); setRecentlyPlayed(null); setLikedSongs(null); return; }
-    // fields param forces tracks(total) to be included — without it some clients
+    // fields param forces tracks(total) to be included â€” without it some clients
     // receive simplified objects where tracks.total is 0 or absent.
     const fields = 'items(id,name,description,images,owner(id,display_name),tracks(total)),total,next';
     spotify.api(`/me/playlists?limit=50&fields=${encodeURIComponent(fields)}`)
@@ -4364,7 +4328,7 @@ function MusicPage({
     // Recently played (last 8 unique tracks).
     spotify.api('/me/player/recently-played?limit=8')
       .then(r => {
-        // Deduplicate by track ID — same song can appear many times in history.
+        // Deduplicate by track ID â€” same song can appear many times in history.
         const seen = new Set();
         const items = (r?.items ?? []).filter(i => {
           if (!i?.track?.id || seen.has(i.track.id)) return false;
@@ -4374,7 +4338,7 @@ function MusicPage({
         setRecentlyPlayed(items.slice(0, 8).map(i => i.track));
       })
       .catch(() => setRecentlyPlayed([]));
-    // Liked songs — first 10 for display; play the whole collection by URI.
+    // Liked songs â€” first 10 for display; play the whole collection by URI.
     spotify.api('/me/tracks?limit=10')
       .then(r => setLikedSongs({ total: r?.total ?? 0, items: (r?.items ?? []).map(i => i.track) }))
       .catch(() => setLikedSongs({ total: 0, items: [] }));
@@ -4422,7 +4386,7 @@ function MusicPage({
         method: 'POST',
         body: JSON.stringify({ uris: [trackUri] }),
       });
-      setPickerMsg('Added to playlist ✓');
+      setPickerMsg('Added to playlist âœ“');
       setTimeout(() => { setPicker(null); setPickerMsg(null); }, 900);
     } catch (e) {
       setPickerMsg(String(e.message || e));
@@ -4432,34 +4396,34 @@ function MusicPage({
   // "Start radio" = play the artist/track in Spotify's embed. Spotify's
   // embed widget exposes "Go to artist's radio" via its own UI; we just send
   // the user there. For tracks, embedding /track plays it directly.
-  const playArtist  = (a) => playSpotify('artist',   a.id, `${a.name} · artist`);
-  const playTrack   = (t) => playSpotify('track',    t.id, `${t.name} — ${t.artists?.[0]?.name ?? ''}`.trim());
+  const playArtist  = (a) => playSpotify('artist',   a.id, `${a.name} Â· artist`);
+  const playTrack   = (t) => playSpotify('track',    t.id, `${t.name} â€” ${t.artists?.[0]?.name ?? ''}`.trim());
   const playPlaylst = (p) => playSpotify('playlist', p.id, p.name);
-  const playAlbum   = (a) => playSpotify('album',    a.id, `${a.name} · ${a.artists?.[0]?.name ?? ''}`.trim());
+  const playAlbum   = (a) => playSpotify('album',    a.id, `${a.name} Â· ${a.artists?.[0]?.name ?? ''}`.trim());
 
   return (
     <Section
       title="Music"
-      source={spotify.me ? `Spotify · ${spotify.me.display_name}` : 'open.spotify.com/embed'}
+      source={spotify.me ? `Spotify Â· ${spotify.me.display_name}` : 'open.spotify.com/embed'}
       summary={<>
-        Now playing <b>{musicNowLabel}</b> · on <b>{onCount}</b> of <b>{speakers.length}</b> rooms
-        {spotify.me && <> · <b>{library?.length ?? '…'}</b> playlists</>}
+        Now playing <b>{musicNowLabel}</b> Â· on <b>{onCount}</b> of <b>{speakers.length}</b> rooms
+        {spotify.me && <> Â· <b>{library?.length ?? 'â€¦'}</b> playlists</>}
       </>}
     >
       <div className="music-page">
         <div className="music-page-stage">
-          {/* Toolbar — search input + connect/disconnect state */}
+          {/* Toolbar â€” search input + connect/disconnect state */}
           <div className="music-toolbar">
             <div className="music-search">
               <span className="music-search-icon"><I.Search size={14} /></span>
               <input
                 type="search"
-                placeholder={spotify.token ? 'Search tracks, artists, playlists…' : 'Search curated playlists (connect Spotify for full search)'}
+                placeholder={spotify.token ? 'Search tracks, artists, playlistsâ€¦' : 'Search curated playlists (connect Spotify for full search)'}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 aria-label="Search music"
               />
-              {searching && <span className="music-search-status mono">…</span>}
+              {searching && <span className="music-search-status mono">â€¦</span>}
             </div>
             {spotify.me ? (
               <div className="music-account" title={spotify.me.email}>
@@ -4495,7 +4459,7 @@ function MusicPage({
         </div>
 
         <div className="music-side">
-          {/* Tab strip — Browse / Library / Recent — only shown when Spotify is connected */}
+          {/* Tab strip â€” Browse / Library / Recent â€” only shown when Spotify is connected */}
           {spotify.token && (
             <div className="music-side-tabs">
               {[
@@ -4515,7 +4479,7 @@ function MusicPage({
             </div>
           )}
 
-          {/* ── Browse tab — curated tiles + saved favourites ── */}
+          {/* â”€â”€ Browse tab â€” curated tiles + saved favourites â”€â”€ */}
           {(!spotify.token || sideTab === 'browse') && (
             <div className="music-side-card">
               <div className="music-side-head">
@@ -4543,7 +4507,7 @@ function MusicPage({
                 })}
               </div>
 
-              {/* Saved favourites — compact list below tiles */}
+              {/* Saved favourites â€” compact list below tiles */}
               {favourites.length > 0 && (
                 <>
                   <div className="music-src-section-head">
@@ -4557,28 +4521,28 @@ function MusicPage({
                         <div className="music-source-name">{f.name}</div>
                         <div className="music-source-sub">{f.sub}</div>
                       </button>
-                      <button className="music-source-rm" onClick={() => removeFav(f.id)} aria-label="Remove">×</button>
+                      <button className="music-source-rm" onClick={() => removeFav(f.id)} aria-label="Remove">Ã—</button>
                     </div>
                   ))}
                 </>
               )}
               {favourites.length === 0 && (
-                <div className="music-empty">★ from search results to save here.</div>
+                <div className="music-empty">â˜… from search results to save here.</div>
               )}
             </div>
           )}
 
-          {/* ── Library tab — liked songs + playlists ── */}
+          {/* â”€â”€ Library tab â€” liked songs + playlists â”€â”€ */}
           {spotify.token && sideTab === 'library' && (
             <div className="music-side-card">
               <div className="music-side-head">
                 <div className="np-label">Liked songs</div>
                 <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
-                  {likedSongs ? likedSongs.total : '…'}
+                  {likedSongs ? likedSongs.total : 'â€¦'}
                 </span>
               </div>
 
-              {/* Play all liked songs — featured row */}
+              {/* Play all liked songs â€” featured row */}
               <button
                 className="music-source-row"
                 onClick={() => playSpotify('collection', 'tracks', 'Liked songs')}
@@ -4587,9 +4551,9 @@ function MusicPage({
                 <span className="src-icon"><I.Heart size={12} /></span>
                 <div>
                   <div className="music-source-name">Play all</div>
-                  <div className="music-source-sub">{likedSongs ? `${likedSongs.total} tracks` : 'Loading…'}</div>
+                  <div className="music-source-sub">{likedSongs ? `${likedSongs.total} tracks` : 'Loadingâ€¦'}</div>
                 </div>
-                <span className="music-source-state">▶</span>
+                <span className="music-source-state">â–¶</span>
               </button>
 
               {/* Preview: first 3 liked tracks */}
@@ -4608,10 +4572,10 @@ function MusicPage({
               {/* Playlists section */}
               <div className="music-src-section-head">
                 <span className="np-label">Playlists</span>
-                <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{library?.length ?? '…'}</span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{library?.length ?? 'â€¦'}</span>
               </div>
               {libErr && <div className="music-empty">{libErr}</div>}
-              {library === null && !libErr && <div className="music-empty">Loading…</div>}
+              {library === null && !libErr && <div className="music-empty">Loadingâ€¦</div>}
               {library?.length === 0 && <div className="music-empty">No playlists yet.</div>}
               {library?.slice(0, 20).map(p => (
                 <button
@@ -4627,19 +4591,19 @@ function MusicPage({
                     <div className="music-source-name">{p.name}</div>
                     <div className="music-source-sub">{p.tracks?.total ?? 0} tracks</div>
                   </div>
-                  <span className="music-source-state">▶</span>
+                  <span className="music-source-state">â–¶</span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* ── Recent tab — recently played tracks ── */}
+          {/* â”€â”€ Recent tab â€” recently played tracks â”€â”€ */}
           {spotify.token && sideTab === 'recent' && (
             <div className="music-side-card">
               <div className="music-side-head">
                 <div className="np-label">Recently played</div>
               </div>
-              {!recentlyPlayed && <div className="music-empty">Loading…</div>}
+              {!recentlyPlayed && <div className="music-empty">Loadingâ€¦</div>}
               {recentlyPlayed?.length === 0 && <div className="music-empty">Nothing recent yet.</div>}
               {recentlyPlayed?.map(t => (
                 <button key={t.id} className="music-source-row" onClick={() => playTrack(t)}>
@@ -4656,7 +4620,7 @@ function MusicPage({
           )}
         </div>
 
-        {/* Speakers — full-width row spanning both columns */}
+        {/* Speakers â€” full-width row spanning both columns */}
         <div className="music-speakers-row">
           <div className="music-side-head">
             <div className="np-label">Speakers</div>
@@ -4665,7 +4629,7 @@ function MusicPage({
             </span>
           </div>
           {speakers.length === 0 ? (
-            <div className="music-empty">No speakers — add a Sonos bridge in Settings.</div>
+            <div className="music-empty">No speakers â€” add a Sonos bridge in Settings.</div>
           ) : (
             <div className="speaker-grid" style={{ gap: 2 }}>
               {speakers.map(sp => (
@@ -4689,7 +4653,7 @@ function MusicPage({
                   <div className="np-label">Add to playlist</div>
                   <div className="music-picker-track">{picker.trackName}</div>
                 </div>
-                <button className="music-source-rm" onClick={() => { setPicker(null); setPickerMsg(null); }} aria-label="Close">×</button>
+                <button className="music-source-rm" onClick={() => { setPicker(null); setPickerMsg(null); }} aria-label="Close">Ã—</button>
               </div>
               {pickerMsg && <div className="music-picker-msg">{pickerMsg}</div>}
               <div className="music-picker-list">
@@ -4704,7 +4668,7 @@ function MusicPage({
                   </button>
                 ))}
                 {library?.filter(p => p.owner?.id === spotify.me?.id).length === 0 && (
-                  <div className="music-empty">No editable playlists — create one in Spotify first.</div>
+                  <div className="music-empty">No editable playlists â€” create one in Spotify first.</div>
                 )}
               </div>
             </div>
@@ -4756,7 +4720,7 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.track(t)}>Play</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: t.id, type: 'track', name: t.name, sub: t.artists?.[0]?.name ?? '' })} title="Save to favourites">★</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: t.id, type: 'track', name: t.name, sub: t.artists?.[0]?.name ?? '' })} title="Save to favourites">â˜…</button>
                 {spotifyOn && (
                   <button className="group-toggle" onClick={() => onAddToPlaylist(t.uri, t.name)} title="Add to a playlist">+</button>
                 )}
@@ -4779,7 +4743,7 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.artist(a)}>Radio</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'artist', name: a.name, sub: 'Artist' })} title="Save artist">★</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'artist', name: a.name, sub: 'Artist' })} title="Save artist">â˜…</button>
               </span>
             </div>
           ))}
@@ -4795,11 +4759,11 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
                 : <span className="src-icon"><I.Music size={12} /></span>}
               <div>
                 <div className="music-source-name">{p.name}</div>
-                <div className="music-source-sub">{p.owner?.display_name ?? ''} · {p.tracks?.total ?? 0} tracks</div>
+                <div className="music-source-sub">{p.owner?.display_name ?? ''} Â· {p.tracks?.total ?? 0} tracks</div>
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.playlist(p)}>Play</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: p.id, type: 'playlist', name: p.name, sub: `${p.tracks?.total ?? 0} tracks` })} title="Save playlist">★</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: p.id, type: 'playlist', name: p.name, sub: `${p.tracks?.total ?? 0} tracks` })} title="Save playlist">â˜…</button>
               </span>
             </div>
           ))}
@@ -4819,7 +4783,7 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.album(a)}>Play</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'album', name: a.name, sub: a.artists?.[0]?.name ?? '' })} title="Save album">★</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'album', name: a.name, sub: a.artists?.[0]?.name ?? '' })} title="Save album">â˜…</button>
               </span>
             </div>
           ))}
@@ -4837,12 +4801,12 @@ function ResultGroup({ title, children }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-// PriceBarChart — 24-column bar chart of Tibber hourly prices.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// PriceBarChart â€” 24-column bar chart of Tibber hourly prices.
 // Current hour: amber fill + glow. Past hours: dimmed. Three cheapest
 // upcoming hours: soft amber to signal good time to run high-draw appliances.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function PriceBarChart({ prices, now }) {
   const nowT = now.getTime();
   const vals = prices.map(p => p.total);
@@ -4873,7 +4837,7 @@ function PriceBarChart({ prices, now }) {
               data-current={isCurrent || undefined}
               data-past={isPast || undefined}
               data-cheap={isCheap || undefined}
-              title={`${new Date(p.startsAt).getHours()}:00 — ${p.total.toFixed(3)} SEK/kWh`}
+              title={`${new Date(p.startsAt).getHours()}:00 â€” ${p.total.toFixed(3)} SEK/kWh`}
             >
               <div className="price-bar-inner" style={{ height: `${Math.max(frac * 72, 3)}px` }} />
             </div>
@@ -4887,10 +4851,10 @@ function PriceBarChart({ prices, now }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EnergyPage — redesigned with KPI strip, 24h bar chart, source breakdown,
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// EnergyPage â€” redesigned with KPI strip, 24h bar chart, source breakdown,
 // price insights, and per-device power table.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, speakerWatts, tibberPrices, tibberErr, tibberConfigured, now }) {
   const currentPrice = useMemo(() => {
     if (!tibberPrices?.length) return null;
@@ -4934,10 +4898,10 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
   return (
     <Section
       title="Energy"
-      source={tibberConfigured ? 'tibber.com · live' : 'no Tibber token configured'}
+      source={tibberConfigured ? 'tibber.com Â· live' : 'no Tibber token configured'}
       summary={<>
         Live load <b className="mono">{totalW} W</b>
-        {currentPrice != null && <> · spot <b className="mono">{currentPrice.toFixed(2)} SEK/kWh</b></>}
+        {currentPrice != null && <> Â· spot <b className="mono">{currentPrice.toFixed(2)} SEK/kWh</b></>}
       </>}
     >
       <div className="energy-page">
@@ -4947,19 +4911,19 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
           <div className="energy-kpi">
             <span className="micro-label">Live draw</span>
             <div className="energy-kpi-val">{totalW}<span className="unit">W</span></div>
-            <div className="energy-kpi-sub">{litRooms.length} rooms · {onOutlets.length} outlets active</div>
+            <div className="energy-kpi-sub">{litRooms.length} rooms Â· {onOutlets.length} outlets active</div>
           </div>
           <div className="energy-kpi">
             <span className="micro-label">Spot price</span>
             <div className="energy-kpi-val">
-              {currentPrice != null ? currentPrice.toFixed(2) : '—'}<span className="unit">SEK/kWh</span>
+              {currentPrice != null ? currentPrice.toFixed(2) : 'â€”'}<span className="unit">SEK/kWh</span>
             </div>
-            <div className="energy-kpi-sub">{tibberConfigured ? 'Tibber · live' : 'add Tibber in Settings'}</div>
+            <div className="energy-kpi-sub">{tibberConfigured ? 'Tibber Â· live' : 'add Tibber in Settings'}</div>
           </div>
           <div className="energy-kpi">
             <span className="micro-label">Cost this hour</span>
             <div className="energy-kpi-val">
-              {costPerHour != null ? costPerHour.toFixed(2) : '—'}<span className="unit">SEK</span>
+              {costPerHour != null ? costPerHour.toFixed(2) : 'â€”'}<span className="unit">SEK</span>
             </div>
             <div className="energy-kpi-sub">at current load</div>
           </div>
@@ -4990,7 +4954,7 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
             <div className="energy-empty">
               {tibberErr
                 ? `Tibber error: ${tibberErr}`
-                : tibberConfigured ? 'Loading prices…' : 'Add a Tibber token in Settings to see live prices.'}
+                : tibberConfigured ? 'Loading pricesâ€¦' : 'Add a Tibber token in Settings to see live prices.'}
             </div>
           )}
         </div>
@@ -5032,12 +4996,12 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
                   <b>{priceStats.estimatedDailyCost.toFixed(0)} SEK</b>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontStyle: 'italic', marginTop: 4 }}>
-                  at {totalW} W continuous · avg {priceStats.avgP.toFixed(2)} SEK/kWh
+                  at {totalW} W continuous Â· avg {priceStats.avgP.toFixed(2)} SEK/kWh
                 </div>
               </>
             ) : (
               <div className="energy-empty" style={{ minHeight: 48 }}>
-                {tibberConfigured ? 'Awaiting price data…' : 'Set up Tibber for insights.'}
+                {tibberConfigured ? 'Awaiting price dataâ€¦' : 'Set up Tibber for insights.'}
               </div>
             )}
           </div>
@@ -5084,14 +5048,14 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WeatherPage — real data from open-meteo (no API key, CORS-open). Renders:
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// WeatherPage â€” real data from open-meteo (no API key, CORS-open). Renders:
 //   - Current temp + condition (from weatherData.current)
 //   - Next 12 hourly readings starting from the current hour
 //   - 7-day forecast (daily max/min/code/precipitation_probability_max)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const tempLabel = (t) => t == null ? '—' : `${t > 0 ? '+' : ''}${Math.round(t)}°`;
+const tempLabel = (t) => t == null ? 'â€”' : `${t > 0 ? '+' : ''}${Math.round(t)}Â°`;
 
 function WeatherPage({ weather, weatherData, weatherErr, city, now }) {
   if (weatherErr) {
@@ -5106,9 +5070,9 @@ function WeatherPage({ weather, weatherData, weatherErr, city, now }) {
   }
   if (!weatherData) {
     return (
-      <Section title="Weather" source="open-meteo.com" summary={<>Loading…</>}>
+      <Section title="Weather" source="open-meteo.com" summary={<>Loadingâ€¦</>}>
         <div className="settings-page"><div className="settings-section settings-about">
-          <span>Fetching live forecast from open-meteo for {city}…</span>
+          <span>Fetching live forecast from open-meteo for {city}â€¦</span>
         </div></div>
       </Section>
     );
@@ -5155,10 +5119,10 @@ function WeatherPage({ weather, weatherData, weatherErr, city, now }) {
   return (
     <Section
       title="Weather"
-      source={`open-meteo.com · ${city}`}
+      source={`open-meteo.com Â· ${city}`}
       summary={<>
-        <b>{wmoLabel(code)}</b> · {tempStr} · feels like <b className="mono">{feelsStr}</b>
-        {cur.wind_speed_10m != null && <> · wind <b className="mono">{Math.round(cur.wind_speed_10m)}</b> m/s</>}
+        <b>{wmoLabel(code)}</b> Â· {tempStr} Â· feels like <b className="mono">{feelsStr}</b>
+        {cur.wind_speed_10m != null && <> Â· wind <b className="mono">{Math.round(cur.wind_speed_10m)}</b> m/s</>}
       </>}
     >
       <div className="weather-page">
@@ -5170,7 +5134,7 @@ function WeatherPage({ weather, weatherData, weatherErr, city, now }) {
           </div>
           <div className="weather-current-meta">
             <div className="weather-current-cond">{wmoLabel(code)}</div>
-            <div className="weather-current-sub">{timeSlotLabel(now)} · {city}</div>
+            <div className="weather-current-sub">{timeSlotLabel(now)} Â· {city}</div>
             <div className="weather-current-feels">
               {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
             </div>
@@ -5216,14 +5180,14 @@ function WeatherPage({ weather, weatherData, weatherErr, city, now }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NewsPage — Live Swedish nyhetsflashar from SR, SVT, Aftonbladet, DN.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// NewsPage â€” Live Swedish nyhetsflashar from SR, SVT, Aftonbladet, DN.
 //
 // SR uses their public open API (api.sr.se/api/v2, no key, CORS-open).
 // RSS sources try a direct fetch first; if CORS blocks it the request goes
 // through allorigins.win (free, no-key proxy) which returns { contents }.
 // Refresh every 5 minutes. All items are deduplicated and sorted newest-first.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const SR_P1_STREAM = 'https://sverigesradio.se/topsy/direkt/srapi/132.mp3';
 
@@ -5300,7 +5264,7 @@ async function fetchRSSWithFallback(url, sourceId) {
     if (r.ok) return parseRSSXML(await r.text(), sourceId);
   } catch { clearTimeout(dt); }
 
-  // 2. corsproxy.io — returns raw text, more reliable under concurrent load
+  // 2. corsproxy.io â€” returns raw text, more reliable under concurrent load
   const cp = new AbortController();
   const ct = setTimeout(() => cp.abort(), 8000);
   try {
@@ -5315,7 +5279,7 @@ async function fetchRSSWithFallback(url, sourceId) {
     }
   } catch { clearTimeout(ct); }
 
-  // 3. allorigins.win — JSON wrapper fallback
+  // 3. allorigins.win â€” JSON wrapper fallback
   const proxy = new AbortController();
   const pt = setTimeout(() => proxy.abort(), 9000);
   try {
@@ -5381,13 +5345,13 @@ function NewsPage() {
 
   const freshLabel = lastFetch
     ? `Uppdaterad ${newsTimeAgo(lastFetch)} sedan`
-    : loading ? 'Hämtar nyheter…' : 'SVT · Aftonbladet · DN · Expressen';
+    : loading ? 'HÃ¤mtar nyheterâ€¦' : 'SVT Â· Aftonbladet Â· DN Â· Expressen';
 
   return (
     <Section
       title="Nyheter"
-      source="SR · SVT · AB · DN"
-      summary={<>{freshLabel}{items.length > 0 ? <> · <b>{items.length}</b> nyhetsflashar</> : null}</>}
+      source="SR Â· SVT Â· AB Â· DN"
+      summary={<>{freshLabel}{items.length > 0 ? <> Â· <b>{items.length}</b> nyhetsflashar</> : null}</>}
     >
       <div className="news-page">
         <div className="news-feed">
@@ -5395,10 +5359,10 @@ function NewsPage() {
           {/* SR P1 live radio */}
           <div className="news-audio">
             <div className="news-audio-meta">
-              <span className="micro-label">SR P1 Live · nyheter &amp; samhälle</span>
+              <span className="micro-label">SR P1 Live Â· nyheter &amp; samhÃ¤lle</span>
             </div>
             <audio controls preload="none" src={SR_P1_STREAM}>
-              Din webbläsare stöder inte ljuduppspelning.
+              Din webblÃ¤sare stÃ¶der inte ljuduppspelning.
             </audio>
           </div>
 
@@ -5419,7 +5383,7 @@ function NewsPage() {
               style={{ marginLeft: 'auto' }}
               aria-label="Uppdatera nyheter"
             >
-              {loading ? '…' : '↻'}
+              {loading ? 'â€¦' : 'â†»'}
             </button>
           </div>
 
@@ -5467,7 +5431,7 @@ function NewsPage() {
             })}
             {!loading && filtered.length === 0 && items.length > 0 && (
               <p style={{ padding: '16px', color: 'var(--muted-foreground)', fontSize: 13 }}>
-                Inga nyheter för det filtret.
+                Inga nyheter fÃ¶r det filtret.
               </p>
             )}
           </div>
@@ -5477,10 +5441,10 @@ function NewsPage() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Brand SVG marks — inline, currentColor, so they inherit glass-card foreground.
-// Kept small (20×20 viewBox / ≤5 paths) for crisp rendering at 18–22px.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Brand SVG marks â€” inline, currentColor, so they inherit glass-card foreground.
+// Kept small (20Ã—20 viewBox / â‰¤5 paths) for crisp rendering at 18â€“22px.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function BrandSpotify({ size = 18 }) {
   // Spotify canonical logo: filled circle + 3 horizontal arcs.
   return (
@@ -5499,7 +5463,7 @@ function BrandPlejd({ size = 18 }) {
   );
 }
 function BrandSonos({ size = 18 }) {
-  // Sonos: WiFi-style arcs radiating from a dot — multi-room audio metaphor.
+  // Sonos: WiFi-style arcs radiating from a dot â€” multi-room audio metaphor.
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <circle cx="5" cy="19" r="2" fill="currentColor" />
@@ -5510,7 +5474,7 @@ function BrandSonos({ size = 18 }) {
   );
 }
 function BrandShelly({ size = 18 }) {
-  // Shelly: plug body + lightning bolt — smart outlet with live wattage.
+  // Shelly: plug body + lightning bolt â€” smart outlet with live wattage.
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="6" y="2" width="12" height="14" rx="3" opacity="0.2" />
@@ -5522,7 +5486,7 @@ function BrandShelly({ size = 18 }) {
   );
 }
 function BrandTibber({ size = 18 }) {
-  // Tibber: circle + lightning bolt — energy price brand.
+  // Tibber: circle + lightning bolt â€” energy price brand.
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <circle cx="12" cy="12" r="10" opacity="0.18" />
@@ -5550,7 +5514,7 @@ function BrandWeather({ size = 18 }) {
   );
 }
 
-// Map catalog id → brand logo component (falls back to Lucide via icon field).
+// Map catalog id â†’ brand logo component (falls back to Lucide via icon field).
 const BRAND_LOGOS = {
   plejd:       BrandPlejd,
   sonos:       BrandSonos,
@@ -5561,12 +5525,12 @@ const BRAND_LOGOS = {
   'ha-sensors': BrandHomeAssistant,
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Integration catalog -- shape per entry:
 //   { id, name, icon, kind, tagline, keywords, status(integrations, spotify) }
 // "kind" is used in the badge ("Cloud OAuth" / "LAN bridge" / "Cloud token" / "LAN devices")
 // `keywords` are searched in addition to name and tagline.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const INTEGRATION_CATALOG = [
   {
     id: 'plejd', name: 'Plejd lights', icon: 'Light', kind: 'Sign in required',
@@ -5657,14 +5621,14 @@ async function scanShellySubnet(subnet, onProgress) {
   return found;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Network Device Discovery
 // Multi-protocol LAN sweep + Home Assistant entity discovery.
 // Browser constraints: only CORS-open endpoints can have their bodies read
 // (Shelly ships CORS headers; others may not). For non-CORS hosts we still
 // get a connection signal from the fetch rejection type. HA and Sonos bridge
 // are queried via their existing credentials so full metadata is available.
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // Detect the local /24 via WebRTC ICE gathering. Returns e.g. "192.168.1".
 async function getLocalSubnet() {
@@ -5686,21 +5650,21 @@ async function getLocalSubnet() {
 const PROBE_MS   = 1400; // initial probe timeout
 const STATUS_MS  = 1200; // follow-up status calls (device already confirmed)
 
-// Room heuristics — infer room from device name (EN + SV)
+// Room heuristics â€” infer room from device name (EN + SV)
 const ROOM_PATTERNS_BROWSER = [
-  [/\b(kitchen|kök|köket)\b/i,                                       'Kitchen'],
+  [/\b(kitchen|kÃ¶k|kÃ¶ket)\b/i,                                       'Kitchen'],
   [/\b(living.?room|vardagsrum|vardags|lounge|salon)\b/i,            'Living Room'],
   [/\b(master.?bed(room)?|master)\b/i,                               'Master Bedroom'],
   [/\b(bedroom|sovrum|bed\.?room)\b/i,                               'Bedroom'],
   [/\b(kids?|barn(rum)?|child(ren)?|nursery)\b/i,                   'Kids Room'],
   [/\b(bathroom|badrum|bath(room)?|toilet|wc)\b/i,                  'Bathroom'],
-  [/\b(hall(way)?|entrance|foyer|entr[eé]|korridor)\b/i,            'Hallway'],
+  [/\b(hall(way)?|entrance|foyer|entr[eÃ©]|korridor)\b/i,            'Hallway'],
   [/\b(office|kontor|arbetsrum|study|workroom)\b/i,                  'Office'],
   [/\b(dining.?(room)?|matsal|matrum)\b/i,                          'Dining Room'],
   [/\b(garage|carport)\b/i,                                         'Garage'],
-  [/\b(laundry|tvättstuga|utility)\b/i,                             'Laundry'],
-  [/\b(outdoor|utomhus|garden|trädgård|balcony|balkong|patio|terrace)\b/i, 'Outdoor'],
-  [/\b(guest(room)?|gästrum|spare)\b/i,                             'Guest Room'],
+  [/\b(laundry|tvÃ¤ttstuga|utility)\b/i,                             'Laundry'],
+  [/\b(outdoor|utomhus|garden|trÃ¤dgÃ¥rd|balcony|balkong|patio|terrace)\b/i, 'Outdoor'],
+  [/\b(guest(room)?|gÃ¤strum|spare)\b/i,                             'Guest Room'],
 ];
 function inferRoomFromName(name) {
   if (!name) return null;
@@ -5728,7 +5692,7 @@ async function probeSonosLAN(ip) {
   } catch { return null; }
 }
 
-// Direct Sonos UPnP control — no bridge process required.
+// Direct Sonos UPnP control â€” no bridge process required.
 // Sends AVTransport (play/pause) or RenderingControl (volume) SOAP commands
 // straight to port 1400. Works when Sonos firmware allows cross-origin POST
 // (modern Sonos does). Fails silently if CORS blocks it; hub path bypasses CORS.
@@ -5844,7 +5808,7 @@ async function probeSamsungTV(ip) {
 // Probe one IP against all known LAN protocols simultaneously.
 async function probeIP(ip) {
   const results = await Promise.allSettled([
-    // ── Shelly (CORS-open — Gen2 with config + status, Gen1 fallback) ──
+    // â”€â”€ Shelly (CORS-open â€” Gen2 with config + status, Gen1 fallback) â”€â”€
     (async () => {
       // Gen2
       const ctrl2 = new AbortController();
@@ -5974,7 +5938,7 @@ async function discoverFromSonosBridge(url) {
   return devices;
 }
 
-// ─── Discovery Modal ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Discovery Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const DEVICE_TYPE_META = {
   speaker: { label: 'Speakers', Icon: I.Speaker, assign: ['music', 'ignore'] },
@@ -6023,27 +5987,27 @@ function DiscoveryModal({ integrations, onClose }) {
 
     // 1. Home Assistant
     if (haUrl && haToken) {
-      setLabel('Querying Home Assistant…');
+      setLabel('Querying Home Assistantâ€¦');
       try { (await discoverFromHA(haUrl, haToken)).forEach(addDevice); } catch {}
     }
     setProgress(0.08);
 
     // 2. Sonos bridge
     if (sonosUrl) {
-      setLabel('Querying Sonos bridge…');
+      setLabel('Querying Sonos bridgeâ€¦');
       try { (await discoverFromSonosBridge(sonosUrl)).forEach(addDevice); } catch {}
     }
     setProgress(0.14);
 
     // 3. LAN sweep
-    setLabel('Detecting subnet…');
+    setLabel('Detecting subnetâ€¦');
     const subnet = await getLocalSubnet().catch(() => '192.168.1');
-    setLabel(`Scanning ${subnet}.0/24…`);
+    setLabel(`Scanning ${subnet}.0/24â€¦`);
     try {
       await scanLAN(subnet, {
         onProgress: (done, total) => {
           setProgress(0.14 + (done / total) * 0.86);
-          setLabel(`${done} / ${total} addresses…`);
+          setLabel(`${done} / ${total} addressesâ€¦`);
         },
         onDevice: addDevice,
       });
@@ -6087,7 +6051,7 @@ function DiscoveryModal({ integrations, onClose }) {
           <div className="disc-idle">
             <p className="disc-desc">
               Finds speakers, lights, outlets, TVs, and more across your local network and connected services.
-              Speakers are added to the Music page automatically — you choose where everything else goes.
+              Speakers are added to the Music page automatically â€” you choose where everything else goes.
             </p>
             <div className="disc-sources">
               {haUrl && haToken && <span className="disc-source-pill"><I.Home size={10} /> Home Assistant</span>}
@@ -6102,7 +6066,7 @@ function DiscoveryModal({ integrations, onClose }) {
         {phase === 'scanning' && (
           <div className="disc-scanning">
             <div className="disc-progress-bar"><div className="disc-progress-fill" style={{ transform: `scaleX(${progress})` }} /></div>
-            <div className="disc-progress-label mono">{label || 'Scanning…'}</div>
+            <div className="disc-progress-label mono">{label || 'Scanningâ€¦'}</div>
             {found.length > 0 && (
               <div className="disc-live-list">
                 {found.map(d => (
@@ -6117,7 +6081,7 @@ function DiscoveryModal({ integrations, onClose }) {
           </div>
         )}
 
-        {/* Done — no results */}
+        {/* Done â€” no results */}
         {phase === 'done' && found.length === 0 && (
           <div className="disc-empty">
             <I.Wifi size={28} style={{ opacity: 0.2, display: 'block', margin: '0 auto 12px' }} />
@@ -6130,7 +6094,7 @@ function DiscoveryModal({ integrations, onClose }) {
           </div>
         )}
 
-        {/* Done — with results */}
+        {/* Done â€” with results */}
         {phase === 'done' && found.length > 0 && (
           <>
             <div className="disc-results">
@@ -6160,9 +6124,9 @@ function DiscoveryModal({ integrations, onClose }) {
                               {d.entityId
                                 ? <span className="mono">{d.entityId}</span>
                                 : d.ip ? <span className="mono">{d.ip}</span> : null}
-                              {d.model ? <span> · {d.model}</span> : null}
+                              {d.model ? <span> Â· {d.model}</span> : null}
                               {d.watts != null && d.watts > 0 && (
-                                <span className="disc-watts"> · {d.watts.toFixed(1)} W</span>
+                                <span className="disc-watts"> Â· {d.watts.toFixed(1)} W</span>
                               )}
                             </div>
                           </div>
@@ -6280,7 +6244,7 @@ function inlineActionFor(it, status, integrations, spotify) {
 
 // CatalogItem -- one integration row. Extracted into its own component so each
 // row owns its per-row armed state for the Disconnect confirm pattern
-// (arm → "Confirm | Cancel", auto-disarm after 3 s). Non-destructive actions
+// (arm â†’ "Confirm | Cancel", auto-disarm after 3 s). Non-destructive actions
 // (Spotify "Connect") skip the arm step and fire directly.
 function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
   const [armed, setArmed] = useState(false);
@@ -6374,7 +6338,7 @@ function IntegrationCatalog({ integrations, spotify }) {
 
   return (
     <div className="settings-page">
-      {/* Scan action — prominent above search so first-time users see it */}
+      {/* Scan action â€” prominent above search so first-time users see it */}
       <div className="catalog-scan-bar">
         <button className="catalog-scan-trigger" onClick={() => setShowDiscovery(true)}>
           <I.Wifi size={13} />
@@ -6394,7 +6358,7 @@ function IntegrationCatalog({ integrations, spotify }) {
         <input
           className="settings-input"
           type="text"
-          placeholder="Search integrations… (e.g. lights, music, energy)"
+          placeholder="Search integrationsâ€¦ (e.g. lights, music, energy)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoComplete="off"
@@ -6475,7 +6439,7 @@ function PlejdConfig({ integrations }) {
     try {
       const sites = await plejdFetchSites(cfg.cloudSession);
       const siteNames = sites.map(s => s.title).join(', ') || cfg.cloudSiteTitle || 'site';
-      setSessionTestResult({ ok: true, msg: `Session valid · ${siteNames}` });
+      setSessionTestResult({ ok: true, msg: `Session valid Â· ${siteNames}` });
     } catch (e) {
       const msg = String(e.message || e);
       const isExpired = /unauthorized|session|expired/i.test(msg);
@@ -6483,9 +6447,9 @@ function PlejdConfig({ integrations }) {
       const is5xx = /HTTP 5\d\d/.test(msg);
       setSessionTestResult({
         ok: false,
-        msg: isExpired  ? 'Session expired — sign out and sign in again'
-           : isProxyErr ? 'Cannot reach Plejd cloud — check network connection'
-           : is5xx      ? 'Plejd server error — sign out and sign in again to refresh your session'
+        msg: isExpired  ? 'Session expired â€” sign out and sign in again'
+           : isProxyErr ? 'Cannot reach Plejd cloud â€” check network connection'
+           : is5xx      ? 'Plejd server error â€” sign out and sign in again to refresh your session'
            : msg.slice(0, 80),
       });
     } finally {
@@ -6560,7 +6524,7 @@ function PlejdConfig({ integrations }) {
     return (
       <div className="catalog-form">
         <p className="catalog-help">
-          Signed in to Plejd as <b>{cfg.cloudEmail}</b> — site <b>{cfg.cloudSiteTitle || cfg.cloudSiteId}</b>.
+          Signed in to Plejd as <b>{cfg.cloudEmail}</b> â€” site <b>{cfg.cloudSiteTitle || cfg.cloudSiteId}</b>.
           Your real rooms, devices, and names appear on the home page automatically.
         </p>
         <p className="catalog-help" style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>
@@ -6568,11 +6532,11 @@ function PlejdConfig({ integrations }) {
         </p>
         <div className="catalog-actions" style={{ marginTop: 12 }}>
           <button className="group-toggle" onClick={testPlejdSession} disabled={sessionTesting}>
-            {sessionTesting ? 'Testing…' : 'Test connection'}
+            {sessionTesting ? 'Testingâ€¦' : 'Test connection'}
           </button>
           {sessionTestResult && (
             <span style={{ fontSize: 12, color: sessionTestResult.ok ? 'var(--primary)' : 'var(--destructive)' }}>
-              {sessionTestResult.ok ? `✓ ${sessionTestResult.msg}` : `✗ ${sessionTestResult.msg}`}
+              {sessionTestResult.ok ? `âœ“ ${sessionTestResult.msg}` : `âœ— ${sessionTestResult.msg}`}
             </span>
           )}
           <button className="group-toggle" onClick={disconnectCloud}>Sign out of Plejd</button>
@@ -6600,25 +6564,25 @@ function PlejdConfig({ integrations }) {
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Sign in with your Plejd account (same credentials as the Plejd mobile app) to see your rooms and device names. Toggle control also requires a <b>GWY-01</b> gateway on the same installation — the dashboard will try and indicate if it succeeds.
+        Sign in with your Plejd account (same credentials as the Plejd mobile app) to see your rooms and device names. Toggle control also requires a <b>GWY-01</b> gateway on the same installation â€” the dashboard will try and indicate if it succeeds.
       </p>
       <label className="catalog-label">Plejd email</label>
       <input className="settings-input" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
       <label className="catalog-label" style={{ marginTop: 10 }}>Password</label>
-      <input className="settings-input" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+      <input className="settings-input" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
       {err && (
         <div style={{ marginTop: 8 }}>
           <div className="catalog-help" style={{ color: 'var(--destructive)' }}>{err}</div>
           {/unauthorized/i.test(err) && (
             <div className="catalog-help" style={{ color: 'var(--muted-foreground)', marginTop: 4, fontSize: 11 }}>
-              If you signed up for Plejd via Google, you need a password set on your account — go to <b>Settings → Account</b> in the Plejd app and set one first.
+              If you signed up for Plejd via Google, you need a password set on your account â€” go to <b>Settings â†’ Account</b> in the Plejd app and set one first.
             </div>
           )}
         </div>
       )}
       <div className="catalog-actions" style={{ marginTop: 12 }}>
         <button className="group-toggle" data-active="true" onClick={doLogin} disabled={loading || !email.trim() || !password}>
-          {loading ? 'Signing in…' : 'Sign in to Plejd'}
+          {loading ? 'Signing inâ€¦' : 'Sign in to Plejd'}
         </button>
       </div>
       <p className="catalog-help" style={{ fontSize: 11, marginTop: 10 }}>
@@ -6626,7 +6590,7 @@ function PlejdConfig({ integrations }) {
       </p>
 
       <details className="settings-advanced">
-        <summary>Advanced — Home Assistant instead</summary>
+        <summary>Advanced â€” Home Assistant instead</summary>
         <p className="catalog-help">
           If you already run Home Assistant with the <span className="mono">hassio-plejd</span> add-on, point the dashboard at HA directly instead. HA's <span className="mono">configuration.yaml</span> must include <span className="mono">{window.location.origin}</span> under <span className="mono">http.cors_allowed_origins</span>.
         </p>
@@ -6647,11 +6611,11 @@ function PlejdConfig({ integrations }) {
         {haConnected && (
           <div className="catalog-actions" style={{ marginTop: 12 }}>
             <button className="group-toggle" onClick={testHaConnection} disabled={haTesting}>
-              {haTesting ? 'Testing…' : 'Test connection'}
+              {haTesting ? 'Testingâ€¦' : 'Test connection'}
             </button>
             {haTestResult && (
               <span style={{ fontSize: 12, color: haTestResult.ok ? 'var(--primary)' : 'var(--destructive)' }}>
-                {haTestResult.ok ? `✓ ${haTestResult.msg}` : `✗ ${haTestResult.msg}`}
+                {haTestResult.ok ? `âœ“ ${haTestResult.msg}` : `âœ— ${haTestResult.msg}`}
               </span>
             )}
             <button className="group-toggle" onClick={() => { integrations.setIntegration('plejd', { url: '', token: '' }); setHaTestResult(null); }}>Disconnect Home Assistant</button>
@@ -6693,7 +6657,7 @@ function SonosConfig({ integrations }) {
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Run <a href="https://github.com/jishi/node-sonos-http-api" target="_blank" rel="noreferrer">node-sonos-http-api</a> on any LAN machine (Raspberry Pi, NAS, Docker). It auto-discovers your Sonos zones over UPnP — no configuration required.
+        Run <a href="https://github.com/jishi/node-sonos-http-api" target="_blank" rel="noreferrer">node-sonos-http-api</a> on any LAN machine (Raspberry Pi, NAS, Docker). It auto-discovers your Sonos zones over UPnP â€” no configuration required.
       </p>
       <pre className="catalog-code">{`npm install -g node-sonos-http-api\nnode-sonos-http-api`}</pre>
       <div>
@@ -6712,7 +6676,7 @@ function SonosConfig({ integrations }) {
             onClick={testConnection}
             disabled={testing || !url.trim()}
           >
-            {testing ? 'Testing…' : 'Test'}
+            {testing ? 'Testingâ€¦' : 'Test'}
           </button>
         </div>
       </div>
@@ -6816,7 +6780,7 @@ function ShellyConfig({ integrations }) {
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Each Shelly speaks HTTP at <span className="mono">http://&lt;device-ip&gt;/</span>. Add devices by IP, or scan your local subnet — Shelly devices return CORS-friendly responses, so this works from the browser. (mDNS / Bluetooth discovery doesn't.)
+        Each Shelly speaks HTTP at <span className="mono">http://&lt;device-ip&gt;/</span>. Add devices by IP, or scan your local subnet â€” Shelly devices return CORS-friendly responses, so this works from the browser. (mDNS / Bluetooth discovery doesn't.)
       </p>
       {(cfg.devices || []).length > 0 && (
         <div className="catalog-list">
@@ -6827,15 +6791,15 @@ function ShellyConfig({ integrations }) {
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <b>{d.name}</b>{' '}
                   <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{d.ip}</span>
-                  {d.room && <> · {d.room}</>}
+                  {d.room && <> Â· {d.room}</>}
                   {t && !t.testing && (
                     <span style={{ marginLeft: 8, fontSize: 11, color: t.ok ? 'var(--primary)' : 'var(--destructive)' }}>
-                      {t.ok ? `✓ ${t.msg}` : `✗ ${t.msg}`}
+                      {t.ok ? `âœ“ ${t.msg}` : `âœ— ${t.msg}`}
                     </span>
                   )}
                 </span>
                 <button className="group-toggle" onClick={() => testDevice(d.ip)} disabled={t?.testing}>
-                  {t?.testing ? '…' : 'Test'}
+                  {t?.testing ? 'â€¦' : 'Test'}
                 </button>
                 <button className="group-toggle" onClick={() => removeDevice(i)}>Remove</button>
               </div>
@@ -6854,7 +6818,7 @@ function ShellyConfig({ integrations }) {
         <div className="catalog-add-grid" style={{ gridTemplateColumns: '1fr auto' }}>
           <input className="settings-input" placeholder="192.168.1" value={subnet} onChange={e => setSubnet(e.target.value)} autoComplete="off" />
           <button className="group-toggle" data-active="true" onClick={runScan} disabled={scanState.running}>
-            {scanState.running ? `Scanning ${scanState.done}/${scanState.total} · ${scanState.hits} found` : 'Scan'}
+            {scanState.running ? `Scanning ${scanState.done}/${scanState.total} Â· ${scanState.hits} found` : 'Scan'}
           </button>
         </div>
         {scanState.error && <div style={{ color: 'var(--destructive)', fontSize: 11, marginTop: 6 }}>{scanState.error}</div>}
@@ -6862,7 +6826,7 @@ function ShellyConfig({ integrations }) {
           <div className="catalog-list" style={{ marginTop: 8 }}>
             {scanResults.map((r) => (
               <div key={r.ip} className="catalog-list-row">
-                <span><b>{r.name}</b> <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{r.ip}</span> · {r.model} (Gen{r.gen})</span>
+                <span><b>{r.name}</b> <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{r.ip}</span> Â· {r.model} (Gen{r.gen})</span>
                 <button className="group-toggle" data-active="true" disabled={knownIps.has(r.ip)} onClick={() => addDevice({ ip: r.ip, name: r.name, room: '' })}>
                   {knownIps.has(r.ip) ? 'Added' : 'Add'}
                 </button>
@@ -6883,15 +6847,15 @@ function SpotifyConfig({ spotify }) {
 
   return (
     <div className="catalog-form">
-      {/* ── Step 1: Admin one-time setup ───────────────────────────────── */}
+      {/* â”€â”€ Step 1: Admin one-time setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <details className="settings-advanced" open={!isSetUp}>
         <summary>Admin setup (one time per household)</summary>
         <div>
           <p className="catalog-help" style={{ marginBottom: 10 }}>
-            Register one Spotify app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">developer.spotify.com</a>. Every person in the household then signs in with <b>their own</b> Spotify account — no separate app per person.
+            Register one Spotify app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer">developer.spotify.com</a>. Every person in the household then signs in with <b>their own</b> Spotify account â€” no separate app per person.
           </p>
           <ol className="catalog-help" style={{ paddingLeft: 18, margin: '0 0 10px', lineHeight: 2 }}>
-            <li>Create an app at developer.spotify.com → "Create app"</li>
+            <li>Create an app at developer.spotify.com â†’ "Create app"</li>
             <li>Add redirect URI: <span className="mono">{spRedirectUri()}</span></li>
             <li>Copy the <b>Client ID</b> (32-char hex) and paste it below</li>
             <li>Add each household member's Spotify email to the app's "Users" allowlist</li>
@@ -6911,7 +6875,7 @@ function SpotifyConfig({ spotify }) {
         </div>
       </details>
 
-      {/* ── Step 2: Any household member signs in ──────────────────────── */}
+      {/* â”€â”€ Step 2: Any household member signs in â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {isSetUp && !isSignedIn && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
           <p className="catalog-help">
@@ -6988,7 +6952,7 @@ function TibberConfig({ integrations }) {
       <p className="catalog-help">
         {cfg.token
           ? <>Connected. Live electricity prices flow into the Power tile.</>
-          : <>Get a personal access token at <a href="https://developer.tibber.com" target="_blank" rel="noreferrer">developer.tibber.com</a> — it stays in this browser.</>}
+          : <>Get a personal access token at <a href="https://developer.tibber.com" target="_blank" rel="noreferrer">developer.tibber.com</a> â€” it stays in this browser.</>}
       </p>
       <label className="catalog-label">Access token</label>
       {editing ? (
@@ -7003,7 +6967,7 @@ function TibberConfig({ integrations }) {
             spellCheck="false"
           />
           <button className="group-toggle" onClick={() => testToken(draft)} disabled={testing || !draft.trim()}>
-            {testing ? 'Testing…' : 'Test'}
+            {testing ? 'Testingâ€¦' : 'Test'}
           </button>
           <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('tibber', { token: draft.trim() })} disabled={!draft.trim()}>
             Save
@@ -7012,9 +6976,9 @@ function TibberConfig({ integrations }) {
         </div>
       ) : (
         <div className="catalog-search">
-          <input className="settings-input" type="text" value={'••••••••' + String(cfg.token).slice(-4)} readOnly aria-label="Stored token (masked)" />
+          <input className="settings-input" type="text" value={'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' + String(cfg.token).slice(-4)} readOnly aria-label="Stored token (masked)" />
           <button className="group-toggle" onClick={() => testToken(cfg.token)} disabled={testing}>
-            {testing ? 'Testing…' : 'Test'}
+            {testing ? 'Testingâ€¦' : 'Test'}
           </button>
           <button className="group-toggle" onClick={() => { setEditing(true); setTestResult(null); }}>Change</button>
         </div>
@@ -7026,7 +6990,7 @@ function TibberConfig({ integrations }) {
       )}
       {testResult?.ok && (
         <p className="catalog-help" style={{ color: 'var(--primary)', marginTop: 8 }}>
-          Connected as {testResult.name}{testResult.homes.length ? ` · ${testResult.homes.join(', ')}` : ''}
+          Connected as {testResult.name}{testResult.homes.length ? ` Â· ${testResult.homes.join(', ')}` : ''}
         </p>
       )}
       {cfg.token && !editing && (
@@ -7081,7 +7045,7 @@ function WeatherConfig({ integrations }) {
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Weather comes from <a href="https://open-meteo.com" target="_blank" rel="noreferrer">open-meteo.com</a> — free, no API key, CORS-open. Set your latitude / longitude (or click "Use my location") and the city label that shows in the header.
+        Weather comes from <a href="https://open-meteo.com" target="_blank" rel="noreferrer">open-meteo.com</a> â€” free, no API key, CORS-open. Set your latitude / longitude (or click "Use my location") and the city label that shows in the header.
       </p>
       <div className="catalog-add-grid">
         <input className="settings-input" placeholder="Latitude (59.3293)" value={lat} onChange={e => { setLat(e.target.value); setTestResult(null); }} autoComplete="off" />
@@ -7091,7 +7055,7 @@ function WeatherConfig({ integrations }) {
       </div>
       <div className="catalog-actions">
         <button className="group-toggle" onClick={testCoords} disabled={testing || !String(lat).trim() || !String(lon).trim()}>
-          {testing ? 'Testing…' : 'Test'}
+          {testing ? 'Testingâ€¦' : 'Test'}
         </button>
         <button className="group-toggle" data-active="true" onClick={() => integrations.setIntegration('weather', { lat: String(lat).trim(), lon: String(lon).trim(), city: String(city).trim() })}>Save</button>
       </div>
@@ -7100,7 +7064,7 @@ function WeatherConfig({ integrations }) {
       )}
       {testResult?.ok && (
         <p className="catalog-help" style={{ color: 'var(--primary)', marginTop: 8 }}>
-          ✓ Open-Meteo responded{testResult.temp != null ? ` — current temp ${testResult.temp}°C` : ''}{testResult.tz ? ` · ${testResult.tz}` : ''}
+          âœ“ Open-Meteo responded{testResult.temp != null ? ` â€” current temp ${testResult.temp}Â°C` : ''}{testResult.tz ? ` Â· ${testResult.tz}` : ''}
         </p>
       )}
     </div>
@@ -7109,12 +7073,12 @@ function WeatherConfig({ integrations }) {
 
 // HaSensorsConfig -- per-entity pin list. Reuses the Plejd HA URL+token (a
 // home only has one HA bridge in practice). Each entity gets a label + unit
-// + icon so the home-page tile reads as an appliance ("Kitchen 21.4°C"), not
+// + icon so the home-page tile reads as an appliance ("Kitchen 21.4Â°C"), not
 // as an HA entity ID ("sensor.kitchen_temperature 21.4").
 //
 // Icon names come from the global I icon set; we offer a small curated
 // shortlist via a dropdown rather than free-form to avoid typos. Unit is
-// free-form ("°C", "%", "kWh", "lx", or empty for binary states).
+// free-form ("Â°C", "%", "kWh", "lx", or empty for binary states).
 const HA_ICON_CHOICES = ['Sun', 'Moon', 'Cloud', 'Home', 'Light', 'Plug', 'Speaker', 'Disc', 'Zap', 'Router', 'Coffee', 'TV', 'Lamp', 'Bulb', 'Fan'];
 
 function HaSensorsConfig({ integrations }) {
@@ -7165,21 +7129,21 @@ function HaSensorsConfig({ integrations }) {
   return (
     <div className="catalog-form">
       <p className="catalog-help">
-        Pin any Home Assistant entity onto the dashboard. Reuses the URL + token from the Plejd integration -- one HA bridge, two consumers. To find an entity ID in HA: <span className="mono">Developer Tools → States</span>. Common examples: <span className="mono">sensor.kitchen_temperature</span>, <span className="mono">binary_sensor.front_door</span>, <span className="mono">sensor.vacuum_battery</span>.
+        Pin any Home Assistant entity onto the dashboard. Reuses the URL + token from the Plejd integration -- one HA bridge, two consumers. To find an entity ID in HA: <span className="mono">Developer Tools â†’ States</span>. Common examples: <span className="mono">sensor.kitchen_temperature</span>, <span className="mono">binary_sensor.front_door</span>, <span className="mono">sensor.vacuum_battery</span>.
       </p>
       {!haCredsSet && (
         <p className="catalog-help catalog-notice">
-          <b>Heads up:</b> set up Plejd first (URL + Home Assistant token) — the sensors share those credentials.
+          <b>Heads up:</b> set up Plejd first (URL + Home Assistant token) â€” the sensors share those credentials.
         </p>
       )}
       {haCredsSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <button className="group-toggle" onClick={testHaConnection} disabled={testing}>
-            {testing ? 'Testing…' : 'Test HA connection'}
+            {testing ? 'Testingâ€¦' : 'Test HA connection'}
           </button>
           {testResult && (
             <span style={{ fontSize: 12, color: testResult.ok ? 'var(--primary)' : 'var(--destructive)' }}>
-              {testResult.ok ? `✓ ${testResult.msg}` : `✗ ${testResult.msg}`}
+              {testResult.ok ? `âœ“ ${testResult.msg}` : `âœ— ${testResult.msg}`}
             </span>
           )}
         </div>
@@ -7192,7 +7156,7 @@ function HaSensorsConfig({ integrations }) {
               <div key={e.id} className="catalog-list-row">
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                   <Ic size={14} />
-                  <b>{e.label}</b> <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{e.id}</span>{e.unit ? <> · {e.unit}</> : null}
+                  <b>{e.label}</b> <span className="mono" style={{ color: 'var(--muted-foreground)' }}>{e.id}</span>{e.unit ? <> Â· {e.unit}</> : null}
                 </span>
                 <button className="group-toggle" onClick={() => remove(e.id)}>Remove</button>
               </div>
@@ -7204,7 +7168,7 @@ function HaSensorsConfig({ integrations }) {
       <div className="catalog-add-grid" style={{ gridTemplateColumns: '2fr 1fr 80px auto auto' }}>
         <input className="settings-input" placeholder="sensor.kitchen_temperature" value={id} onChange={e => setId(e.target.value)} autoComplete="off" spellCheck="false" />
         <input className="settings-input" placeholder="Label (Kitchen)" value={label} onChange={e => setLabel(e.target.value)} autoComplete="off" />
-        <input className="settings-input" placeholder="°C" value={unit} onChange={e => setUnit(e.target.value)} autoComplete="off" />
+        <input className="settings-input" placeholder="Â°C" value={unit} onChange={e => setUnit(e.target.value)} autoComplete="off" />
         <select className="settings-input" value={icon} onChange={e => setIcon(e.target.value)} style={{ minWidth: 90 }}>
           {HA_ICON_CHOICES.map(n => <option key={n} value={n}>{n}</option>)}
         </select>
@@ -7257,8 +7221,8 @@ function DiscoveredDevicesList({ integrations }) {
                       <div className="settings-row-sub">
                         {d.ip && <span className="mono">{d.ip}</span>}
                         {d.entityId && <span className="mono">{d.entityId}</span>}
-                        {d.model ? ` · ${d.model}` : ''}
-                        {' '}· <span className="disc-proto-pill" style={{ display: 'inline' }}>{PROTOCOL_LABEL[d.protocol] || d.protocol}</span>
+                        {d.model ? ` Â· ${d.model}` : ''}
+                        {' '}Â· <span className="disc-proto-pill" style={{ display: 'inline' }}>{PROTOCOL_LABEL[d.protocol] || d.protocol}</span>
                       </div>
                     </div>
                     <select
@@ -7292,7 +7256,7 @@ function DiscoveredDevicesList({ integrations }) {
 function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, integrations, demoMode, onLoadDemo, onClearDemo, hubConnected }) {
   const deviceTotal = rooms.length + outlets.length + speakers.length;
   // MaskedSecret handles its own draft/save for both Spotify and Google Client
-  // IDs — no top-level draft state needed here.
+  // IDs â€” no top-level draft state needed here.
   const gsiBtnRef = useRef(null);
   useEffect(() => {
     if (!google?.user && google?.clientId && gsiBtnRef.current) {
@@ -7337,7 +7301,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
         title="Your account"
         source={google?.user ? 'Signed in' : 'Not signed in'}
         summary={google?.user
-          ? <>Identity verified · stored only in this browser</>
+          ? <>Identity verified Â· stored only in this browser</>
           : <>Sign in to make this dashboard yours</>}
       >
         <div className="settings-page">
@@ -7364,7 +7328,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                     ? google.user.email || 'Local profile'
                     : google?.clientId
                       ? 'Tap the Google button below to sign in.'
-                      : 'Add a Google connection (Advanced ▾) or sign up with email.'}
+                      : 'Add a Google connection (Advanced â–¾) or sign up with email.'}
                 </div>
                 {!google?.user && google?.clientId && (
                   <div ref={gsiBtnRef} style={{ marginTop: 8, minHeight: 40 }} />
@@ -7399,11 +7363,11 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                 so the typical signed-in user never sees the technical scaffolding.
                 One-time setup, change-only-when-you-need-to. */}
             <details className="settings-advanced">
-              <summary>Advanced — Google connection</summary>
+              <summary>Advanced â€” Google connection</summary>
               <p className="catalog-help" style={{ marginBottom: 6 }}>
                 The dashboard signs you in through a Google Cloud project you own.
                 {' '}<a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Create a Client ID</a>
-                {' '}(APIs &amp; Services → Credentials → OAuth Client ID, Web type), and add{' '}
+                {' '}(APIs &amp; Services â†’ Credentials â†’ OAuth Client ID, Web type), and add{' '}
                 <span className="mono">{window.location.origin}</span> under "Authorized JavaScript origins".
               </p>
               <MaskedSecret
@@ -7435,8 +7399,8 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                 <div className="settings-row-name">Real-time hub</div>
                 <div className="settings-row-sub">
                   {hubConnected
-                    ? 'Connected — device updates stream live to all tabs'
-                    : <>Offline · run <span className="mono">npm run hub</span> to enable live updates</>}
+                    ? 'Connected â€” device updates stream live to all tabs'
+                    : <>Offline Â· run <span className="mono">npm run hub</span> to enable live updates</>}
                 </div>
               </div>
               <span className="settings-row-state">{hubConnected ? 'Live' : 'Offline'}</span>
@@ -7448,7 +7412,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
       <Section
         title="Devices"
         source="local inventory"
-        summary={<><b>{deviceTotal}</b> devices · <b>{rooms.length}</b> rooms · <b>{outlets.length}</b> outlets · <b>{speakers.length}</b> speakers</>}
+        summary={<><b>{deviceTotal}</b> devices Â· <b>{rooms.length}</b> rooms Â· <b>{outlets.length}</b> outlets Â· <b>{speakers.length}</b> speakers</>}
       >
         <div className="settings-page">
           <div className="settings-section">
@@ -7464,7 +7428,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
               <span className="settings-row-icon"><I.Plug size={14} /></span>
               <div>
                 <div className="settings-row-name">Shelly outlets</div>
-                <div className="settings-row-sub">{outlets.length} outlets · {outlets.filter(o => o.alwaysOn).length} always-on</div>
+                <div className="settings-row-sub">{outlets.length} outlets Â· {outlets.filter(o => o.alwaysOn).length} always-on</div>
               </div>
               <span className="settings-row-state">{shellyActive ? 'Online' : 'Not set up'}</span>
             </div>
@@ -7472,12 +7436,12 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
               <span className="settings-row-icon"><I.Speaker size={14} /></span>
               <div>
                 <div className="settings-row-name">Sonos speakers</div>
-                <div className="settings-row-sub">{speakers.length} speakers · lead room: {speakers.find(s => s.primary)?.name ?? '—'}</div>
+                <div className="settings-row-sub">{speakers.length} speakers Â· lead room: {speakers.find(s => s.primary)?.name ?? 'â€”'}</div>
               </div>
               <span className="settings-row-state">{sonosActive ? 'Online' : 'Not set up'}</span>
             </div>
           </div>
-          {/* Discovered devices — populated by the network scan */}
+          {/* Discovered devices â€” populated by the network scan */}
           <DiscoveredDevicesList integrations={integrations} />
         </div>
       </Section>
@@ -7489,10 +7453,10 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
       >
         <div className="settings-page">
           <div className="settings-section settings-about">
-            <span><b>Home Domain</b> — a one-screen control surface for a multi-vendor smart home.</span>
+            <span><b>Home Domain</b> â€” a one-screen control surface for a multi-vendor smart home.</span>
             <span>Any credentials you add stay in your browser only. No data is sent to our servers.</span>
             <span>Version <span className="mono">2026.5.0-prototype</span></span>
-            <span>Keyboard: <b className="mono">1–5</b> apply Home scenes · <b className="mono">G</b> jump to Home · <b className="mono">Esc</b> clear scene</span>
+            <span>Keyboard: <b className="mono">1â€“5</b> apply Home scenes Â· <b className="mono">G</b> jump to Home Â· <b className="mono">Esc</b> clear scene</span>
           </div>
           <div className="settings-section" style={{ marginTop: 12 }}>
             <div className="settings-row" data-on={demoMode}>
@@ -7501,7 +7465,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                 <div className="settings-row-name">Demo data</div>
                 <div className="settings-row-sub">
                   {demoMode
-                    ? <>Populated with 8 rooms, 6 outlets, 4 speakers. Toggles, sliders, scenes, and Cast-to-room all work locally — no hardware required.</>
+                    ? <>Populated with 8 rooms, 6 outlets, 4 speakers. Toggles, sliders, scenes, and Cast-to-room all work locally â€” no hardware required.</>
                     : <>No integrations are wired in this browser yet. Load demo data to explore every control as if you'd already configured Plejd, Sonos, and Shelly.</>}
                 </div>
               </div>

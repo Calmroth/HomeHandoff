@@ -2498,6 +2498,53 @@ img.avatar { display: block; }
   font-size: 13px;
 }
 
+/* ── PlayerStage connected variant ───────────────────────────────────────
+   No padding so the Spotify iFrame fills flush to the card border.
+   Anchor gets flex: 1 so the iframe takes all space above the transport strip. */
+.player-stage--connected { padding: 0; overflow: hidden; }
+.player-embed-anchor {
+  flex: 1;
+  min-height: 200px;
+  /* No background — the fixed-position iframe covers this exactly */
+}
+
+/* Transport strip below the embedded Spotify player */
+.player-transport-strip {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  gap: 10px; align-items: start;
+  padding: 10px 16px 8px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.player-transport-art-wrap { padding-top: 1px; }
+.player-transport-art {
+  width: 42px; height: 42px; border-radius: 6px; object-fit: cover; display: block;
+}
+.player-transport-art--empty {
+  width: 42px; height: 42px; border-radius: 6px;
+  background: color-mix(in oklch, var(--clay-50) 6%, transparent);
+  display: grid; place-items: center; color: var(--muted-foreground);
+}
+.player-transport-meta {
+  display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 1px;
+}
+.player-transport-track {
+  font-size: 13px; font-weight: 600; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.player-transport-artist {
+  font-size: 11px; color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.player-transport-controls {
+  display: flex; align-items: center; gap: 4px; padding-top: 2px; flex-shrink: 0;
+}
+
+/* Inset spacing for queue and resume card in the no-padding connected stage */
+.player-stage-queue--inset { margin: 0 14px 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.player-resume-card--inset { margin: 10px 14px; }
+
 /* ── Resume last session card ─────────────────────────────────────────────
    Shown in the idle player stage when a previous track is stored in
    localStorage. Amber-tinted border signals it's actionable, not decorative. */
