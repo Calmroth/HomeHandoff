@@ -1799,7 +1799,7 @@ function App() {
           const item = j.item;
           const art = item.album?.images?.[0]?.url || item.album?.images?.[1]?.url || null;
           const artist = (item.artists || []).map(a => a.name).join(', ');
-          useHomeStore.getState().setPlayback({
+          const nextPb = {
             track: item.name,
             artist,
             art,
@@ -1810,7 +1810,18 @@ function App() {
             isPlaying: !!j.is_playing,
             progressMs: j.progress_ms || 0,
             durationMs: item.duration_ms || 0,
-          });
+          };
+          useHomeStore.getState().setPlayback(nextPb);
+          // Persist track + position for cross-session resume. Written on every
+          // poll so the saved position stays fresh. Only the track fields are
+          // stored — device info is session-specific and not useful to persist.
+          try {
+            localStorage.setItem('hdg-last-playback', JSON.stringify({
+              track: nextPb.track, artist: nextPb.artist, art: nextPb.art,
+              uri: nextPb.uri, albumUri: nextPb.albumUri,
+              progressMs: nextPb.progressMs, durationMs: nextPb.durationMs,
+            }));
+          } catch {}
         })
         .catch(e => {
           if (cancelled) return;
@@ -4119,21 +4130,71 @@ function PlayerStage({ spotify, recentlyPlayed, queue }) {
     spotify.api('/me/player/seek?position_ms=' + ms, { method: 'PUT' }).catch(() => {});
   };
 
+  // ── Cross-session resume ──────────────────────────────────────────────────
+  // Read the last-played track from localStorage. The polling effect writes
+  // it on every successful poll, so it always reflects the most recent track
+  // and position. We only need it while idle, so skip the read while playing.
+  const lastPlayback = useMemo(() => {
+    if (hasTrack) return null;
+    try { return JSON.parse(localStorage.getItem('hdg-last-playback') || 'null'); } catch { return null; }
+  }, [hasTrack]); // recomputes when track state flips
+
   // ── Not connected — show the iframe embed unchanged ──────────────────────
   if (!spotify.token) {
     return <div id="music-stage-anchor" className="music-page-frame music-page-frame-anchor" />;
   }
 
-  // ── Connected, nothing playing — recently played grid ────────────────────
+  // ── Connected, nothing playing — resume card + recently played grid ──────
   if (!hasTrack) {
+    const hasResume = !!(lastPlayback?.track && lastPlayback?.uri);
     return (
       <div className="player-stage player-stage--idle">
+
+        {/* ── Resume last session ── */}
+        {hasResume && (
+          <div className="player-resume-card">
+            <div className="player-resume-art-wrap">
+              {lastPlayback.art
+                ? <img src={lastPlayback.art} alt="" className="player-resume-art" />
+                : <div className="player-resume-art player-resume-art--empty"><I.Music size={16} /></div>
+              }
+            </div>
+            <div className="player-resume-info">
+              <div className="player-resume-track">{lastPlayback.track}</div>
+              <div className="player-resume-artist">{lastPlayback.artist}</div>
+              {lastPlayback.progressMs > 5000 && lastPlayback.durationMs > 0 && (
+                <div className="player-resume-pos">
+                  <span className="mono">{fmt(lastPlayback.progressMs)}</span>
+                  <span style={{ margin: '0 3px', opacity: 0.45 }}>/</span>
+                  <span className="mono">{fmt(lastPlayback.durationMs)}</span>
+                </div>
+              )}
+            </div>
+            <button
+              className="player-resume-btn"
+              onClick={() =>
+                spotify.api('/me/player/play', {
+                  method: 'PUT',
+                  body: JSON.stringify({
+                    uris: [lastPlayback.uri],
+                    position_ms: lastPlayback.progressMs > 5000 ? lastPlayback.progressMs : 0,
+                  }),
+                }).catch(() => {})
+              }
+            >
+              <Icon size={11}><polygon points="5,3 19,12 5,21"/></Icon>
+              {lastPlayback.progressMs > 5000 ? `Resume ${fmt(lastPlayback.progressMs)}` : 'Play'}
+            </button>
+          </div>
+        )}
+
+        {/* ── Recently played ── */}
         <div className="player-stage-idle-head">
           <span className="np-label">Recently played</span>
           <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>tap to play</span>
         </div>
         <div className="player-recent-grid">
-          {(recentlyPlayed ?? []).slice(0, 6).map(t => (
+          {(recentlyPlayed ?? []).slice(0, hasResume ? 3 : 6).map(t => (
             <button
               key={t.id}
               className="player-recent-tile"
