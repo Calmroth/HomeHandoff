@@ -1349,6 +1349,58 @@ img.avatar { display: block; }
 .card-retry:hover { background: color-mix(in oklch, var(--destructive) 22%, transparent); }
 .card-retry:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
+/* ── Expand button (shows individual devices inside a room card) ─────────────── */
+.expand-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 6px;
+  color: var(--muted-foreground);
+  background: color-mix(in oklch, var(--clay-50) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--clay-50) 10%, transparent);
+  cursor: pointer; flex-shrink: 0;
+  transition: background var(--motion-duration-fast), color var(--motion-duration-fast);
+}
+.expand-btn:hover { background: color-mix(in oklch, var(--clay-50) 14%, transparent); color: var(--foreground); }
+.expand-btn[data-expanded="true"] { color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); }
+.expand-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* ── Per-device rows inside an expanded room card ───────────────────────────── */
+.device-list {
+  display: flex; flex-direction: column; gap: 0;
+  border-top: 1px solid color-mix(in oklch, var(--clay-50) 8%, transparent);
+  padding-top: 10px;
+  margin-top: 2px;
+}
+.device-row {
+  display: grid;
+  grid-template-columns: 20px 1fr auto 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--clay-50) 6%, transparent);
+}
+.device-row:last-child { border-bottom: none; }
+.device-icon {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+.device-row[data-on="true"] .device-icon { color: var(--primary); }
+.device-name {
+  font-size: 12px; font-weight: 450;
+  color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.device-row[data-on="true"] .device-name { color: var(--foreground); }
+
+/* Compact slider variant — thinner, no thumb, for tight device rows */
+.slider.slider--compact {
+  height: 4px;
+}
+.slider.slider--compact .slider-thumb {
+  width: 10px; height: 10px;
+}
+
 /* ── Route-conditional keyboard hints footer ───────────────────────────────── */
 .key-hints {
   position: fixed;

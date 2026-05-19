@@ -47,7 +47,8 @@ const I = {
   Bulb:    (p) => <Icon {...p}><circle cx="12" cy="9" r="5"/><path d="M9 18h6M10 21h4"/></Icon>,
   Search:      (p) => <Icon {...p}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></Icon>,
   Disc:        (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></Icon>,
-  ChevronDown: (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>,
+  ChevronDown:  (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>,
+  ChevronRight: (p) => <Icon {...p}><path d="m9 18 6-6-6-6"/></Icon>,
   X:           (p) => <Icon {...p}><path d="M18 6 6 18M6 6l12 12"/></Icon>,
   Wifi:        (p) => <Icon {...p}><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></Icon>,
   Bell:        (p) => <Icon {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></Icon>,
@@ -802,7 +803,7 @@ function Sidebar({ route, onNavigate, google }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Slider — drag-to-set, used by light brightness + speaker volume
 // ─────────────────────────────────────────────────────────────────────────────
-function Slider({ value, onChange, disabled }) {
+function Slider({ value, onChange, disabled, compact }) {
   const ref = useRef(null);
   const dragging = useRef(false);
 
@@ -825,7 +826,7 @@ function Slider({ value, onChange, disabled }) {
   return (
     <div
       ref={ref}
-      className="slider"
+      className={compact ? 'slider slider--compact' : 'slider'}
       style={{ opacity: disabled ? 0.45 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}
       onPointerDown={(e) => {
         if (disabled) return;
@@ -1508,6 +1509,15 @@ function App() {
   const [sendingIds, setSendingIds] = useState(new Set());
   const [failedIds, setFailedIds] = useState(new Set());
   const [failedCommands, setFailedCommands] = useState(new Map());
+  // Expanded room cards showing individual device rows (Set of room ids).
+  const [expandedRooms, setExpandedRooms] = useState(new Set());
+  const toggleRoomExpand = useCallback((roomId) => {
+    setExpandedRooms(s => {
+      const n = new Set(s);
+      n.has(roomId) ? n.delete(roomId) : n.add(roomId);
+      return n;
+    });
+  }, []);
 
   // Tab-lifecycle primitives -- foundation of an "appliance" feel.
   // pageVisible is the gate for every polling effect: when nobody is looking
@@ -1973,7 +1983,18 @@ function App() {
             const prevMap = new Map(prevRooms.map(r => [r.id, r]));
             return lights.map(r => {
               const prev = prevMap.get(r.id);
-              return prev ? { ...r, on: prev.on, brightness: prev.brightness } : r;
+              if (!prev) return r;
+              // Preserve room aggregate state (cloud never returns live on/dim)
+              const merged = { ...r, on: prev.on, brightness: prev.brightness };
+              // Also restore per-device isOn/dim so expanded device rows stay correct
+              if (prev._cloudDevices && r._cloudDevices) {
+                const prevDevMap = new Map(prev._cloudDevices.map(d => [d.id, d]));
+                merged._cloudDevices = r._cloudDevices.map(d => {
+                  const pd = prevDevMap.get(d.id);
+                  return pd ? { ...d, isOn: pd.isOn, dim: pd.dim } : d;
+                });
+              }
+              return merged;
             });
           });
           setOutlets((prev) => {
@@ -2324,6 +2345,55 @@ function App() {
     }
   };
 
+  // Per-device handlers — control a single Plejd device inside a room card.
+  // The room aggregate state is recalculated from the updated _cloudDevices list
+  // so the room-level toggle and brightness stay accurate without a full re-poll.
+  const toggleDevice = (roomId, deviceId, on) => {
+    setRooms(rs => rs.map(r => {
+      if (r.id !== roomId || !r._cloudDevices) return r;
+      const devs = r._cloudDevices.map(d => d.id === deviceId ? { ...d, isOn: on } : d);
+      const onDevs = devs.filter(d => d.isOn);
+      const roomOn = onDevs.length > 0;
+      const roomBrightness = roomOn
+        ? Math.round(onDevs.reduce((s, d) => s + (d.dim != null ? Math.round((d.dim / 255) * 100) : 100), 0) / onDevs.length)
+        : r.brightness;
+      return { ...r, _cloudDevices: devs, on: roomOn, brightness: roomBrightness };
+    }));
+    if (hubConnected) {
+      hubCommand('plejd', 'toggle', { deviceId, on });
+      return;
+    }
+    const cfg = integrations.config.plejd;
+    if (cfg?.cloudSession && cfg?.cloudSiteId) {
+      plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId, on })
+        .catch(e => logActivity('light', `Device command failed: ${String(e.message || e).slice(0, 40)}`));
+    }
+  };
+
+  const setDeviceBrightness = (roomId, deviceId, b) => {
+    setRooms(rs => rs.map(r => {
+      if (r.id !== roomId || !r._cloudDevices) return r;
+      const dim = Math.round((b / 100) * 255);
+      const devs = r._cloudDevices.map(d => d.id === deviceId ? { ...d, isOn: b > 0, dim } : d);
+      const onDevs = devs.filter(d => d.isOn);
+      const roomOn = onDevs.length > 0;
+      const roomBrightness = roomOn
+        ? Math.round(onDevs.reduce((s, d) => s + (d.dim != null ? Math.round((d.dim / 255) * 100) : 100), 0) / onDevs.length)
+        : r.brightness;
+      return { ...r, _cloudDevices: devs, on: roomOn, brightness: roomBrightness };
+    }));
+    if (hubConnected) {
+      hubCommand('plejd', 'dim', { deviceId, brightness: b });
+      return;
+    }
+    const cfg = integrations.config.plejd;
+    if (cfg?.cloudSession && cfg?.cloudSiteId) {
+      const dim255 = Math.round((b / 100) * 255);
+      plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId, on: b > 0, dim: dim255 })
+        .catch(e => logActivity('light', `Device dim failed: ${String(e.message || e).slice(0, 40)}`));
+    }
+  };
+
   // Outlet handlers. Optimistic UI first (the toggle moves immediately),
   // then a real HTTP call to the Shelly device when an IP is configured.
   // Audit flagged the previous version as "theatre" -- the local state
@@ -2584,6 +2654,8 @@ function App() {
               onCount={onCount} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts} totalW={totalW}
               groupAll={groupAll} setGroup={setGroup}
               toggleRoom={toggleRoom} setBrightness={setBrightness} setAllLights={setAllLights}
+              toggleDevice={toggleDevice} setDeviceBrightness={setDeviceBrightness}
+              expandedRooms={expandedRooms} toggleRoomExpand={toggleRoomExpand}
               toggleOutlet={toggleOutlet}
               toggleSpeaker={toggleSpeaker} setVolume={setVolume}
               activeScene={activeScene} activeSceneAt={activeSceneAt} now={now}
@@ -2597,6 +2669,8 @@ function App() {
           {route === 'rooms' && (
             <RoomsPage
               rooms={rooms} toggleRoom={toggleRoom} setBrightness={setBrightness} setAllLights={setAllLights}
+              toggleDevice={toggleDevice} setDeviceBrightness={setDeviceBrightness}
+              expandedRooms={expandedRooms} toggleRoomExpand={toggleRoomExpand}
               applyScene={applyScene} activeScene={activeScene}
               plejdScenes={plejdScenes} activatePlejdScene={activatePlejdScene}
             />
@@ -2679,6 +2753,8 @@ function HomePage({
   onCount, litWatts, outletWatts, speakerWatts, totalW,
   groupAll, setGroup,
   toggleRoom, setBrightness, setAllLights,
+  toggleDevice, setDeviceBrightness,
+  expandedRooms = new Set(), toggleRoomExpand,
   toggleOutlet,
   toggleSpeaker, setVolume,
   activeScene, activeSceneAt, now,
@@ -2761,7 +2837,21 @@ function HomePage({
               />
             </div>
             <div className="lights-grid">
-              {rooms.map(r => <RoomCard key={r.id} room={r} onToggle={() => toggleRoom(r.id)} onBrightness={(b) => setBrightness(r.id, b)} sending={sendingIds.has(r.id)} failed={failedIds.has(r.id)} retryFn={failedCommands.get(r.id)} />)}
+              {rooms.map(r => (
+                <RoomCard
+                  key={r.id}
+                  room={r}
+                  onToggle={() => toggleRoom(r.id)}
+                  onBrightness={(b) => setBrightness(r.id, b)}
+                  onToggleDevice={(devId, on) => toggleDevice(r.id, devId, on)}
+                  onDeviceBrightness={(devId, b) => setDeviceBrightness(r.id, devId, b)}
+                  expanded={expandedRooms.has(r.id)}
+                  onExpandToggle={() => toggleRoomExpand(r.id)}
+                  sending={sendingIds.has(r.id)}
+                  failed={failedIds.has(r.id)}
+                  retryFn={failedCommands.get(r.id)}
+                />
+              ))}
             </div>
           </div>
         ) : (
@@ -3151,20 +3241,44 @@ function HoldToggle({ on, onToggle, ariaLabel, holdMs = 500 }) {
   );
 }
 
-function RoomCard({ room, onToggle, onBrightness, sending, failed, retryFn }) {
+function DeviceIcon({ type }) {
+  // Map Plejd device type codes to icons. Falls back to Light for unknowns.
+  if (/relay|outlet|plug/i.test(type || '')) return <I.Plug size={14} />;
+  if (/dim|light|lux|pendant|spot|strip/i.test(type || '')) return <I.Light size={14} />;
+  if (/button|switch|wph/i.test(type || '')) return <I.Plug size={14} />;
+  return <I.Light size={14} />;
+}
+
+function RoomCard({ room, onToggle, onBrightness, onToggleDevice, onDeviceBrightness, expanded, onExpandToggle, sending, failed, retryFn }) {
   const flick = useFlicker([room.on]);
   // CSS variable controls the warm glow opacity inside the card
   const glow = room.on ? 0.04 + (room.brightness / 100) * 0.18 : 0;
+  // Only show expand button when there are multiple individual devices to control
+  const hasDevices = Array.isArray(room._cloudDevices) && room._cloudDevices.length > 1;
+
   return (
-    <div className="light-room" data-on={room.on} data-sending={sending ? 'true' : undefined} data-failed={failed ? 'true' : undefined} style={{ '--glow': glow }}>
+    <div className="light-room" data-on={room.on} data-sending={sending ? 'true' : undefined} data-failed={failed ? 'true' : undefined} data-expanded={expanded ? 'true' : undefined} style={{ '--glow': glow }}>
       {flick > 0 && room.on && <div key={flick} className="flick" />}
       <div className="room-head">
-        <div>
-          <div className="room-name">{room.name}</div>
-          <span className="bulb-pill">
-            <span className="dot-on" />
-            {room.bulbs} {room.bulbs === 1 ? 'bulb' : 'bulbs'}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="room-name">{room.name}</div>
+            <span className="bulb-pill">
+              <span className="dot-on" />
+              {room.bulbs} {room.bulbs === 1 ? 'bulb' : 'bulbs'}
+            </span>
+          </div>
+          {hasDevices && (
+            <button
+              className="expand-btn"
+              data-expanded={expanded}
+              onClick={onExpandToggle}
+              aria-label={expanded ? 'Collapse device list' : 'Expand device list'}
+              aria-expanded={expanded}
+            >
+              <I.ChevronRight size={14} style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 200ms var(--motion-ease-out-quart)' }} />
+            </button>
+          )}
         </div>
         <Toggle on={room.on} onToggle={onToggle} ariaLabel={`Turn ${room.on ? 'off' : 'on'} ${room.name}`} />
       </div>
@@ -3176,6 +3290,27 @@ function RoomCard({ room, onToggle, onBrightness, sending, failed, retryFn }) {
         </div>
         <Slider value={room.on ? room.brightness : 0} onChange={onBrightness} disabled={!room.on} />
       </div>
+
+      {expanded && hasDevices && (
+        <div className="device-list">
+          {room._cloudDevices.map(d => (
+            <div key={d.id} className="device-row" data-on={d.isOn}>
+              <span className="device-icon"><DeviceIcon type={d.type} /></span>
+              <span className="device-name">{d.name}</span>
+              {d.dimmable !== false && (
+                <Slider
+                  value={d.isOn ? (d.dim != null ? Math.round((d.dim / 255) * 100) : 100) : 0}
+                  onChange={(b) => onDeviceBrightness?.(d.id, b)}
+                  disabled={!d.isOn}
+                  compact
+                />
+              )}
+              <Toggle on={d.isOn} onToggle={() => onToggleDevice?.(d.id, !d.isOn)} ariaLabel={`Toggle ${d.name}`} />
+            </div>
+          ))}
+        </div>
+      )}
+
       {failed && retryFn && (
         <button className="card-retry" onClick={retryFn} aria-label="Retry command">Retry</button>
       )}
@@ -3700,7 +3835,7 @@ const ROOM_SCENES = [
   { id: 'off',     label: 'Off',     brightness: 0,   off: true },
 ];
 
-function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene, activeScene, plejdScenes = [], activatePlejdScene }) {
+function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, toggleDevice, setDeviceBrightness, expandedRooms = new Set(), toggleRoomExpand, applyScene, activeScene, plejdScenes = [], activatePlejdScene }) {
   const onCount    = rooms.filter(r => r.on).length;
   const totalBulbs = rooms.reduce((a, r) => a + r.bulbs, 0);
   const litBulbs   = rooms.reduce((a, r) => a + (r.on ? r.bulbs : 0), 0);
@@ -3814,47 +3949,84 @@ function RoomsPage({ rooms, toggleRoom, setBrightness, setAllLights, applyScene,
             />
           </div>
           <div className="rooms-grid">
-            {visibleRooms.map(r => (
-              <div key={r.id} className="rooms-room" data-on={r.on}>
-                <div className="rooms-room-head">
-                  <div>
-                    <div className="rooms-room-name">{r.name}</div>
-                    {!selectedRoom && r.room && (
-                      <div className="rooms-room-group">{r.room}</div>
-                    )}
-                    <span className="bulb-pill">
-                      <span className="dot-on" />
-                      {r.bulbs} {r.bulbs === 1 ? 'bulb' : 'bulbs'}
-                    </span>
+            {visibleRooms.map(r => {
+              const hasDevices = Array.isArray(r._cloudDevices) && r._cloudDevices.length > 1;
+              const isExpanded = expandedRooms.has(r.id);
+              return (
+                <div key={r.id} className="rooms-room" data-on={r.on} data-expanded={isExpanded ? 'true' : undefined}>
+                  <div className="rooms-room-head">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="rooms-room-name">{r.name}</div>
+                        {!selectedRoom && r.room && (
+                          <div className="rooms-room-group">{r.room}</div>
+                        )}
+                        <span className="bulb-pill">
+                          <span className="dot-on" />
+                          {r.bulbs} {r.bulbs === 1 ? 'bulb' : 'bulbs'}
+                        </span>
+                      </div>
+                      {hasDevices && (
+                        <button
+                          className="expand-btn"
+                          data-expanded={isExpanded}
+                          onClick={() => toggleRoomExpand?.(r.id)}
+                          aria-label={isExpanded ? 'Collapse device list' : 'Expand device list'}
+                          aria-expanded={isExpanded}
+                        >
+                          <I.ChevronRight size={14} style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 200ms var(--motion-ease-out-quart)' }} />
+                        </button>
+                      )}
+                    </div>
+                    <Toggle on={r.on} onToggle={() => toggleRoom(r.id)} ariaLabel={`Turn ${r.on ? 'off' : 'on'} ${r.name}`} />
                   </div>
-                  <Toggle on={r.on} onToggle={() => toggleRoom(r.id)} ariaLabel={`Turn ${r.on ? 'off' : 'on'} ${r.name}`} />
-                </div>
 
-                <div className="rooms-room-brightness">
-                  <div className="brightness-row">
-                    <span className="brightness-pct mono">
-                      {r.on ? r.brightness : 0}
-                      <span style={{ fontSize: 13, color: 'var(--muted-foreground)', marginLeft: 4 }}>%</span>
-                    </span>
-                    <span className="brightness-label">Brightness</span>
+                  <div className="rooms-room-brightness">
+                    <div className="brightness-row">
+                      <span className="brightness-pct mono">
+                        {r.on ? r.brightness : 0}
+                        <span style={{ fontSize: 13, color: 'var(--muted-foreground)', marginLeft: 4 }}>%</span>
+                      </span>
+                      <span className="brightness-label">Brightness</span>
+                    </div>
+                    <Slider value={r.on ? r.brightness : 0} onChange={(b) => setBrightness(r.id, b)} disabled={!r.on} />
                   </div>
-                  <Slider value={r.on ? r.brightness : 0} onChange={(b) => setBrightness(r.id, b)} disabled={!r.on} />
-                </div>
 
-                <div className="rooms-room-scenes">
-                  {ROOM_SCENES.map(s => (
-                    <button
-                      key={s.id}
-                      className="room-scene"
-                      data-active={r.on === !s.off && r.brightness === s.brightness}
-                      onClick={() => applyRoomScene(r.id, s)}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+                  {isExpanded && hasDevices && (
+                    <div className="device-list">
+                      {r._cloudDevices.map(d => (
+                        <div key={d.id} className="device-row" data-on={d.isOn}>
+                          <span className="device-icon"><DeviceIcon type={d.type} /></span>
+                          <span className="device-name">{d.name}</span>
+                          {d.dimmable !== false && (
+                            <Slider
+                              value={d.isOn ? (d.dim != null ? Math.round((d.dim / 255) * 100) : 100) : 0}
+                              onChange={(b) => setDeviceBrightness?.(r.id, d.id, b)}
+                              disabled={!d.isOn}
+                              compact
+                            />
+                          )}
+                          <Toggle on={d.isOn} onToggle={() => toggleDevice?.(r.id, d.id, !d.isOn)} ariaLabel={`Toggle ${d.name}`} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="rooms-room-scenes">
+                    {ROOM_SCENES.map(s => (
+                      <button
+                        key={s.id}
+                        className="room-scene"
+                        data-active={r.on === !s.off && r.brightness === s.brightness}
+                        onClick={() => applyRoomScene(r.id, s)}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </Section>

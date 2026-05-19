@@ -418,12 +418,24 @@ function mapRooms(devices) {
       bulbs:        devs.length,
       on,
       brightness,
-      _cloudDevice: { id: `room:${roomId}` },
+      _cloudDevice:  { id: `room:${roomId}` },
+      // Per-device list — enables individual control from the expanded room card.
+      // Each entry carries the cloud objectId (what hub and cloud commands expect),
+      // the user-given name, current state, and whether the device is dimmable.
+      _cloudDevices: devs.map(d => ({
+        id:       d.id,
+        name:     d.name,
+        type:     d.type,
+        isOn:     d.isOn,
+        dim:      d.dim,
+        dimmable: d.dimmable !== false,
+        meshId:   d.meshId,
+      })),
       _platform:    'plejd',
     });
   }
 
-  // Ungrouped devices — individual cards
+  // Ungrouped devices — individual cards (single-element _cloudDevices for consistency)
   for (const d of noRoom) {
     result.push({
       id:           d.id,
@@ -431,7 +443,8 @@ function mapRooms(devices) {
       bulbs:        1,
       on:           d.isOn,
       brightness:   d.isOn ? bri255to100(d.dim) : 0,
-      _cloudDevice: { id: d.id },
+      _cloudDevice:  { id: d.id },
+      _cloudDevices: [{ id: d.id, name: d.name, type: d.type, isOn: d.isOn, dim: d.dim, dimmable: d.dimmable !== false, meshId: d.meshId }],
       _platform:    'plejd',
     });
   }
