@@ -1487,19 +1487,20 @@ function App() {
     if (!hubConnected) setHubHasPlejd(false);
   }, [hubConnected]);
 
-  // When the hub connects, hand it the browser's Plejd session token so it can
-  // use the local TCP GWY-01 path without needing PLEJD_EMAIL/PASSWORD in .env.local.
+  // When the hub connects (or when the Plejd session token changes), hand it the
+  // browser's cloud session token so it can use the local TCP GWY-01 path without
+  // needing PLEJD_EMAIL/PASSWORD in .env.local.
   // The hub's setSession handler initialises the gateway connection and starts
   // pushing real-time plejd_lights events back to the browser.
+  const plejdCloudSession = integrations.config.plejd?.cloudSession;
+  const plejdCloudSiteId  = integrations.config.plejd?.cloudSiteId;
   useEffect(() => {
-    if (!hubConnected) return;
-    const cfg = integrations.config.plejd;
-    if (!cfg?.cloudSession || !cfg?.cloudSiteId) return;
+    if (!hubConnected || !plejdCloudSession || !plejdCloudSiteId) return;
     hubCommand('plejd', 'setSession', {
-      sessionToken: cfg.cloudSession,
-      siteId: cfg.cloudSiteId,
+      sessionToken: plejdCloudSession,
+      siteId:       plejdCloudSiteId,
     });
-  }, [hubConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hubConnected, plejdCloudSession, plejdCloudSiteId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Per-action undo stack (3-second window after each toggle).
   const [undoStack, setUndoStack] = useState([]);

@@ -142,43 +142,70 @@ async function fetchSiteDetails(sessionToken, siteId) {
     }
   }
 
-  // BLE address lookup — try deviceAddresses first, then outputAddress
-  // Values may be a plain hex string or an object like { address: "hex" }
-  const deviceBleAddr = new Map();  // cloudObjectId → Buffer(6) reversed BLE addr
+  // BLE address lookup — try deviceAddresses first, then outputAddress.
+  // Keys are plejdDevice objectIds (hardware layer); values are MAC hex strings.
+  // We build two indexes:
+  //   deviceBleAddr: hwObjId → Buffer(6) reversed BLE addr
+  //   macToBleAddr:  MAC_hex_lower → Buffer(6)   (lets us look up by user-device deviceId field)
+  const deviceBleAddr = new Map();  // hwObjId → Buffer(6) reversed BLE addr
+  const macToBleAddr  = new Map();  // MAC hex (lowercase) → Buffer(6)
   const rawAddrMap = detail.deviceAddresses ?? detail.outputAddress ?? {};
   for (const [objId, rawEntry] of Object.entries(rawAddrMap)) {
     const hex = typeof rawEntry === 'string' ? rawEntry
       : (rawEntry?.address ?? rawEntry?.bleAddress ?? null);
     if (typeof hex === 'string' && hex.length === 12) {
       // Plejd MAC stored big-endian; reversed = mesh byte order, [0] = mesh address
-      deviceBleAddr.set(objId, Buffer.from(hex, 'hex').reverse());
+      const buf = Buffer.from(hex, 'hex').reverse();
+      deviceBleAddr.set(objId, buf);
+      macToBleAddr.set(hex.toLowerCase(), buf);
     }
   }
 
   // Build address maps (meshId ↔ cloudObjectId) and flat device list.
-  // Prefer outputSettings[i].deviceId (TCP mesh address) when present;
-  // otherwise derive the mesh address as the last byte of the BLE address.
+  //
+  // Data layers:
+  //   detail.devices      — USER LAYER: user-given names, room assignments, Parse objectIds
+  //                         that match what sendStateToDevice expects and what the browser sends
+  //   detail.plejdDevices — HARDWARE LAYER: BLE MACs, firmware, no user names
+  //
+  // Strategy: iterate detail.devices (user layer) as primary source for names/rooms.
+  // Resolve the BLE address for each user device via its MAC (d.deviceId field)
+  // cross-referenced into deviceAddresses. Fall back to plejdDevices if user
+  // devices are absent (older API format).
   const addressMap    = new Map();  // meshId:number → bleAddr Buffer(6)
-  const meshToCloudId = new Map();  // meshId:number → cloud objectId
-  const cloudToMeshId = new Map();  // cloud objectId → first meshId
+  const meshToCloudId = new Map();  // meshId:number → user-device objectId
+  const cloudToMeshId = new Map();  // user-device objectId → first meshId
 
   // outputSettings may be a flat top-level list or nested per-device
   const topLevelOutputSettings = Array.isArray(detail.outputSettings) ? detail.outputSettings : [];
 
+  // Iterate user-layer devices first; fall back to hardware devices if absent.
+  // This gives real user names and room UUIDs that match the browser's cloud poller IDs.
+  const sourceDevices = detail.devices || detail.plejdDevices || [];
+
   const devices = [];
-  for (const d of (detail.plejdDevices || detail.devices || [])) {
+  for (const d of sourceDevices) {
     const objectId = d.objectId || String(d.deviceId ?? '');
     const roomId   = d.roomId || (typeof d.room === 'object' ? d.room?.objectId : null) || null;
     const roomTitle = roomId ? (roomNames.get(roomId) || null) : null;
     const room     = roomTitle || (typeof d.room === 'string' ? d.room : '') || '';
-    const bleAddr  = deviceBleAddr.get(objectId);
+
+    // Resolve BLE address:
+    //   1. For user-layer devices: d.deviceId is the MAC address → macToBleAddr lookup
+    //   2. For hardware-layer devices: d.objectId is the deviceAddresses key → deviceBleAddr
+    const macHex = (typeof d.deviceId === 'string' && d.deviceId.length === 12)
+      ? d.deviceId.toLowerCase() : null;
+    const bleAddr = (macHex ? macToBleAddr.get(macHex) : null)
+      ?? deviceBleAddr.get(objectId);
 
     // Per-device outputSettings — may be an array, a single object, or absent.
     // The Plejd API returns either [{name,outputType,...}] or {name,outputType,...} per device.
-    // Fall back to top-level list if neither is present.
+    // Fall back to top-level list if neither is present (check both user-layer and hardware IDs).
     const perDeviceOutputs = Array.isArray(d.outputSettings) ? d.outputSettings
       : d.outputSettings && typeof d.outputSettings === 'object' ? [d.outputSettings]
-      : topLevelOutputSettings.filter(o => o.deviceParseId === objectId || o.deviceId === objectId);
+      : topLevelOutputSettings.filter(o =>
+          o.deviceParseId === objectId || o.deviceId === objectId
+          || (macHex && (o.deviceId ?? '').toLowerCase() === macHex));
 
     if (perDeviceOutputs.length > 0) {
       for (const out of perDeviceOutputs) {
@@ -193,13 +220,13 @@ async function fetchSiteDetails(sessionToken, siteId) {
         devices.push({
           id:       objectId,
           meshId:   outMeshId,
-          name:     out.name || out.title || d.title || d.name || objectId,
+          name:     d.title || d.name || out.name || out.title || objectId,
           roomId,
           room,
-          type:     out.outputType || d.outputType || d.deviceType || 'Light',
+          type:     d.outputType || d.deviceType || d.traits || out.outputType || 'Light',
           isOn:     !!(out.state ?? d.state),
           dim:      out.dim ?? d.dim ?? null,
-          dimmable: out.dimmable ?? true,
+          dimmable: d.dimmable ?? out.dimmable ?? true,
         });
       }
     } else {
@@ -216,7 +243,7 @@ async function fetchSiteDetails(sessionToken, siteId) {
         name:     d.title || d.name || d.deviceTitle || objectId,
         roomId,
         room,
-        type:     d.outputType || d.deviceType || 'Light',
+        type:     d.outputType || d.deviceType || d.traits || 'Light',
         isOn:     !!(d.state),
         dim:      d.dim ?? null,
         dimmable: d.dimmable ?? true,
