@@ -35,6 +35,28 @@ const FALLBACK_POLL_MS = 30_000;  // cloud fallback when local TCP is down
 const RECONNECT_MS    = 15_000;   // retry local TCP after disconnect
 const DISCOVERY_MS    = 10_000;   // TCP probe timeout during gateway scan
 
+// ── Array normalisation ────────────────────────────────────────────────────────
+//
+// The Plejd cloud API is inconsistent: some fields that should be arrays come
+// back as JSON strings, Parse Relation pointers, or plain objects.
+// toPlejdArray() handles all of these safely.
+//
+// Returns a non-empty array when the input contains usable data, or null so
+// callers can use ?? chaining:
+//   const nested = toPlejdArray(sc.sceneDevices) ?? toPlejdArray(sc.settings) ?? [];
+
+function toPlejdArray(val) {
+  if (Array.isArray(val) && val.length > 0) return val;
+  // Some Plejd endpoints return arrays JSON-stringified inside the response body
+  if (typeof val === 'string') {
+    try {
+      const p = JSON.parse(val);
+      if (Array.isArray(p) && p.length > 0) return p;
+    } catch {}
+  }
+  return null; // null → try next ?? candidate
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 function plejdHeaders(sessionToken) {
@@ -106,7 +128,7 @@ async function fetchSiteDetails(sessionToken, siteId) {
   // getSiteById sometimes returns rooms as Parse pointers {__type:'Pointer', objectId}
   // with no title field. In that case we fall back to a direct /parse/classes/Room query.
   const roomNames = new Map();
-  for (const r of (detail.rooms || [])) {
+  for (const r of (toPlejdArray(detail.rooms) ?? [])) {
     const title = r.title || r.name || r.roomTitle || r.roomName || null;
     if (r.objectId) roomNames.set(r.objectId, title);
     if (r.roomId && r.roomId !== r.objectId) roomNames.set(r.roomId, title);
@@ -181,7 +203,9 @@ async function fetchSiteDetails(sessionToken, siteId) {
 
   // Iterate user-layer devices first; fall back to hardware devices if absent.
   // This gives real user names and room UUIDs that match the browser's cloud poller IDs.
-  const sourceDevices = detail.devices || detail.plejdDevices || [];
+  const sourceDevices = toPlejdArray(detail.devices)
+    ?? toPlejdArray(detail.plejdDevices)
+    ?? [];
 
   const devices = [];
   for (const d of sourceDevices) {
@@ -258,9 +282,10 @@ async function fetchSiteDetails(sessionToken, siteId) {
     || detail.key
     || null;
 
-  // Parse scenes — sceneDevices may be a separate top-level list or nested per scene
+  // Parse scenes — sceneDevices may be a separate top-level list or nested per scene.
+  // toPlejdArray() handles JSON-string responses that caused "nested.map is not a function".
   const sceneDevLookup = new Map();  // sceneId → device step[]
-  for (const sd of (detail.sceneDevices || [])) {
+  for (const sd of (toPlejdArray(detail.sceneDevices) ?? [])) {
     const sid = sd.sceneId || sd.scene?.objectId;
     if (!sid) continue;
     if (!sceneDevLookup.has(sid)) sceneDevLookup.set(sid, []);
@@ -271,8 +296,13 @@ async function fetchSiteDetails(sessionToken, siteId) {
       brightness: val != null ? Math.round((val / 255) * 100) : 100,
     });
   }
-  const scenes = (detail.scenes || []).map(sc => {
-    const nested  = sc.sceneDevices || sc.settings || sc.steps || [];
+  const scenes = (toPlejdArray(detail.scenes) ?? []).map(sc => {
+    // sc.sceneDevices / settings / steps may be a JSON string, array, or Relation pointer.
+    // toPlejdArray() returns a non-empty array or null so ?? chaining works correctly.
+    const nested = toPlejdArray(sc.sceneDevices)
+      ?? toPlejdArray(sc.settings)
+      ?? toPlejdArray(sc.steps)
+      ?? [];
     const devList = nested.length > 0
       ? nested.map(sd => {
           const val = sd.value ?? sd.dim;
@@ -282,7 +312,7 @@ async function fetchSiteDetails(sessionToken, siteId) {
             brightness: val != null ? Math.round((val / 255) * 100) : 100,
           };
         })
-      : (sceneDevLookup.get(sc.objectId) || []);
+      : (sceneDevLookup.get(sc.objectId) ?? []);
     return { id: sc.objectId, title: sc.title || sc.name || sc.objectId, devices: devList };
   }).filter(sc => sc.devices.length > 0);
 
