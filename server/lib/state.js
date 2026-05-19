@@ -14,6 +14,8 @@ export class HubState {
     this._state = new Map();
     /** ISO timestamp of last update per integration */
     this._updated = new Map();
+    /** Per-integration health: { status: 'ok'|'degraded'|'down', detail: string, ts: ISO } */
+    this._health = new Map();
   }
 
   /**
@@ -49,5 +51,44 @@ export class HubState {
   /** List integration keys that have been written at least once. */
   get keys() {
     return [...this._state.keys()];
+  }
+
+  /**
+   * Record health status for one integration.
+   * Called by WssHub.pushHealth() and WssHub.pushError().
+   * @param {string} integration
+   * @param {'ok'|'degraded'|'down'} status
+   * @param {string} [detail]
+   */
+  setHealth(integration, status, detail = '') {
+    this._health.set(integration, { status, detail, ts: new Date().toISOString() });
+  }
+
+  /**
+   * Return a plain-object map of per-integration health for the /health endpoint.
+   * Infers 'unknown' for integrations that have state but no explicit health record.
+   */
+  getHealthSnapshot() {
+    const out = {};
+    // Start with explicit health records
+    for (const [k, v] of this._health) out[k] = v;
+    // Fill in 'unknown' for integrations that have state but no health record yet
+    for (const k of this._state.keys()) {
+      if (!out[k]) out[k] = { status: 'unknown', detail: '', ts: this._updated.get(k) || null };
+    }
+    return out;
+  }
+
+  /**
+   * Seed from a persisted snapshot (hub-state.json).
+   * Only restores integration data; health starts fresh each boot.
+   * @param {{ integrations: Record<string, unknown> }} snapshot
+   */
+  restore(snapshot) {
+    const { integrations = {}, lastUpdated = {} } = snapshot;
+    for (const [k, v] of Object.entries(integrations)) {
+      this._state.set(k, v);
+      this._updated.set(k, lastUpdated[k] || new Date().toISOString());
+    }
   }
 }

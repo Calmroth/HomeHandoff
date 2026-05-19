@@ -73,13 +73,49 @@ export class WssHub {
   }
 
   /**
-   * Broadcast an error event to all clients.
+   * Broadcast an error event to all clients and record health as 'down'.
    * @param {string} integration
    * @param {string} message
    */
   pushError(integration, message) {
     console.error(`[hub:${integration}] ${message}`);
+    this._state.setHealth(integration, 'down', message);
     this.broadcast({ type: 'error', integration, message });
+  }
+
+  /**
+   * Record integration health and broadcast to all clients.
+   * Integrations call this when status changes (e.g. TCP reconnected, poll ok).
+   * @param {string} integration
+   * @param {'ok'|'degraded'|'down'} status
+   * @param {string} [detail]
+   */
+  pushHealth(integration, status, detail = '') {
+    this._state.setHealth(integration, status, detail);
+    this.broadcast({ type: 'health_update', integration, status, detail });
+  }
+
+  /**
+   * Programmatically dispatch a command — same path as a WebSocket command
+   * message but without needing a live client connection. Used by the REST
+   * /command relay, scheduled tasks, and integration-to-integration calls.
+   * @param {string} integration
+   * @param {string} action
+   * @param {unknown} [params]
+   * @returns {Promise<unknown>}
+   */
+  async dispatch(integration, action, params) {
+    const handler = this._commandHandlers.get(integration);
+    if (!handler) {
+      throw new Error(`No handler registered for integration "${integration}"`);
+    }
+    const result = await handler(action, params);
+    // Re-broadcast updated state so all tabs see the change
+    const updated = this._state.get(integration);
+    if (updated !== undefined) {
+      this.broadcast({ type: 'device_update', integration, payload: updated });
+    }
+    return result;
   }
 
   /** Send a raw message object to every live client. */

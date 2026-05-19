@@ -19,11 +19,17 @@
  */
 
 import { createServer } from 'http';
+import { readFile, writeFile } from 'fs/promises';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import { HubState } from './lib/state.js';
 import { WssHub } from './lib/wss.js';
 import { requireSecret } from './lib/auth.js';
+
+const SERVER_DIR    = join(fileURLToPath(import.meta.url), '..');
+const STATE_FILE    = join(SERVER_DIR, 'hub-state.json');
 
 // ── Env ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +72,43 @@ const state = new HubState();
 const server = createServer(app);
 const hub    = new WssHub(server, state);
 
+// ── State persistence ─────────────────────────────────────────────────────
+// Restore last-known integration state from disk so the first WebSocket
+// snapshot the browser receives is populated even before the pollers have
+// run their first cycle. This prevents the "blank dashboard on hub restart"
+// problem that shows up after a power cycle or OS update.
+
+async function restoreState() {
+  try {
+    const raw = await readFile(STATE_FILE, 'utf8');
+    state.restore(JSON.parse(raw));
+    console.log(`[hub] State restored from ${STATE_FILE}`);
+  } catch {
+    // First boot or corrupted file — start fresh, pollers will populate.
+  }
+}
+
+async function persistState() {
+  try {
+    await writeFile(STATE_FILE, JSON.stringify(state.getSnapshot(), null, 2));
+  } catch (e) {
+    console.error('[hub] Failed to persist state:', e.message);
+  }
+}
+
+// Persist on graceful shutdown. On SIGKILL (force-kill) we lose state but
+// that's acceptable — the pollers will repopulate on the next startup.
+async function shutdown(signal) {
+  console.log(`[hub] ${signal} received — persisting state and exiting`);
+  await persistState();
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
+// Also persist every 5 minutes so a crash mid-cycle still has fresh state.
+setInterval(persistState, 5 * 60_000).unref();
+
 // ── HTTP routes ───────────────────────────────────────────────────────────
 
 /** Health check — used by the frontend to detect hub availability. */
@@ -74,6 +117,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     clients: hub.clientCount,
     integrations: state.keys,
+    health: state.getHealthSnapshot(),
     uptime: Math.round(process.uptime()),
   });
 });
@@ -117,11 +161,7 @@ app.post('/command', requireSecret(), async (req, res) => {
     return res.status(400).json({ ok: false, error: 'integration and action are required' });
   }
   try {
-    // Delegate to WssHub which knows all registered handlers
-    const result = await hub._handleCommand(
-      { readyState: -1, send: () => {} }, // dummy ws — result goes via HTTP instead
-      { integration, action, params },
-    ).catch(e => { throw e; });
+    const result = await hub.dispatch(integration, action, params);
     res.json({ ok: true, result });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
@@ -154,6 +194,10 @@ import { startPlejdPoller }  from './lib/integrations/plejd.js';
 import { startSonosPoller }  from './lib/integrations/sonos.js';
 import { startShellyPoller } from './lib/integrations/shelly.js';
 import { startTibberPoller } from './lib/integrations/tibber.js';
+
+// Restore persisted state before integrations start so the first snapshot
+// sent to connecting browsers is already populated.
+await restoreState();
 
 // Start after server is listening so any startup errors are easier to trace.
 server.once('listening', () => {
