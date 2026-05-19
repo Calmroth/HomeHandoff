@@ -4264,7 +4264,6 @@ function PlayerStage({ spotify, recentlyPlayed, queue }) {
     </div>
   );
 }
-}
 
 // MusicPage â€” full Spotify Web Embed + a sidecar of switchable sources.
 // All sources are Spotify embed URLs (no API key required) per the product
