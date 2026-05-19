@@ -74,12 +74,24 @@ async function plejdFetch(path, { method = 'GET', sessionToken, body } = {}) {
     headers: plejdHeaders(sessionToken),
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  // Parse the body regardless of status — we need it for error messages either way.
+  let json;
+  try { json = await r.json(); } catch { json = {}; }
   if (!r.ok) {
-    const err = new Error(`Plejd HTTP ${r.status} ${path}`);
+    const msg = json?.error || `HTTP ${r.status}`;
+    const err = new Error(`Plejd ${r.status} ${path}: ${msg}`);
     err.status = r.status;
     throw err;
   }
-  return r.json();
+  // Parse Cloud Functions signal errors via { error, code } even on HTTP 200.
+  // Without this check, a "Device not found" or "Invalid session" error would
+  // silently appear as a successful response to the caller.
+  if (json?.error && json?.code != null) {
+    const err = new Error(`Plejd ${path}: ${json.error} (code ${json.code})`);
+    err.status = json.code;
+    throw err;
+  }
+  return json;
 }
 
 async function login(email, password) {
@@ -203,9 +215,17 @@ async function fetchSiteDetails(sessionToken, siteId) {
 
   // Iterate user-layer devices first; fall back to hardware devices if absent.
   // This gives real user names and room UUIDs that match the browser's cloud poller IDs.
-  const sourceDevices = toPlejdArray(detail.devices)
+  // Deduplicate by objectId — the Plejd API sometimes returns each device twice.
+  const rawSourceDevices = toPlejdArray(detail.devices)
     ?? toPlejdArray(detail.plejdDevices)
     ?? [];
+  const _seenIds = new Set();
+  const sourceDevices = rawSourceDevices.filter(d => {
+    const key = d.objectId || String(d.deviceId ?? '');
+    if (!key || _seenIds.has(key)) return false;
+    _seenIds.add(key);
+    return true;
+  });
 
   const devices = [];
   for (const d of sourceDevices) {
@@ -323,14 +343,17 @@ async function fetchSiteDetails(sessionToken, siteId) {
 
 // Cloud fallback: send command via REST (used when local TCP is unavailable)
 async function sendStateCloud(sessionToken, siteId, deviceId, state, dim) {
-  return plejdFetch('/parse/functions/sendStateToDevice', {
-    method: 'POST', sessionToken,
-    body: {
-      siteId, deviceId,
-      state: !!state,
-      ...(typeof dim === 'number' ? { dim } : {}),
-    },
+  const body = {
+    siteId, deviceId,
+    state: !!state,
+    ...(typeof dim === 'number' ? { dim } : {}),
+  };
+  console.log(`[hub:plejd] cloud cmd → deviceId=${deviceId} state=${!!state}${typeof dim === 'number' ? ` dim=${dim}` : ''}`);
+  const result = await plejdFetch('/parse/functions/sendStateToDevice', {
+    method: 'POST', sessionToken, body,
   });
+  console.log(`[hub:plejd] cloud cmd ✓ result=${JSON.stringify(result?.result ?? result)}`);
+  return result;
 }
 
 // ── Gateway discovery ─────────────────────────────────────────────────────────
@@ -600,7 +623,12 @@ export function startPlejdPoller(hub, {
           if (!arr.includes(d.id)) arr.push(d.id);
         }
       }
-      console.log(`[hub:plejd] Rooms: ${rn.size} (${[...rn.values()].join(', ')})`);
+      // Log unique room names (rn.size = 2× actual rooms because each room is stored by
+      // both objectId and roomId; dividing by 2 gives the true count)
+      const uniqueRoomTitles = [...new Set(rn.values())].filter(Boolean);
+      console.log(`[hub:plejd] ${uniqueRoomTitles.length} rooms: ${uniqueRoomTitles.join(', ')}`);
+      console.log(`[hub:plejd] roomDeviceMap: ${roomDeviceMap.size} entries — ` +
+        [...roomDeviceMap.entries()].map(([k, v]) => `${k}→[${v.length}]`).join(', '));
     }
     for (const d of devices) deviceMap.set(d.id, d);
     broadcastFromMap();
@@ -773,12 +801,14 @@ export function startPlejdPoller(hub, {
       throw new Error('plejd command requires deviceId');
     }
 
+    console.log(`[hub:plejd] CMD ${action} deviceId=${deviceId} on=${on} brightness=${brightness ?? '-'}`);
+
     // ── Room fan-out ────────────────────────────────────────────────────────
     // _cloudDevice.id is 'room:<roomObjectId>' for grouped room cards.
     if (typeof deviceId === 'string' && deviceId.startsWith('room:')) {
       const roomId = deviceId.slice(5);
       const devIds = roomDeviceMap.get(roomId) || [];
-      await Promise.allSettled(devIds.map(async (devObjectId) => {
+      const fanResults = await Promise.allSettled(devIds.map(async (devObjectId) => {
         const dev = deviceMap.get(devObjectId);
         const devMeshId = dev?.meshId
           ?? [...meshToCloudId.entries()].find(([, cid]) => cid === devObjectId)?.[0];
@@ -797,8 +827,16 @@ export function startPlejdPoller(hub, {
           }
         }
       }));
+      // Surface any per-device failures that Promise.allSettled would otherwise swallow
+      const rejected = fanResults.filter(r => r.status === 'rejected');
+      if (rejected.length) {
+        console.error(`[hub:plejd] room ${roomId} fan-out: ${rejected.length}/${devIds.length} devices failed`,
+          rejected.map(r => r.reason?.message).join(', '));
+      } else {
+        console.log(`[hub:plejd] room ${roomId} fan-out: ${devIds.length} devices ok`);
+      }
       broadcastFromMap();
-      if (!localActive) setTimeout(cloudPoll, 600);
+      if (!localActive) setTimeout(cloudPoll, 2000);
       return { ok: true, room: roomId, devices: devIds.length };
     }
 
@@ -833,16 +871,41 @@ export function startPlejdPoller(hub, {
     } else {
       // Slow path: cloud REST
       console.log('[hub:plejd] Using cloud REST for command (local TCP unavailable)');
-      if (action === 'toggle') {
-        await sendStateCloud(sessionToken, siteId, cloudObjectId, on, undefined);
-      } else if (action === 'dim') {
-        const dim255 = Math.round(((brightness ?? 0) / 100) * 255);
-        await sendStateCloud(sessionToken, siteId, cloudObjectId, (brightness ?? 0) > 0, dim255);
-      } else {
-        throw new Error(`Unknown Plejd action: "${action}"`);
+
+      // Optimistic update — mutate deviceMap now so broadcastFromMap() reflects
+      // the intended state immediately.  Snapshot the previous values so we can
+      // revert if the cloud call fails.
+      const prevIsOn = d?.isOn;
+      const prevDim  = d?.dim;
+      if (d) {
+        if (action === 'toggle')    { d.isOn = !!on; }
+        else if (action === 'dim')  { d.isOn = (brightness ?? 0) > 0; d.dim = Math.round(((brightness ?? 0) / 100) * 255); }
+        broadcastFromMap();
       }
-      // Re-poll quickly to pick up updated state
-      setTimeout(cloudPoll, 600);
+
+      try {
+        if (action === 'toggle') {
+          await sendStateCloud(sessionToken, siteId, cloudObjectId, on, undefined);
+        } else if (action === 'dim') {
+          const dim255 = Math.round(((brightness ?? 0) / 100) * 255);
+          await sendStateCloud(sessionToken, siteId, cloudObjectId, (brightness ?? 0) > 0, dim255);
+        } else {
+          throw new Error(`Unknown Plejd action: "${action}"`);
+        }
+        // Re-poll after a longer window to confirm actual hardware state.
+        // Using 2 s instead of 600 ms so the optimistic broadcast has time to
+        // reach all tabs before the cloud poll can overwrite it.
+        setTimeout(cloudPoll, 2000);
+      } catch (e) {
+        // Cloud command failed — revert the optimistic update immediately.
+        if (d) {
+          d.isOn = prevIsOn;
+          d.dim  = prevDim;
+          broadcastFromMap();
+        }
+        console.error(`[hub:plejd] cloud command failed for ${cloudObjectId}: ${e.message}`);
+        throw e;
+      }
     }
 
     return { ok: true };
