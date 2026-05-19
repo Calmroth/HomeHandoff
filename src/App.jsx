@@ -4119,6 +4119,7 @@ function MusicPage({
   const [recentlyPlayed, setRecentlyPlayed] = useState(null);  // recently played tracks
   const [likedSongs, setLikedSongs] = useState(null);          // saved tracks sample
   const [picker, setPicker] = useState(null);     // { trackUri, trackName } when user wants to "add to playlist"
+  const [sideTab, setSideTab] = useState('browse'); // 'browse' | 'library' | 'recent'
   const [pickerMsg, setPickerMsg] = useState(null);
 
   // Load the user's playlists once when connected.
@@ -4263,100 +4264,124 @@ function MusicPage({
         </div>
 
         <div className="music-side">
-          {/* Favourites — local, always available */}
-          <div className="music-side-card">
-            <div className="music-side-head">
-              <div className="np-label">Favourites</div>
-              <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{favourites.length}/50</span>
-            </div>
-            {favourites.length === 0 ? (
-              <div className="music-empty">Nothing saved yet — ★ from search results.</div>
-            ) : favourites.slice(0, 6).map(f => {
-              const Ic = I.Disc;
-              return (
-                <div key={f.id} className="music-source-row" data-active={false}>
-                  <span className="src-icon"><Ic size={12} /></span>
-                  <button
-                    className="music-source-text"
-                    onClick={() => playSpotify(f.type, f.id, f.name)}
-                  >
-                    <div className="music-source-name">{f.name}</div>
-                    <div className="music-source-sub">{f.sub}</div>
-                  </button>
-                  <button className="music-source-rm" onClick={() => removeFav(f.id)} aria-label="Remove">×</button>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Liked songs + recently played (only when connected) */}
+          {/* Tab strip — Browse / Library / Recent — only shown when Spotify is connected */}
           {spotify.token && (
-            <>
-              {/* Liked songs collection */}
-              <div className="music-side-card">
-                <div className="music-side-head">
-                  <div className="np-label">Liked songs</div>
-                  <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
-                    {likedSongs ? likedSongs.total : '…'}
-                  </span>
-                </div>
-                {/* Single row to play the whole collection */}
+            <div className="music-side-tabs">
+              {[
+                { id: 'browse',  label: 'Browse' },
+                { id: 'library', label: 'Library' },
+                { id: 'recent',  label: 'Recent' },
+              ].map(t => (
                 <button
-                  className="music-source-row"
-                  onClick={() => playSpotify('collection', 'tracks', 'Liked songs')}
-                  data-active={musicCustom?.type === 'collection' && musicCustom.id === 'tracks'}
+                  key={t.id}
+                  className="music-side-tab"
+                  data-active={sideTab === t.id}
+                  onClick={() => setSideTab(t.id)}
                 >
-                  <span className="src-icon"><I.Heart size={12} /></span>
-                  <div>
-                    <div className="music-source-name">Play all liked songs</div>
-                    <div className="music-source-sub">{likedSongs ? `${likedSongs.total} tracks` : 'Loading…'}</div>
-                  </div>
-                  <span className="music-source-state">Play</span>
+                  {t.label}
                 </button>
-                {/* Preview of first 5 liked tracks */}
-                {likedSongs?.items?.slice(0, 5).map(t => (
-                  <button key={t.id} className="music-source-row" onClick={() => playTrack(t)}>
-                    <span className="src-icon">
-                      {spImg(t) ? <img src={spImg(t)} alt="" width={20} height={20} style={{ borderRadius: 4 }} /> : <I.Music size={12} />}
-                    </span>
-                    <div>
-                      <div className="music-source-name">{t.name}</div>
-                      <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Recently played */}
-              {recentlyPlayed && recentlyPlayed.length > 0 && (
-                <div className="music-side-card">
-                  <div className="np-label">Recently played</div>
-                  {recentlyPlayed.map(t => (
-                    <button key={t.id} className="music-source-row" onClick={() => playTrack(t)}>
-                      <span className="src-icon">
-                        {spImg(t) ? <img src={spImg(t)} alt="" width={20} height={20} style={{ borderRadius: 4 }} /> : <I.Clock size={12} />}
-                      </span>
-                      <div>
-                        <div className="music-source-name">{t.name}</div>
-                        <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
+              ))}
+            </div>
           )}
 
-          {/* User's Spotify playlists (only when connected) */}
-          {spotify.token && (
+          {/* ── Browse tab — curated tiles + saved favourites ── */}
+          {(!spotify.token || sideTab === 'browse') && (
             <div className="music-side-card">
               <div className="music-side-head">
-                <div className="np-label">Your library</div>
+                <div className="np-label">{spotify.token ? 'Curated' : 'Sources'}</div>
+              </div>
+
+              {/* 2-column visual tile grid */}
+              <div className="music-src-grid">
+                {MUSIC_SOURCES.map(s => {
+                  const Ic = I[s.icon] ?? I.Music;
+                  const active = !musicCustom && s.id === musicSource;
+                  return (
+                    <button
+                      key={s.id}
+                      className="music-src-tile"
+                      data-active={active}
+                      onClick={() => pickCurated(s.id)}
+                      aria-pressed={active}
+                    >
+                      <span className="music-src-tile-icon"><Ic size={18} /></span>
+                      <span className="music-src-tile-name">{s.name}</span>
+                      <span className="music-src-tile-sub">{s.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Saved favourites — compact list below tiles */}
+              {favourites.length > 0 && (
+                <>
+                  <div className="music-src-section-head">
+                    <span className="np-label">Saved</span>
+                    <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{favourites.length}/50</span>
+                  </div>
+                  {favourites.slice(0, 5).map(f => (
+                    <div key={f.id} className="music-source-row" data-active={false}>
+                      <span className="src-icon"><I.Disc size={12} /></span>
+                      <button className="music-source-text" onClick={() => playSpotify(f.type, f.id, f.name)}>
+                        <div className="music-source-name">{f.name}</div>
+                        <div className="music-source-sub">{f.sub}</div>
+                      </button>
+                      <button className="music-source-rm" onClick={() => removeFav(f.id)} aria-label="Remove">×</button>
+                    </div>
+                  ))}
+                </>
+              )}
+              {favourites.length === 0 && (
+                <div className="music-empty">★ from search results to save here.</div>
+              )}
+            </div>
+          )}
+
+          {/* ── Library tab — liked songs + playlists ── */}
+          {spotify.token && sideTab === 'library' && (
+            <div className="music-side-card">
+              <div className="music-side-head">
+                <div className="np-label">Liked songs</div>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                  {likedSongs ? likedSongs.total : '…'}
+                </span>
+              </div>
+
+              {/* Play all liked songs — featured row */}
+              <button
+                className="music-source-row"
+                onClick={() => playSpotify('collection', 'tracks', 'Liked songs')}
+                data-active={musicCustom?.type === 'collection' && musicCustom.id === 'tracks'}
+              >
+                <span className="src-icon"><I.Heart size={12} /></span>
+                <div>
+                  <div className="music-source-name">Play all</div>
+                  <div className="music-source-sub">{likedSongs ? `${likedSongs.total} tracks` : 'Loading…'}</div>
+                </div>
+                <span className="music-source-state">▶</span>
+              </button>
+
+              {/* Preview: first 3 liked tracks */}
+              {likedSongs?.items?.slice(0, 3).map(t => (
+                <button key={t.id} className="music-source-row" onClick={() => playTrack(t)}>
+                  <span className="src-icon">
+                    {spImg(t) ? <img src={spImg(t)} alt="" width={20} height={20} style={{ borderRadius: 4 }} /> : <I.Music size={12} />}
+                  </span>
+                  <div>
+                    <div className="music-source-name">{t.name}</div>
+                    <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
+                  </div>
+                </button>
+              ))}
+
+              {/* Playlists section */}
+              <div className="music-src-section-head">
+                <span className="np-label">Playlists</span>
                 <span className="mono" style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{library?.length ?? '…'}</span>
               </div>
               {libErr && <div className="music-empty">{libErr}</div>}
               {library === null && !libErr && <div className="music-empty">Loading…</div>}
-              {library?.length === 0 && <div className="music-empty">No playlists in your library.</div>}
+              {library?.length === 0 && <div className="music-empty">No playlists yet.</div>}
               {library?.slice(0, 20).map(p => (
                 <button
                   key={p.id}
@@ -4371,37 +4396,33 @@ function MusicPage({
                     <div className="music-source-name">{p.name}</div>
                     <div className="music-source-sub">{p.tracks?.total ?? 0} tracks</div>
                   </div>
-                  <span className="music-source-state">Play</span>
+                  <span className="music-source-state">▶</span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* Curated sources stay visible — works without auth */}
-          <div className="music-side-card">
-            <div className="np-label">Curated</div>
-            {MUSIC_SOURCES.map(s => {
-              const Ic = I[s.icon] ?? I.Music;
-              const active = !musicCustom && s.id === musicSource;
-              return (
-                <button
-                  key={s.id}
-                  className="music-source-row"
-                  data-active={active}
-                  onClick={() => pickCurated(s.id)}
-                  aria-pressed={active}
-                >
-                  <span className="src-icon"><Ic size={12} /></span>
+          {/* ── Recent tab — recently played tracks ── */}
+          {spotify.token && sideTab === 'recent' && (
+            <div className="music-side-card">
+              <div className="music-side-head">
+                <div className="np-label">Recently played</div>
+              </div>
+              {!recentlyPlayed && <div className="music-empty">Loading…</div>}
+              {recentlyPlayed?.length === 0 && <div className="music-empty">Nothing recent yet.</div>}
+              {recentlyPlayed?.map(t => (
+                <button key={t.id} className="music-source-row" onClick={() => playTrack(t)}>
+                  <span className="src-icon">
+                    {spImg(t) ? <img src={spImg(t)} alt="" width={20} height={20} style={{ borderRadius: 4 }} /> : <I.Clock size={12} />}
+                  </span>
                   <div>
-                    <div className="music-source-name">{s.name}</div>
-                    <div className="music-source-sub">{s.sub}</div>
+                    <div className="music-source-name">{t.name}</div>
+                    <div className="music-source-sub">{t.artists?.[0]?.name ?? ''}</div>
                   </div>
-                  <span className="music-source-state">{active ? 'Playing' : 'Switch'}</span>
                 </button>
-              );
-            })}
-          </div>
-
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Speakers — full-width row spanning both columns */}
