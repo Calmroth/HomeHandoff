@@ -214,19 +214,25 @@ export class WssHub {
 
   async _handleScan(ws, { subnet = '192.168.1' }) {
     // Lazy-load the LAN scanner so it only runs when requested.
-    const { scanLAN } = await import('./discovery/lan-scan.js');
+    const { scanLAN, enrichFromHubState } = await import('./discovery/lan-scan.js');
     this._send(ws, { type: 'scan_start', subnet });
-    let count = 0;
+    const raw = [];
     await scanLAN(subnet, {
       onDevice: (device) => {
-        count++;
+        raw.push(device);
+        // Stream each device immediately for live UI updates; the enriched
+        // version is sent again via scan_done enrichment if hub state changes.
         this._send(ws, { type: 'scan_result', device });
       },
       onProgress: (done, total) => {
         this._send(ws, { type: 'scan_progress', done, total });
       },
     });
-    this._send(ws, { type: 'scan_done', count });
+    // Re-send enriched versions after the full scan so the UI can update
+    // names/rooms from hub-registered device config.
+    const enriched = enrichFromHubState(raw, this._state);
+    const count = enriched.length;
+    this._send(ws, { type: 'scan_done', count, devices: enriched });
     console.log(`[hub:scan] ${subnet}.0/24 → ${count} devices found`);
   }
 

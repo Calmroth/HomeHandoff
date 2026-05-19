@@ -3591,6 +3591,39 @@ img.avatar { display: block; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+/* Live on/off indicator beside device name */
+.disc-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: color-mix(in oklch, var(--clay-50) 30%, transparent);
+}
+.disc-status-dot[data-on="true"] {
+  background: var(--primary);
+  box-shadow: 0 0 4px color-mix(in oklch, var(--primary) 60%, transparent);
+}
+/* Room tag in sub-line */
+.disc-room-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--clay-50) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--clay-50) 15%, transparent);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  margin-right: 2px;
+}
+/* Watts reading */
+.disc-watts {
+  color: color-mix(in oklch, var(--primary) 70%, var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
 }
 .disc-live-name {
   font-size: 12px;

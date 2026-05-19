@@ -171,10 +171,12 @@ app.post('/command', requireSecret(), async (req, res) => {
 /** Trigger a LAN scan and return results as JSON (for debugging/testing). */
 app.post('/scan', requireSecret(), async (req, res) => {
   const { subnet = '192.168.1' } = req.body || {};
-  const { scanLAN } = await import('./lib/discovery/lan-scan.js');
+  const { scanLAN, enrichFromHubState } = await import('./lib/discovery/lan-scan.js');
   const found = [];
   await scanLAN(subnet, { onDevice: (d) => found.push(d) }).catch(() => {});
-  res.json({ ok: true, count: found.length, devices: found });
+  // Merge hardware results with hub-registered device names/rooms
+  const devices = enrichFromHubState(found, state);
+  res.json({ ok: true, count: devices.length, devices });
 });
 
 // ── Integration registration ──────────────────────────────────────────────

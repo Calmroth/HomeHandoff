@@ -5431,7 +5431,30 @@ async function getLocalSubnet() {
   });
 }
 
-const PROBE_MS = 1400; // per-endpoint timeout
+const PROBE_MS   = 1400; // initial probe timeout
+const STATUS_MS  = 1200; // follow-up status calls (device already confirmed)
+
+// Room heuristics — infer room from device name (EN + SV)
+const ROOM_PATTERNS_BROWSER = [
+  [/\b(kitchen|kök|köket)\b/i,                                       'Kitchen'],
+  [/\b(living.?room|vardagsrum|vardags|lounge|salon)\b/i,            'Living Room'],
+  [/\b(master.?bed(room)?|master)\b/i,                               'Master Bedroom'],
+  [/\b(bedroom|sovrum|bed\.?room)\b/i,                               'Bedroom'],
+  [/\b(kids?|barn(rum)?|child(ren)?|nursery)\b/i,                   'Kids Room'],
+  [/\b(bathroom|badrum|bath(room)?|toilet|wc)\b/i,                  'Bathroom'],
+  [/\b(hall(way)?|entrance|foyer|entr[eé]|korridor)\b/i,            'Hallway'],
+  [/\b(office|kontor|arbetsrum|study|workroom)\b/i,                  'Office'],
+  [/\b(dining.?(room)?|matsal|matrum)\b/i,                          'Dining Room'],
+  [/\b(garage|carport)\b/i,                                         'Garage'],
+  [/\b(laundry|tvättstuga|utility)\b/i,                             'Laundry'],
+  [/\b(outdoor|utomhus|garden|trädgård|balcony|balkong|patio|terrace)\b/i, 'Outdoor'],
+  [/\b(guest(room)?|gästrum|spare)\b/i,                             'Guest Room'],
+];
+function inferRoomFromName(name) {
+  if (!name) return null;
+  for (const [re, room] of ROOM_PATTERNS_BROWSER) if (re.test(name)) return room;
+  return null;
+}
 
 async function probeSonosLAN(ip) {
   try {
@@ -5445,7 +5468,11 @@ async function probeSonosLAN(ip) {
     const name  = text.match(/<friendlyName>(.*?)<\/friendlyName>/i)?.[1] || 'Sonos';
     const model = text.match(/<modelName>(.*?)<\/modelName>/i)?.[1]       || '';
     const uuid  = text.match(/<UDN>uuid:(.*?)<\/UDN>/i)?.[1]              || ip;
-    return { id: `sonos-${uuid}`, ip, name, type: 'speaker', protocol: 'sonos', model, assignedTo: 'music' };
+    return {
+      id: `sonos-${uuid}`, ip, name, type: 'speaker', protocol: 'sonos',
+      model, assignedTo: 'music',
+      on: null, watts: null, room: inferRoomFromName(name), mac: null,
+    };
   } catch { return null; }
 }
 
@@ -5510,14 +5537,16 @@ async function probeChromecast(ip) {
     if (!r.ok) return null;
     const d = await r.json().catch(() => null);
     if (!d) return null;
-    const name     = d.name || d.device_info?.friendly_name || 'Google device';
-    const isAudio  = d.build_info?.cast_type === 2 ||
-                     d.build_info?.board_name?.toLowerCase().includes('audio');
+    const name    = d.name || d.device_info?.friendly_name || 'Google device';
+    const mac     = d.device_info?.mac_address || null;
+    const isAudio = d.build_info?.cast_type === 2 ||
+                    d.build_info?.board_name?.toLowerCase().includes('audio');
     return {
-      id: `cast-${d.device_info?.mac_address?.replace(/:/g, '') || ip}`,
+      id: `cast-${(mac?.replace(/:/g, '') || ip)}`,
       ip, name, type: isAudio ? 'speaker' : 'tv',
       protocol: 'chromecast', model: d.build_info?.model_name || '',
       assignedTo: isAudio ? 'music' : 'tv',
+      on: null, watts: null, room: inferRoomFromName(name), mac,
     };
   } catch { return null; }
 }
@@ -5532,7 +5561,11 @@ async function probeHueBridge(ip) {
     const text = await r.text();
     if (!text.includes('Philips') && !text.toLowerCase().includes('hue')) return null;
     const name = text.match(/<friendlyName>(.*?)<\/friendlyName>/i)?.[1] || 'Philips Hue';
-    return { id: `hue-${ip}`, ip, name: `${name} bridge`, type: 'lights', protocol: 'hue', model: 'Hue Bridge', assignedTo: 'lights' };
+    return {
+      id: `hue-${ip}`, ip, name: `${name} bridge`, type: 'lights',
+      protocol: 'hue', model: 'Hue Bridge', assignedTo: 'lights',
+      on: null, watts: null, room: null, mac: null,
+    };
   } catch { return null; }
 }
 
@@ -5545,11 +5578,13 @@ async function probeSamsungTV(ip) {
     if (!r.ok) return null;
     const d = await r.json().catch(() => null);
     if (!d?.device) return null;
+    const mac = d.device?.wifiMac || null;
     return {
-      id: `samsung-${d.device?.wifiMac?.replace(/:/g, '') || ip}`,
+      id: `samsung-${(mac?.replace(/:/g, '') || ip)}`,
       ip, name: d.device?.name || 'Samsung TV', type: 'tv',
       protocol: 'samsung', model: d.device?.modelName || '',
       assignedTo: 'tv',
+      on: null, watts: null, room: inferRoomFromName(d.device?.name || ''), mac,
     };
   } catch { return null; }
 }
@@ -5557,21 +5592,56 @@ async function probeSamsungTV(ip) {
 // Probe one IP against all known LAN protocols simultaneously.
 async function probeIP(ip) {
   const results = await Promise.allSettled([
-    // Shelly: reuse existing prober (CORS-open)
+    // ── Shelly (CORS-open — Gen2 with config + status, Gen1 fallback) ──
     (async () => {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), PROBE_MS);
-      let r = await fetch(`http://${ip}/rpc/Shelly.GetDeviceInfo`, { signal: ctrl.signal }).catch(() => null);
-      if (!r?.ok) r = await fetch(`http://${ip}/shelly`, { signal: ctrl.signal }).catch(() => null);
-      clearTimeout(t);
-      if (!r?.ok) return null;
-      const j = await r.json().catch(() => null);
-      if (!j || (!j.id && !j.mac && !j.type)) return null;
+      // Gen2
+      const ctrl2 = new AbortController();
+      const t2 = setTimeout(() => ctrl2.abort(), PROBE_MS);
+      const infoR = await fetch(`http://${ip}/rpc/Shelly.GetDeviceInfo`, { signal: ctrl2.signal }).catch(() => null);
+      clearTimeout(t2);
+      if (infoR?.ok) {
+        const j = await infoR.json().catch(() => null);
+        if (j && (j.id || j.mac)) {
+          const [configR, statusR] = await Promise.all([
+            fetch(`http://${ip}/rpc/Shelly.GetConfig`).catch(() => null),
+            fetch(`http://${ip}/rpc/Switch.GetStatus?id=0`).catch(() => null),
+          ]);
+          const config = configR?.ok ? await configR.json().catch(() => null) : null;
+          const status = statusR?.ok ? await statusR.json().catch(() => null) : null;
+          const name  = config?.sys?.device?.name || j.name || j.id || ip;
+          const on    = typeof status?.output === 'boolean' ? status.output : null;
+          const watts = typeof status?.apower === 'number'  ? status.apower : null;
+          return {
+            id: `shelly-${(j.mac || j.id || ip).replace(/[^a-zA-Z0-9]/g, '')}`,
+            ip, name, type: 'outlet', protocol: 'shelly',
+            model: j.model || j.app || 'Shelly',
+            gen: j.gen || 2, assignedTo: 'outlets',
+            on, watts, room: inferRoomFromName(name), mac: j.mac || null,
+          };
+        }
+      }
+      // Gen1 fallback
+      const ctrl1 = new AbortController();
+      const t1 = setTimeout(() => ctrl1.abort(), PROBE_MS);
+      const g1R = await fetch(`http://${ip}/shelly`, { signal: ctrl1.signal }).catch(() => null);
+      clearTimeout(t1);
+      if (!g1R?.ok) return null;
+      const j = await g1R.json().catch(() => null);
+      if (!j || (!j.mac && !j.type)) return null;
+      const [settingsR, relayR] = await Promise.all([
+        fetch(`http://${ip}/settings`).catch(() => null),
+        fetch(`http://${ip}/relay/0`).catch(() => null),
+      ]);
+      const settings = settingsR?.ok ? await settingsR.json().catch(() => null) : null;
+      const relay    = relayR?.ok    ? await relayR.json().catch(() => null)    : null;
+      const name  = settings?.name || settings?.relays?.[0]?.name || j.hostname || j.type || ip;
+      const on    = typeof relay?.ison  === 'boolean' ? relay.ison  : null;
+      const watts = typeof relay?.power === 'number'  ? relay.power : null;
       return {
-        id: `shelly-${(j.mac || j.id || ip).replace(/[^a-zA-Z0-9]/g, '')}`,
-        ip, name: j.name || j.id || j.type || ip,
-        type: 'outlet', protocol: 'shelly', model: j.model || j.type || 'Shelly',
-        gen: j.gen || 1, assignedTo: 'outlets',
+        id: `shelly-${(j.mac || ip).replace(/[^a-zA-Z0-9]/g, '')}`,
+        ip, name, type: 'outlet', protocol: 'shelly',
+        model: j.type || 'Shelly', gen: 1, assignedTo: 'outlets',
+        on, watts, room: inferRoomFromName(name), mac: j.mac || null,
       };
     })(),
     probeSonosLAN(ip),
@@ -5667,7 +5737,8 @@ const ASSIGN_LABEL = {
 };
 const PROTOCOL_LABEL = {
   'shelly': 'Shelly', 'sonos': 'Sonos', 'chromecast': 'Cast', 'hue': 'Hue',
-  'samsung': 'Samsung', 'home-assistant': 'HA',
+  'samsung': 'Samsung', 'home-assistant': 'HA', 'lg-webos': 'LG',
+  'tasmota': 'Tasmota', 'plejd': 'Plejd', 'gateway': 'Gateway',
 };
 
 function DeviceTypeIcon({ type }) {
@@ -5826,12 +5897,21 @@ function DiscoveryModal({ integrations, onClose }) {
                         <div className="disc-device-info">
                           <DeviceTypeIcon type={d.type} />
                           <div className="disc-device-text">
-                            <div className="disc-device-name">{d.name}</div>
+                            <div className="disc-device-name">
+                              {d.on !== null && (
+                                <span className="disc-status-dot" data-on={String(d.on)} title={d.on ? 'On' : 'Off'} />
+                              )}
+                              {d.name}
+                            </div>
                             <div className="disc-device-sub">
+                              {d.room  && <span className="disc-room-tag">{d.room}</span>}
                               {d.entityId
                                 ? <span className="mono">{d.entityId}</span>
                                 : d.ip ? <span className="mono">{d.ip}</span> : null}
                               {d.model ? <span> · {d.model}</span> : null}
+                              {d.watts != null && d.watts > 0 && (
+                                <span className="disc-watts"> · {d.watts.toFixed(1)} W</span>
+                              )}
                             </div>
                           </div>
                           <span className="disc-proto-pill">{PROTOCOL_LABEL[d.protocol] || d.protocol}</span>
