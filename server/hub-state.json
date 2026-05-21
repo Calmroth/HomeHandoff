@@ -1,0 +1,1097 @@
+{
+  "integrations": {
+    "plejd_lights": [
+      {
+        "id": "764ebc7e-dd39-4225-91f2-28c8b4d4c18c",
+        "name": "Matsal",
+        "bulbs": 3,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:764ebc7e-dd39-4225-91f2-28c8b4d4c18c"
+        },
+        "_cloudDevices": [
+          {
+            "id": "NFYAC83rpZ",
+            "name": "Matsal tavelbelysning",
+            "type": "Light",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "MlRjWTd3N1",
+            "name": "Takspot tavla",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "bnOa2xjIvr",
+            "name": "Taklampa",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "45f58c57-5bf7-40bc-8306-19b4c486e021",
+        "name": "Badrum lilla",
+        "bulbs": 4,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:45f58c57-5bf7-40bc-8306-19b4c486e021"
+        },
+        "_cloudDevices": [
+          {
+            "id": "7E3Hq3pO0b",
+            "name": "Tak",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "Lea965BvXY",
+            "name": "Spegeln ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "cdUdWIeKC5",
+            "name": "Spegeln ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "B8DybiaBPY",
+            "name": "Fläkt ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "76efb3e9-2cba-4e4a-bf51-9ccd9693547c",
+        "name": "Badrum master",
+        "bulbs": 4,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:76efb3e9-2cba-4e4a-bf51-9ccd9693547c"
+        },
+        "_cloudDevices": [
+          {
+            "id": "loJeRxzTsN",
+            "name": "Tak ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "i43FJNy0vy",
+            "name": "Spegeln ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "b0aGGSGCz5",
+            "name": "Nisch",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "Cl9CZLeKAN",
+            "name": "Listbelysning ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "47567587-6280-4a8f-884c-ebadc8b35cee",
+        "name": "Klädkammare",
+        "bulbs": 4,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:47567587-6280-4a8f-884c-ebadc8b35cee"
+        },
+        "_cloudDevices": [
+          {
+            "id": "YQtz18nQXy",
+            "name": "Vägglampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "g4lC6XpiKT",
+            "name": "Spotlight ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "dGS4yV3EeA",
+            "name": "1",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "xK4cBq4e5i",
+            "name": "Vid dörren ",
+            "type": "Light",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "d2ca895c-d95e-4e72-90fe-4e39c0c81ffd",
+        "name": "Kök",
+        "bulbs": 4,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:d2ca895c-d95e-4e72-90fe-4e39c0c81ffd"
+        },
+        "_cloudDevices": [
+          {
+            "id": "xmdhmy6QC8",
+            "name": "Taket ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "tRo5eVD5fs",
+            "name": "Nisch",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "BJFA3CobFy",
+            "name": "Underskåp ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "j1Z39ANiMr",
+            "name": "0",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "57eac0d7-1cb1-4a64-9940-8a87ed6de180",
+        "name": "Vardagsrum",
+        "bulbs": 3,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:57eac0d7-1cb1-4a64-9940-8a87ed6de180"
+        },
+        "_cloudDevices": [
+          {
+            "id": "XUgtDRNdUD",
+            "name": "Taket ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "KH0Zw4yfXM",
+            "name": "Nisch",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "VHoHqVxW0q",
+            "name": "Taklampa",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "c32f7859-26d3-43be-abbe-a444310fe636",
+        "name": "Sovrum Master",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:c32f7859-26d3-43be-abbe-a444310fe636"
+        },
+        "_cloudDevices": [
+          {
+            "id": "VaO0Ra6wGD",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "4f3bac63-c899-4c9f-9359-d47c51be3a4a",
+        "name": "Julians rum",
+        "bulbs": 2,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:4f3bac63-c899-4c9f-9359-d47c51be3a4a"
+        },
+        "_cloudDevices": [
+          {
+            "id": "dGvymnNezB",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "jrjFZeV4Ym",
+            "name": "Lampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "2f89b5b9-f758-47a2-9f1d-70b7d3b431cb",
+        "name": "Dator - Johns rum",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:2f89b5b9-f758-47a2-9f1d-70b7d3b431cb"
+        },
+        "_cloudDevices": [
+          {
+            "id": "bJCtRtmpjI",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "cd4871f9-47e6-4f57-8050-481147be0340",
+        "name": "Loves rum",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:cd4871f9-47e6-4f57-8050-481147be0340"
+        },
+        "_cloudDevices": [
+          {
+            "id": "yY92jme0Iw",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "77790f3d-212d-4b54-93da-3f3e6d801937",
+        "name": "Vardagsrum kallkällarn",
+        "bulbs": 2,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:77790f3d-212d-4b54-93da-3f3e6d801937"
+        },
+        "_cloudDevices": [
+          {
+            "id": "tqUIAhbFt0",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "quZbA41JFM",
+            "name": "Spotlight ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "b86fb10e-6a38-4f67-a3dc-7024efc14c60",
+        "name": "Sovrum kallkällarn",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:b86fb10e-6a38-4f67-a3dc-7024efc14c60"
+        },
+        "_cloudDevices": [
+          {
+            "id": "TrmvL7AuHO",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "c64dd407-5e4c-4733-a3c4-3cec0a4f4f5d",
+        "name": "Bibliotek",
+        "bulbs": 3,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:c64dd407-5e4c-4733-a3c4-3cec0a4f4f5d"
+        },
+        "_cloudDevices": [
+          {
+            "id": "Q8TqeNUSI3",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "4FFbA6FHQt",
+            "name": "Bibliotek spoth ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "NylFA5fBlf",
+            "name": "Spotlight ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "a801c312-c9f3-425d-aebf-4812f67a60a7",
+        "name": "Hall",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:a801c312-c9f3-425d-aebf-4812f67a60a7"
+        },
+        "_cloudDevices": [
+          {
+            "id": "qG9kq4dOR3",
+            "name": "Taklampa",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "e927bad8-8553-4307-acf8-1785eac7d6bb",
+        "name": "Huvudentré trappbelysning",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:e927bad8-8553-4307-acf8-1785eac7d6bb"
+        },
+        "_cloudDevices": [
+          {
+            "id": "QJrgVrskzA",
+            "name": "Lampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "313bfa59-f397-4ca3-8925-82d32d8d9c5b",
+        "name": "Trappan",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:313bfa59-f397-4ca3-8925-82d32d8d9c5b"
+        },
+        "_cloudDevices": [
+          {
+            "id": "XxG9u0TSbn",
+            "name": "Taklampor",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "f5382407-3510-4c73-ac2c-7c550dfefa75",
+        "name": "Hall ÖV",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:f5382407-3510-4c73-ac2c-7c550dfefa75"
+        },
+        "_cloudDevices": [
+          {
+            "id": "fBGIGtE0N5",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "1c472159-d8eb-4c3e-b537-ad612b2b6267",
+        "name": "Vardagsrum ÖV",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:1c472159-d8eb-4c3e-b537-ad612b2b6267"
+        },
+        "_cloudDevices": [
+          {
+            "id": "b5AONIYAZM",
+            "name": "Taklampan ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "478a8c0d-f621-47d5-9da4-ca61cf11ab0e",
+        "name": "Tvättstuga",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:478a8c0d-f621-47d5-9da4-ca61cf11ab0e"
+        },
+        "_cloudDevices": [
+          {
+            "id": "StpiwC9Gt4",
+            "name": "Spot",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "0d3c2eb3-34b2-407e-bfc8-f0baf776de88",
+        "name": "Kylrummet",
+        "bulbs": 1,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:0d3c2eb3-34b2-407e-bfc8-f0baf776de88"
+        },
+        "_cloudDevices": [
+          {
+            "id": "kBZKcuYHFK",
+            "name": "Spot",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      },
+      {
+        "id": "619ef28f-0b54-49aa-845e-73e8ac78ade6",
+        "name": "Grovkällaren",
+        "bulbs": 3,
+        "on": false,
+        "brightness": 0,
+        "_cloudDevice": {
+          "id": "room:619ef28f-0b54-49aa-845e-73e8ac78ade6"
+        },
+        "_cloudDevices": [
+          {
+            "id": "jZMiPuzi6q",
+            "name": "Entrédel ",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "MlSvN0gCz5",
+            "name": "Spot",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          },
+          {
+            "id": "emgEDmOQbl",
+            "name": "Källartrappan",
+            "type": "LIGHT",
+            "isOn": false,
+            "dim": null,
+            "dimmable": true
+          }
+        ],
+        "_platform": "plejd"
+      }
+    ],
+    "plejd_switches": [
+      {
+        "id": "aREnTB0TAK",
+        "name": "Fläkt ",
+        "room": "Badrum lilla",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "aREnTB0TAK"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "BfbCckZdu7",
+        "name": "Uttag skjutdörr",
+        "room": "Kök",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "BfbCckZdu7"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "pnVSOnoPBt",
+        "name": "Uttag vid fönster ",
+        "room": "Kök",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "pnVSOnoPBt"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "xqbpq5q2L4",
+        "name": "0",
+        "room": "Kök",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "xqbpq5q2L4"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "PJCz2um2Jy",
+        "name": "Uttag HS",
+        "room": "Matsal",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "PJCz2um2Jy"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "gWizk849SM",
+        "name": "Uttag Norr",
+        "room": "Matsal",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "gWizk849SM"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "5zN6OpRbqK",
+        "name": "Uttag dörr bibliotek",
+        "room": "Matsal",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "5zN6OpRbqK"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "nrWhVkEMuM",
+        "name": "Uttag fönster väster",
+        "room": "Vardagsrum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "nrWhVkEMuM"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "noqZmqNydC",
+        "name": "Uttag nedan nisch",
+        "room": "Vardagsrum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "noqZmqNydC"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "ggwUtyXNMP",
+        "name": "0",
+        "room": "Sovrum Master",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "ggwUtyXNMP"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "xjl5UjyQE5",
+        "name": "Sängen ",
+        "room": "Sovrum Master",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "xjl5UjyQE5"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "zEnjVW6ktU",
+        "name": "0",
+        "room": "Sovrum Master",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "zEnjVW6ktU"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "Sd8PBDJrdI",
+        "name": "Uttag vid garderoben ",
+        "room": "Sovrum Master",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "Sd8PBDJrdI"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "Vh4hPvsDX8",
+        "name": "Dator ",
+        "room": "Dator - Sovrum Master",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "Vh4hPvsDX8"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "gmMAXkQrab",
+        "name": "0",
+        "room": "Dator - Sovrum Master",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "gmMAXkQrab"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "US8GZ0yx9O",
+        "name": "Uttag vid fönster ",
+        "room": "Julians rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "US8GZ0yx9O"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "sCBCvXQeFf",
+        "name": "Sänglampa",
+        "room": "Johns rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "sCBCvXQeFf"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "Rsw3YTKkwa",
+        "name": "0",
+        "room": "Johns rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "Rsw3YTKkwa"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "XZeKnWrsBd",
+        "name": "0",
+        "room": "Loves rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "XZeKnWrsBd"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "UoEoCjOXPr",
+        "name": "Säng lampa ",
+        "room": "Loves rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "UoEoCjOXPr"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "ZPs2hyGHFp",
+        "name": "0",
+        "room": "Loves rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "ZPs2hyGHFp"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "T5LIoFjHYo",
+        "name": "Uttag vid fönster ",
+        "room": "Loves rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "T5LIoFjHYo"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "QWDtlBjNhX",
+        "name": "Dator ",
+        "room": "Dator Loves rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "QWDtlBjNhX"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "ygskNKJvpN",
+        "name": "Datoruttag",
+        "room": "Dator Loves rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "ygskNKJvpN"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "C2gk17Z44w",
+        "name": "Uttag",
+        "room": "Dator - Johns rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "C2gk17Z44w"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "WxfJab1gnO",
+        "name": "0",
+        "room": "Dator - Johns rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "WxfJab1gnO"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "ZHrhEG7SHJ",
+        "name": "Vise",
+        "room": "Bose - TV-rum",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "ZHrhEG7SHJ"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "CQZvH4z2IL",
+        "name": "Lampan ",
+        "room": "Vardagsrum ÖV uttag",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "CQZvH4z2IL"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "6GwVBtajBa",
+        "name": "0",
+        "room": "Vardagsrum Tv",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "6GwVBtajBa"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "Eltp39nAEn",
+        "name": "Tv",
+        "room": "Vardagsrum Tv",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "Eltp39nAEn"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "nNqAA4uCuI",
+        "name": "Uttag",
+        "room": "Bibliotek uttag nisch bokhylla",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "nNqAA4uCuI"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "oe8f58wnw8",
+        "name": "0",
+        "room": "Bibliotek uttag nisch bokhylla",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "oe8f58wnw8"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "cAERmDa6zh",
+        "name": "Dator ",
+        "room": "Dator - Bibliotek",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "cAERmDa6zh"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "U3BD3tUmwj",
+        "name": "0",
+        "room": "Dator - Bibliotek",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "U3BD3tUmwj"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "8h7i7E92pp",
+        "name": "0",
+        "room": "Dator - kallkällarn",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "8h7i7E92pp"
+        },
+        "_platform": "plejd"
+      },
+      {
+        "id": "cN4IRBBQbW",
+        "name": "Dator ",
+        "room": "Dator - kallkällarn",
+        "watts": 0,
+        "on": false,
+        "alwaysOn": false,
+        "icon": "Plug",
+        "_cloudDevice": {
+          "id": "cN4IRBBQbW"
+        },
+        "_platform": "plejd"
+      }
+    ]
+  },
+  "lastUpdated": {
+    "plejd_lights": "2026-05-21T14:02:55.665Z",
+    "plejd_switches": "2026-05-21T14:02:55.665Z"
+  }
+}

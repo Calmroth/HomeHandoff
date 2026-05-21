@@ -49,6 +49,13 @@ Requirements: OB-01, OB-02
 |------|--------|-------|
 | 2026-05-18 | Project initialized | Brownfield codebase mapped; PROJECT.md, REQUIREMENTS.md, ROADMAP.md created |
 | 2026-05-18 | Phase 1 planned | Research + 3 plan files written; Plejd 500 error fixed (proxy HTML detection + better error messages) |
+| 2026-05-21 | Quick task: MusicPlayer widget ported | Standalone 21st.dev widget retargeted to vanilla JSX/CSS using clay/motion tokens; not wired into App.jsx |
+
+## Quick Tasks Completed
+
+| Date | Slug | Outcome |
+|------|------|---------|
+| 2026-05-21 | [music-player-widget](quick/20260521-music-player-widget/SUMMARY.md) | Ported 21st.dev MusicPlayer to React 18 + vanilla CSS; new `src/components/MusicPlayerWidget.{jsx,css}` (standalone, not integrated) |
 
 ---
-*State last updated: 2026-05-18 after Phase 1 planning*
+*State last updated: 2026-05-21 after music-player-widget quick task*

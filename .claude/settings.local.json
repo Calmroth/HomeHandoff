@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node \"C:\\\\Users\\\\chris_mm9nopi\\\\.claude\\\\skills\\\\impeccable\\\\scripts\\\\load-context.mjs\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(echo \"---EXIT CODE: $?\")",
+      "PowerShell(Set-Location \"C:\\\\Users\\\\chris_mm9nopi\\\\OneDrive - IDfuel AB\\\\PersonalProjects\\\\design_handoff_home_control\"; $result = npx impeccable --json src/App.jsx src/tokens.css 2>&1; Write-Output \"STDOUT/STDERR:\"; $result; Write-Output \"EXIT: $LASTEXITCODE\")",
+      "Bash(node --input-type=module --eval \"import { startPlejdPoller } from './lib/integrations/plejd.js'; console.log\\('import ok'\\);\")",
+      "Bash(node --input-type=module --eval \"import { startPlejdPoller } from './lib/integrations/plejd.js'; console.log\\('plejd import ok'\\);\")",
+      "Bash(node -e \"console.log\\('node works'\\)\")",
+      "PowerShell(Select-String -Path \"C:\\\\Users\\\\chris_mm9nopi\\\\OneDrive - IDfuel AB\\\\PersonalProjects\\\\design_handoff_home_control\\\\src\\\\App.jsx\" -Pattern \"toggleRoom|setAllLights|setBrightness|_cloudDevice|expandedRoom|plejd_lights|LightCard|RoomCard\" | Select-Object -First 80 | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line.Trim\\(\\)\\)\" })",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh api *)",
+      "Bash(dir \"C:\\\\Users\\\\chris_mm9nopi\\\\OneDrive - IDfuel AB\\\\PersonalProjects\\\\design_handoff_home_control\\\\server\\\\lib\\\\integrations\")",
+      "Bash(powershell -Command \"Select-String -Path src/App.jsx -Pattern 'scan' | Select-Object -First 30\")",
+      "Bash(npm run *)",
+      "Bash(echo \"EXIT:$?\")",
+      "mcp__Claude_Preview__preview_start",
+      "PowerShell(Stop-Process -Id 54140 -Force)",
+      "Bash(git add *)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:21st.dev)",
+      "WebFetch(domain:app.mcpmarket.com)",
+      "Bash(command -v ctx7)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(python3 -c \"import sys,json; [print\\(f['name']\\) for f in json.load\\(sys.stdin\\)]\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"https://api.github.com/repos/blommegard/homebridge-plejd/contents\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/icanos/hassio-plejd/master/plejd/plejd.js\")",
+      "Bash(curl -s --max-time 10 \"https://raw.githubusercontent.com/icanos/hassio-plejd/master/plejd/plejd.js\")",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(findstr /i \"PLEJD\")",
+      "Bash(Get-Content \"C:\\\\Users\\\\chris_mm9nopi\\\\OneDrive - IDfuel AB\\\\PersonalProjects\\\\design_handoff_home_control\\\\server\\\\lib\\\\plejd-gateway.js\")",
+      "Bash(Select-Object -First 10)",
+      "Bash(Measure-Object -Line)"
+    ]
+  }
+}

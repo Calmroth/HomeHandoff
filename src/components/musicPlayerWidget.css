@@ -1,0 +1,337 @@
+/* MusicPlayerWidget styles -- ported from the 21st.dev "music-player-widget"
+   source CSS, retargeted onto this project's clay/amber/motion tokens defined
+   in src/tokens.css. All classes are namespaced with `mpw-` so they don't
+   collide with App.jsx's `.card`, `.bar`, `.controls`, `.scales`, `.cover`,
+   etc. Import this file once wherever the widget is rendered:
+
+       import './components/musicPlayerWidget.css';
+
+   No Tailwind, no shadcn -- vanilla CSS, custom properties only. */
+
+/* ---------- root card ------------------------------------------------- */
+
+.mpw-card {
+  --mpw-size: clamp(280px, 70vw, 360px);
+  --mpw-disc: var(--mpw-size);
+  width: var(--mpw-size);
+  background-color: var(--popover);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  position: relative;
+  overflow: hidden;
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    transform var(--motion-duration-base) var(--motion-ease-out-quart),
+    box-shadow var(--motion-duration-base) var(--motion-ease-out-quart);
+  box-shadow:
+    0 1px 0 color-mix(in oklch, var(--clay-50) 5%, transparent) inset,
+    0 18px 36px -12px oklch(0 0 0 / 0.45);
+}
+.mpw-card.is-zoomed {
+  box-shadow:
+    0 1px 0 color-mix(in oklch, var(--clay-50) 8%, transparent) inset,
+    0 28px 56px -14px oklch(0 0 0 / 0.55);
+}
+
+/* ---------- disc + cover --------------------------------------------- */
+
+.mpw-mask {
+  position: relative;
+  width: var(--mpw-disc);
+  height: var(--mpw-disc);
+  border-radius: 999px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--clay-950);
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--clay-50) 6%, transparent) inset,
+    0 12px 24px -8px oklch(0 0 0 / 0.5);
+  transition: transform var(--motion-duration-base) var(--motion-ease-out-quart);
+  flex-shrink: 0;
+}
+.mpw-mask.is-zoomed {
+  transform: scale(1.04);
+}
+
+.mpw-spin {
+  position: absolute;
+  inset: 0;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.mpw-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.mpw-cover-enter {
+  animation: mpw-cover-in 560ms var(--motion-ease-out-quart) both;
+}
+.mpw-cover-exit {
+  animation: mpw-cover-out 560ms var(--motion-ease-out-quart) both;
+}
+
+@keyframes mpw-cover-in {
+  from { opacity: 0; transform: scale(1.08); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes mpw-cover-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.9); }
+}
+
+/* Center hole -- vinyl illusion */
+.mpw-hole {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 22%; height: 22%;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: radial-gradient(
+    circle at center,
+    var(--clay-900) 0%,
+    var(--clay-950) 60%,
+    oklch(0 0 0) 100%
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--clay-50) 10%, transparent) inset,
+    0 2px 4px oklch(0 0 0 / 0.6);
+  display: grid; place-items: center;
+  pointer-events: none;
+}
+.mpw-hole-inner {
+  width: 22%;
+  height: 22%;
+  border-radius: 999px;
+  background: oklch(0 0 0);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--clay-50) 18%, transparent);
+}
+
+/* ---------- info pane ------------------------------------------------- */
+
+.mpw-info {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+/* ---------- scales mixer (FFT viz) ----------------------------------- */
+/* SVG is 98x108 viewBox; we render at fixed display height so dots stay
+   crisp. Color is the amber primary. */
+.mpw-scales {
+  width: 100%;
+  height: 56px;
+  display: block;
+  color: var(--primary);
+  margin: 0 auto 2px;
+}
+.mpw-scales circle {
+  fill: currentColor;
+  will-change: transform;
+}
+
+/* ---------- track info ----------------------------------------------- */
+
+.mpw-track-info {
+  position: relative;
+  text-align: center;
+  min-height: 52px;
+}
+.mpw-ti-layer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mpw-ti-abs {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mpw-artist {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.mpw-track {
+  margin: 2px 0 0;
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 200;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mpw-ti-enter {
+  animation: mpw-ti-in 480ms var(--motion-ease-out-quart) both;
+}
+.mpw-ti-exit {
+  animation: mpw-ti-out 480ms var(--motion-ease-out-quart) both;
+}
+@keyframes mpw-ti-in {
+  from { opacity: 0; transform: translateX(var(--mpw-dx)); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes mpw-ti-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(var(--mpw-dx)); }
+}
+
+/* ---------- progress bar --------------------------------------------- */
+
+.mpw-bar {
+  height: 4px;
+  background: color-mix(in oklch, var(--clay-50) 8%, transparent);
+  border-radius: 999px;
+  overflow: hidden;
+  cursor: pointer;
+  margin-top: 2px;
+}
+.mpw-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width 120ms linear;
+}
+.mpw-time {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+.mpw-time-sep { opacity: 0.4; }
+
+/* ---------- controls -------------------------------------------------- */
+
+.mpw-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+.mpw-ctrl {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--foreground);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-duration-fast),
+    color var(--motion-duration-fast),
+    transform var(--motion-duration-fast);
+  position: relative;
+}
+.mpw-ctrl::before {
+  /* WCAG 2.2 AAA hit-area expansion to 44x44 without changing visuals */
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+.mpw-ctrl:hover {
+  background-color: color-mix(in oklch, var(--clay-50) 8%, transparent);
+}
+.mpw-ctrl:active { transform: scale(0.94); }
+.mpw-ctrl:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.mpw-ctrl-play {
+  width: 48px;
+  height: 48px;
+  background: var(--foreground);
+  color: var(--clay-900);
+}
+.mpw-ctrl-play:hover {
+  background: var(--foreground);
+  opacity: 0.92;
+}
+
+.mpw-ctrl-toggle {
+  color: var(--muted-foreground);
+}
+.mpw-ctrl-toggle.is-active {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+}
+.mpw-ctrl-toggle.is-active:hover {
+  background: color-mix(in oklch, var(--primary) 22%, transparent);
+}
+
+/* Loop button "1" badge -- only visible in mode-one */
+.mpw-ctrl-loop {
+  position: relative;
+}
+.mpw-loop-one {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--primary);
+  background: var(--clay-900);
+  border-radius: 4px;
+  padding: 1px 3px;
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity var(--motion-duration-fast),
+    transform var(--motion-duration-fast) var(--motion-ease-out-quart);
+  pointer-events: none;
+}
+.mpw-ctrl-loop.mode-one .mpw-loop-one {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ---------- reduced motion ------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .mpw-cover-enter,
+  .mpw-cover-exit,
+  .mpw-ti-enter,
+  .mpw-ti-exit {
+    animation: none !important;
+  }
+  .mpw-bar-fill {
+    transition: none !important;
+  }
+  /* Disc spin and scales mixer are driven by rAF -- the component already
+     stops the disc when paused; the mixer's idle motion is intentional. */
+}
