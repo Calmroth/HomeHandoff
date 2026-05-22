@@ -9,118 +9,18 @@ import { useMediaSession } from './lib/mediaSession.js';
 import { useHaEntities } from './lib/haEntities.js';
 import { plejdLogin, plejdFetchSites, plejdFetchDevices, plejdSetDeviceState } from './lib/plejdCloud.js';
 import { useWebSocketHub } from './lib/useWebSocketHub.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Icons (inline SVG, 1.5 stroke — matches lucide weight)
-// ─────────────────────────────────────────────────────────────────────────────
-const Icon = ({ d, size = 16, fill = "none", stroke = 1.5, children, ...p }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" {...p}>
-    {d ? <path d={d} /> : children}
-  </svg>
-);
-const I = {
-  Home:    (p) => <Icon {...p}><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></Icon>,
-  Light:   (p) => <Icon {...p}><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.6 1 2.5v1h6v-1c0-.9.3-1.8 1-2.5A6 6 0 0 0 12 3Z"/></Icon>,
-  Plug:    (p) => <Icon {...p}><path d="M9 2v6"/><path d="M15 2v6"/><path d="M7 8h10v3a5 5 0 0 1-5 5 5 5 0 0 1-5-5V8Z"/><path d="M12 16v6"/></Icon>,
-  Speaker: (p) => <Icon {...p}><rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3.5"/><circle cx="12" cy="7" r="0.8" fill="currentColor"/></Icon>,
-  Sun:     (p) => <Icon {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></Icon>,
-  Moon:    (p) => <Icon {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></Icon>,
-  Film:    (p) => <Icon {...p}><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4M11 4v16"/></Icon>,
-  Utensils:(p) => <Icon {...p}><path d="M5 3v8a3 3 0 0 0 3 3v7M8 3v6M14 3c-1.5 2-2 4-2 6 0 1 .5 2 2 2v9"/></Icon>,
-  PowerOff:(p) => <Icon {...p}><path d="M18.4 6.6a9 9 0 1 1-12.7 0"/><path d="M12 2v10"/></Icon>,
-  Cloud:   (p) => <Icon {...p}><path d="M17.5 19a4.5 4.5 0 1 0-.9-8.9 6 6 0 0 0-11.6 2A4 4 0 0 0 6 19h11.5Z"/></Icon>,
-  News:    (p) => <Icon {...p}><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></Icon>,
-  Zap:     (p) => <Icon {...p}><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></Icon>,
-  Music:   (p) => <Icon {...p}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></Icon>,
-  Settings:(p) => <Icon {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .4 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.4 1.7 1.7 0 0 0-1.1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .4-1.9 1.7 1.7 0 0 0-1.6-1.1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.4-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.4H9a1.7 1.7 0 0 0 1.1-1.6V3a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15.2 4.7a1.7 1.7 0 0 0 1.9-.4l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.4 1.9V9a1.7 1.7 0 0 0 1.6 1.1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></Icon>,
-  Play:    (p) => <Icon {...p} fill="currentColor" stroke="none"><path d="M6 4v16l14-8L6 4Z"/></Icon>,
-  Pause:   (p) => <Icon {...p} fill="currentColor" stroke="none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></Icon>,
-  Skip:    (p) => <Icon {...p} fill="currentColor" stroke="none"><path d="M5 4l11 8L5 20V4ZM17 4h2v16h-2V4Z"/></Icon>,
-  Back:    (p) => <Icon {...p} fill="currentColor" stroke="none"><path d="M19 4 8 12l11 8V4ZM5 4h2v16H5V4Z"/></Icon>,
-  Vol:     (p) => <Icon {...p}><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/></Icon>,
-  VolMute: (p) => <Icon {...p}><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M22 9l-6 6M16 9l6 6"/></Icon>,
-  TV:      (p) => <Icon {...p}><rect x="3" y="5" width="18" height="13" rx="2"/><path d="M8 21h8M12 18v3"/></Icon>,
-  Coffee:  (p) => <Icon {...p}><path d="M4 8h13a4 4 0 0 1 0 8h-1"/><path d="M4 8v8a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V8H4Z"/><path d="M7 3v2M11 3v2M15 3v2"/></Icon>,
-  Router:  (p) => <Icon {...p}><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M6 17h.01M10 17h.01M7 13V9a5 5 0 0 1 10 0v4M12 9v4"/></Icon>,
-  Fan:     (p) => <Icon {...p}><circle cx="12" cy="12" r="2"/><path d="M12 10c-2-4-1-7 1-7s3 3 1 7M12 14c2 4 1 7-1 7s-3-3-1-7M10 12c-4-2-7-1-7 1s3 3 7 1M14 12c4 2 7 1 7-1s-3-3-7-1"/></Icon>,
-  Lamp:    (p) => <Icon {...p}><path d="M9 2h6l3 7H6l3-7Z"/><path d="M12 9v9M9 18h6"/></Icon>,
-  Bulb:    (p) => <Icon {...p}><circle cx="12" cy="9" r="5"/><path d="M9 18h6M10 21h4"/></Icon>,
-  Search:      (p) => <Icon {...p}><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></Icon>,
-  Disc:        (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></Icon>,
-  ChevronDown:  (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>,
-  ChevronRight: (p) => <Icon {...p}><path d="m9 18 6-6-6-6"/></Icon>,
-  X:           (p) => <Icon {...p}><path d="M18 6 6 18M6 6l12 12"/></Icon>,
-  Wifi:        (p) => <Icon {...p}><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></Icon>,
-  Bell:        (p) => <Icon {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></Icon>,
-  Shield:      (p) => <Icon {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Icon>,
-  Check:       (p) => <Icon {...p}><path d="M20 6 9 17l-5-5"/></Icon>,
-  Radio:       (p) => <Icon {...p}><path d="M2 7h20M10 7V4M14 7V4M6 13h12M6 17h12"/><rect x="2" y="7" width="20" height="14" rx="2"/></Icon>,
-  Thermometer: (p) => <Icon {...p}><path d="M14 14.76V4a2 2 0 0 0-4 0v10.76a4 4 0 1 0 4 0Z"/></Icon>,
-  Lock:        (p) => <Icon {...p}><rect x="5" y="11" width="14" height="11" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></Icon>,
-  Unlock:      (p) => <Icon {...p}><rect x="5" y="11" width="14" height="11" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-1.8"/></Icon>,
-  Minus:       (p) => <Icon {...p}><path d="M5 12h14"/></Icon>,
-  Plus:        (p) => <Icon {...p}><path d="M12 5v14M5 12h14"/></Icon>,
-  Blinds:      (p) => <Icon {...p}><path d="M3 3h18v4H3zM3 10h18v4H3zM3 17h18v4H3"/></Icon>,
-  ArrowUp:     (p) => <Icon {...p}><path d="m18 15-6-6-6 6"/></Icon>,
-  ArrowDown:   (p) => <Icon {...p}><path d="m6 9 6 6 6-6"/></Icon>,
-  Heart:       (p) => <Icon {...p}><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1 7.8 7.8 7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8Z"/></Icon>,
-  Clock:       (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></Icon>,
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Integrations — one persisted blob of per-service config (URLs, tokens,
-// device lists). Lives in localStorage so each browser keeps its own setup.
-// Each integration's "status" is derived: a non-empty URL/token = configured.
-// Network calls live here so components can stay declarative.
-// ─────────────────────────────────────────────────────────────────────────────
-const DEFAULT_INTEGRATIONS = {
-  // Stockholm fallback; Settings lets the user change this.
-  weather:    { lat: '59.3293', lon: '18.0686', city: 'Stockholm' },
-  plejd:      { url: '', token: '' },          // Home Assistant REST base URL + long-lived token
-  sonos:      { url: '' },                     // node-sonos-http-api base URL
-  shelly:     { devices: [] },                 // [{ id, name, room, ip, icon, alwaysOn }]
-  tibber:     { token: '' },                   // Tibber personal access token (api.tibber.com)
-  // Network discovery: each item = { id, ip?, entityId?, name, type, protocol, model, assignedTo }
-  // type: 'speaker'|'lights'|'outlet'|'tv'|'alarm'
-  // assignedTo: 'music'|'lights'|'outlets'|'tv'|'security'|'ignore'
-  discovered: { devices: [], lastScan: null },
-};
-
-function useIntegrations() {
-  const [config, setConfig] = useState(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem('hdg-integrations') || '{}');
-      return { ...DEFAULT_INTEGRATIONS, ...raw };
-    } catch (e) { return { ...DEFAULT_INTEGRATIONS }; }
-  });
-  // setConfig + localStorage write. Functional setter form -- crucial when
-  // multiple setIntegration calls land in the same render tick (e.g. the
-  // .env.local one-shot seed touches plejd + tibber + weather back-to-back).
-  // Without the functional form, each closure'd `config` was the same stale
-  // value and later calls would clobber earlier ones.
-  const persist = useCallback((updater) => {
-    setConfig((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      try { localStorage.setItem('hdg-integrations', JSON.stringify(next)); } catch (e) {}
-      return next;
-    });
-  }, []);
-  const setIntegration = useCallback((id, patch) => {
-    persist((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), ...patch } }));
-  }, [persist]);
-  const status = useCallback((id) => {
-    const c = config[id] || {};
-    switch (id) {
-      case 'weather': return c.lat && c.lon ? 'configured' : 'default';
-      case 'plejd':   return c.url ? 'configured' : 'not-configured';
-      case 'sonos':   return c.url ? 'configured' : 'not-configured';
-      case 'shelly':  return (c.devices?.length ?? 0) > 0 ? 'configured' : 'not-configured';
-      case 'tibber':  return c.token ? 'configured' : 'not-configured';
-      default: return 'not-configured';
-    }
-  }, [config]);
-  return { config, setIntegration, status };
-}
+import { useIntegrations } from './hooks/useIntegrations.js';
+import { useGoogleAuth } from './hooks/useGoogleAuth.js';
+import { useSpotify, spRedirectUri } from './hooks/useSpotify.js';
+import { useRoute } from './hooks/useRoute.js';
+import { useFlicker } from './hooks/useFlicker.js';
+import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion.js';
+import { useSpotifyEmbed } from './hooks/useSpotifyEmbed.js';
+import { useSpotifyOEmbed } from './hooks/useSpotifyOEmbed.js';
+import { Icon, I } from './components/icons.jsx';
+import { Slider, Toggle, HoldToggle } from './components/primitives.jsx';
+import { Sidebar } from './components/Sidebar.jsx';
+import { BottomNav } from './components/BottomNav.jsx';
 
 // Weather — open-meteo is free, no key, CORS-open. WMO weather codes map
 // to our four buckets for the photo backdrop. Hourly+daily arrays populate
@@ -155,154 +55,6 @@ async function fetchWeather(lat, lon) {
   if (!r.ok) throw new Error(`open-meteo ${r.status}`);
   return r.json();
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Google sign-in (Google Identity Services, client-only).
-// User registers a Google OAuth Client ID at console.cloud.google.com,
-// pastes it into Settings, then signs in via Google's One Tap / button.
-// We decode the returned JWT for { sub, email, name, picture } and store
-// in localStorage. No backend — identity is verified by Google's signed JWT,
-// but we don't verify the signature locally (any malicious actor with dev
-// tools can forge a local user object; that's an acceptable trade-off for a
-// home dashboard where the threat model is "my flatmate, not the NSA").
-// ─────────────────────────────────────────────────────────────────────────────
-function decodeJwtPayload(jwt) {
-  try {
-    const b64 = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = b64 + '='.repeat((4 - b64.length % 4) % 4);
-    return JSON.parse(atob(padded));
-  } catch (e) { return null; }
-}
-
-// VITE_GOOGLE_CLIENT_ID from .env.local is the authoritative source. If the
-// user has manually saved a different ID to localStorage, that takes
-// precedence (lets them override without touching the env). If localStorage
-// is empty, we fall back to the env value so the GIS button appears on the
-// startup screen without any extra steps.
-const ENV_GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
-
-function useGoogleAuth() {
-  const [clientId, setClientIdState] = useState(
-    () => localStorage.getItem('hdg-g-clientid') || ENV_GOOGLE_CLIENT_ID
-  );
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('hdg-g-user') || 'null'); } catch (e) { return null; }
-  });
-  const [error, setError] = useState(null);
-
-  const handleCredential = useCallback((resp) => {
-    if (!resp?.credential) { setError('No credential from Google'); return; }
-    const payload = decodeJwtPayload(resp.credential);
-    if (!payload) { setError('Invalid credential'); return; }
-    const u = {
-      sub: payload.sub,
-      email: payload.email,
-      email_verified: payload.email_verified,
-      name: payload.name,
-      given_name: payload.given_name,
-      picture: payload.picture,
-      iat: payload.iat,
-      exp: payload.exp,
-    };
-    localStorage.setItem('hdg-g-user', JSON.stringify(u));
-    localStorage.setItem('hdg-g-credential', resp.credential);
-    setUser(u);
-    setError(null);
-  }, []);
-
-  // Track `user` in a ref so initialize() can read it for auto_select without
-  // re-running on every sign-in/sign-out cycle (which was the source of the
-  // GSI "initialize() called multiple times" console warning).
-  const userRef = useRef(user);
-  useEffect(() => { userRef.current = user; }, [user]);
-
-  // Initialize GIS as soon as both the script and a client_id are available.
-  // Stable deps: only re-runs if clientId or the callback changes.
-  useEffect(() => {
-    if (!clientId) return;
-    const init = () => {
-      if (!window.google?.accounts?.id) return false;
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: handleCredential,
-        auto_select: !!userRef.current,
-        cancel_on_tap_outside: false,
-      });
-      return true;
-    };
-    if (init()) return;
-    const t = setInterval(() => { if (init()) clearInterval(t); }, 300);
-    return () => clearInterval(t);
-  }, [clientId, handleCredential]);
-
-  const promptSignIn = useCallback(() => {
-    if (!clientId) { setError('Set a Google Client ID in Settings first.'); return; }
-    if (!window.google?.accounts?.id) { setError('Google sign-in is still loading…'); return; }
-    setError(null);
-    window.google.accounts.id.prompt(); // One Tap. If suppressed, falls back to renderButton below.
-  }, [clientId]);
-
-  // For a richer button UX, callers can pass a container ref to renderButton.
-  const renderButton = useCallback((el) => {
-    if (!el || !clientId || !window.google?.accounts?.id) return;
-    el.innerHTML = '';
-    window.google.accounts.id.renderButton(el, {
-      type: 'standard',
-      theme: 'filled_black',
-      size: 'large',
-      text: 'continue_with',
-      shape: 'pill',
-    });
-  }, [clientId]);
-
-  const signOut = useCallback(() => {
-    if (window.google?.accounts?.id) {
-      try { window.google.accounts.id.disableAutoSelect(); } catch (e) {}
-      if (user?.sub) try { window.google.accounts.id.revoke(user.sub, () => {}); } catch (e) {}
-    }
-    localStorage.removeItem('hdg-g-user');
-    localStorage.removeItem('hdg-g-credential');
-    setUser(null);
-  }, [user]);
-
-  const setClientId = useCallback((id) => {
-    const v = (id || '').trim();
-    if (v) localStorage.setItem('hdg-g-clientid', v);
-    else localStorage.removeItem('hdg-g-clientid');
-    setClientIdState(v);
-  }, []);
-
-  // Local sign-up -- creates a "profile" user object stored under the same
-  // localStorage key as a Google sign-in. No backend, no real auth: this
-  // browser is the only place this account exists. Useful for users who don't
-  // want a Google account or for a quick first-run setup before they wire
-  // OAuth properly.
-  const signUpLocal = useCallback(({ name, email }) => {
-    const n = (name || '').trim();
-    const e = (email || '').trim();
-    if (!n || !e || !/^.+@.+\..+$/.test(e)) {
-      setError('Enter a name and a valid email address.');
-      return false;
-    }
-    const u = {
-      sub: 'local-' + Math.random().toString(36).slice(2, 12),
-      email: e,
-      email_verified: false,
-      name: n,
-      given_name: n.split(' ')[0],
-      picture: '',
-      provider: 'local',
-      iat: Math.floor(Date.now() / 1000),
-    };
-    localStorage.setItem('hdg-g-user', JSON.stringify(u));
-    setUser(u);
-    setError(null);
-    return true;
-  }, []);
-
-  return { clientId, setClientId, user, error, promptSignIn, renderButton, signOut, signUpLocal };
-}
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sonos via node-sonos-http-api (https://github.com/jishi/node-sonos-http-api).
@@ -357,518 +109,6 @@ async function fetchTibberPrices(token) {
   const j = await r.json();
   if (j.errors) throw new Error(j.errors[0]?.message || 'Tibber error');
   return j.data?.viewer?.homes?.[0]?.currentSubscription?.priceInfo?.today || [];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Spotify — PKCE OAuth + Web API client.
-// Pure browser flow, no backend: the user opens Settings, pastes a Client ID
-// they got from developer.spotify.com, clicks Connect → we run PKCE,
-// Spotify redirects back with ?code, we exchange it for an access_token, and
-// store {access, refresh, expires_at} in localStorage. Refresh happens on
-// demand inside spotifyApi() before each call. Disconnect drops tokens.
-// ─────────────────────────────────────────────────────────────────────────────
-const SP_AUTH_URL   = 'https://accounts.spotify.com/authorize';
-const SP_TOKEN_URL  = 'https://accounts.spotify.com/api/token';
-const SP_API        = 'https://api.spotify.com/v1';
-const SP_SCOPES = [
-  'user-read-private',
-  'user-read-email',
-  'user-library-read',
-  'user-library-modify',
-  'playlist-read-private',
-  'playlist-read-collaborative',
-  'playlist-modify-private',
-  'playlist-modify-public',
-  'user-top-read',
-  'user-read-recently-played',
-  // Spotify Connect -- list playback targets (Sonos shows up here once it's
-  // linked to your Spotify account in the Sonos app) and steer playback to
-  // them without needing a LAN bridge process.
-  'user-read-playback-state',
-  'user-modify-playback-state',
-].join(' ');
-
-function spB64u(buf) {
-  const bytes = new Uint8Array(buf);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-}
-async function spPkce() {
-  const verifier = spB64u(crypto.getRandomValues(new Uint8Array(32)));
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  return { verifier, challenge: spB64u(hash) };
-}
-function spRedirectUri() {
-  return window.location.origin + window.location.pathname;
-}
-async function spBeginAuth(clientId, returnHash) {
-  const { verifier, challenge } = await spPkce();
-  localStorage.setItem('hdg-sp-verifier', verifier);
-  localStorage.setItem('hdg-sp-return', returnHash || '#music');
-  const url = new URL(SP_AUTH_URL);
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('client_id', clientId);
-  url.searchParams.set('redirect_uri', spRedirectUri());
-  url.searchParams.set('code_challenge_method', 'S256');
-  url.searchParams.set('code_challenge', challenge);
-  url.searchParams.set('scope', SP_SCOPES);
-  url.searchParams.set('show_dialog', 'false');
-  window.location.href = url.toString();
-}
-async function spExchangeCode(clientId, code) {
-  const verifier = localStorage.getItem('hdg-sp-verifier');
-  if (!verifier) throw new Error('Missing PKCE verifier');
-  const r = await fetch(SP_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: spRedirectUri(),
-      client_id: clientId,
-      code_verifier: verifier,
-    }),
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error_description || j.error || `token ${r.status}`);
-  localStorage.removeItem('hdg-sp-verifier');
-  return {
-    access_token: j.access_token,
-    refresh_token: j.refresh_token,
-    expires_at: Date.now() + (j.expires_in - 60) * 1000,
-  };
-}
-async function spRefresh(clientId, refresh_token) {
-  const r = await fetch(SP_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token,
-      client_id: clientId,
-    }),
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error_description || j.error || `refresh ${r.status}`);
-  return {
-    access_token: j.access_token,
-    refresh_token: j.refresh_token || refresh_token,
-    expires_at: Date.now() + (j.expires_in - 60) * 1000,
-  };
-}
-
-function useSpotify() {
-  const [clientId, setClientIdState] = useState(() => localStorage.getItem('hdg-sp-clientid') || '');
-  const [token, setToken] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('hdg-sp-token') || 'null'); } catch (e) { return null; }
-  });
-  const [me, setMe] = useState(null);
-  const [error, setError] = useState(null);
-  // Spotify Connect playback targets. Sonos, phones, computers, smart TVs --
-  // anything the user has linked to their Spotify account shows up here.
-  const [devices, setDevices] = useState([]);
-
-  // Handle the OAuth callback exactly once: if the URL has ?code=...,
-  // exchange it for a token and clean the URL. Runs before any API calls.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const err  = params.get('error');
-    if (err) { setError(`Spotify denied: ${err}`); return; }
-    if (!code) return;
-    const cid = localStorage.getItem('hdg-sp-clientid');
-    if (!cid) { setError('Missing Spotify Client ID after redirect.'); return; }
-    spExchangeCode(cid, code).then(t => {
-      localStorage.setItem('hdg-sp-token', JSON.stringify(t));
-      setToken(t);
-      const back = localStorage.getItem('hdg-sp-return') || '#music';
-      localStorage.removeItem('hdg-sp-return');
-      const clean = window.location.origin + window.location.pathname + back;
-      window.history.replaceState({}, '', clean);
-    }).catch(e => setError(String(e.message || e)));
-  }, []);
-
-  // Always-fresh accessor: refreshes the token if it's about to expire,
-  // then calls the API. Callers use this for every fetch so retries on 401
-  // never have to think about refresh state.
-  const api = useCallback(async (path, options = {}) => {
-    let tk = token;
-    if (!tk) throw new Error('Not connected to Spotify');
-    if (Date.now() >= (tk.expires_at || 0)) {
-      const fresh = await spRefresh(clientId, tk.refresh_token);
-      localStorage.setItem('hdg-sp-token', JSON.stringify(fresh));
-      setToken(fresh);
-      tk = fresh;
-    }
-    const r = await fetch(`${SP_API}${path}`, {
-      ...options,
-      headers: {
-        'Authorization': `Bearer ${tk.access_token}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-    });
-    if (r.status === 204) return null;
-    const text = await r.text();
-    const j = text ? JSON.parse(text) : null;
-    if (!r.ok) throw new Error(j?.error?.message || `Spotify API ${r.status}`);
-    return j;
-  }, [token, clientId]);
-
-  // Fetch the user profile once we have a token so the UI can greet them.
-  useEffect(() => {
-    if (!token) { setMe(null); return; }
-    api('/me').then(setMe).catch(e => setError(String(e.message || e)));
-  }, [token, api]);
-
-  const setClientId = useCallback((id) => {
-    const v = (id || '').trim();
-    if (v) localStorage.setItem('hdg-sp-clientid', v);
-    else localStorage.removeItem('hdg-sp-clientid');
-    setClientIdState(v);
-  }, []);
-  const connect = useCallback(() => {
-    if (!clientId) { setError('Set a Spotify Client ID in Settings first.'); return; }
-    spBeginAuth(clientId, window.location.hash || '#music').catch(e => setError(String(e.message || e)));
-  }, [clientId]);
-  const disconnect = useCallback(() => {
-    localStorage.removeItem('hdg-sp-token');
-    setToken(null);
-    setMe(null);
-    setDevices([]);
-  }, []);
-
-  // ---- Spotify Connect: list devices, transfer playback, control volume ----
-  // /me/player/devices returns every Connect target the user has online --
-  // Sonos speakers show up by their friendly name, e.g. "Living room".
-  const refreshDevices = useCallback(async () => {
-    if (!token) return [];
-    try {
-      const r = await api('/me/player/devices');
-      const list = r?.devices || [];
-      setDevices(list);
-      return list;
-    } catch (e) {
-      // 403 means the user is on the free tier (Connect is Premium-only) --
-      // surface it to the UI but don't spam errors.
-      const msg = String(e.message || e);
-      if (!/PREMIUM_REQUIRED|403/i.test(msg)) setError(msg);
-      else setError('Spotify Connect requires Premium.');
-      return [];
-    }
-  }, [token, api]);
-
-  // Poll devices while connected so the speaker list stays fresh as Sonos
-  // zones come online or get powered off.
-  useEffect(() => {
-    if (!token) { setDevices([]); return; }
-    refreshDevices();
-    const t = setInterval(refreshDevices, 12_000);
-    return () => clearInterval(t);
-  }, [token, refreshDevices]);
-
-  // Transfer playback to a specific device. If `play` is true and nothing is
-  // currently playing, Spotify will resume what was last played on the user's
-  // queue. Returns true on success.
-  const transferTo = useCallback(async (deviceId, play = true) => {
-    if (!token) return false;
-    try {
-      await api('/me/player', {
-        method: 'PUT',
-        body: JSON.stringify({ device_ids: [deviceId], play }),
-      });
-      // Optimistic local update so the UI flips immediately; the next poll
-      // will reconcile against Spotify's truth.
-      setDevices(ds => ds.map(d => ({ ...d, is_active: d.id === deviceId })));
-      return true;
-    } catch (e) {
-      setError(String(e.message || e));
-      return false;
-    }
-  }, [token, api]);
-
-  // Pause whatever's currently playing on a device. Spotify treats pause as
-  // device-scoped, so this only stops the named target.
-  const pauseDevice = useCallback(async (deviceId) => {
-    if (!token) return false;
-    try {
-      await api(`/me/player/pause${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ''}`, { method: 'PUT' });
-      setDevices(ds => ds.map(d => d.id === deviceId ? { ...d, is_active: false } : d));
-      return true;
-    } catch (e) {
-      setError(String(e.message || e));
-      return false;
-    }
-  }, [token, api]);
-
-  // Set the volume on a specific device (0-100). Spotify clamps; we round.
-  const setDeviceVolume = useCallback(async (deviceId, percent) => {
-    if (!token) return false;
-    const v = Math.max(0, Math.min(100, Math.round(percent)));
-    try {
-      await api(`/me/player/volume?volume_percent=${v}&device_id=${encodeURIComponent(deviceId)}`, { method: 'PUT' });
-      setDevices(ds => ds.map(d => d.id === deviceId ? { ...d, volume_percent: v } : d));
-      return true;
-    } catch (e) {
-      setError(String(e.message || e));
-      return false;
-    }
-  }, [token, api]);
-
-  // Transport controls — skip, resume, pause on the active/any device.
-  const skipNext = useCallback(async () => {
-    if (!token) return;
-    try { await api('/me/player/next', { method: 'POST' }); } catch (e) { setError(String(e.message || e)); }
-  }, [token, api]);
-
-  const skipPrev = useCallback(async () => {
-    if (!token) return;
-    try { await api('/me/player/previous', { method: 'POST' }); } catch (e) { setError(String(e.message || e)); }
-  }, [token, api]);
-
-  const resumePlay = useCallback(async (deviceId) => {
-    if (!token) return;
-    try {
-      await api(`/me/player/play${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ''}`, { method: 'PUT' });
-    } catch (e) { setError(String(e.message || e)); }
-  }, [token, api]);
-
-  const pausePlay = useCallback(async (deviceId) => {
-    if (!token) return;
-    try {
-      await api(`/me/player/pause${deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : ''}`, { method: 'PUT' });
-    } catch (e) { setError(String(e.message || e)); }
-  }, [token, api]);
-
-  return { clientId, setClientId, token, me, error, connect, disconnect, api, devices, refreshDevices, transferTo, pauseDevice, setDeviceVolume, skipNext, skipPrev, resumePlay, pausePlay };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Routing — hash-based so the prototype works as a flat file with no router lib
-// ─────────────────────────────────────────────────────────────────────────────
-const ROUTES = ['home', 'rooms', 'music', 'energy', 'weather', 'news', 'settings'];
-const LAST_ROUTE_KEY = 'hdg-last-route';
-
-// Per-device last-route persistence. The council's "per-device bookmarks"
-// answer to multi-user. The kitchen iPad becomes the kitchen iPad by virtue
-// of being where you last opened the music or lights view; reloading it
-// returns to that view, not to Home.
-//
-// If the URL has an explicit hash, that always wins (someone tapped a link
-// or pasted a URL). When the hash is empty AND we've saved a route before,
-// boot into the saved route. Settings is excluded from the auto-restore so
-// finishing OAuth never re-opens the Settings page after a reload.
-function useRoute() {
-  const read = () => {
-    const raw = window.location.hash || '';
-    if (raw) {
-      const h = raw.replace(/^#\/?/, '');
-      return ROUTES.includes(h) ? h : 'home';
-    }
-    // No hash -- consider the stored bookmark.
-    try {
-      const stored = localStorage.getItem(LAST_ROUTE_KEY);
-      if (stored && ROUTES.includes(stored) && stored !== 'settings') return stored;
-    } catch (e) {}
-    return 'home';
-  };
-  const [route, setRoute] = useState(read);
-  useEffect(() => {
-    const onHash = () => setRoute(read());
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
-  // Persist every non-Settings route as the "preferred starting view" for
-  // this device. Skip Settings because it's a destination, not a home.
-  useEffect(() => {
-    if (route && route !== 'settings') {
-      try { localStorage.setItem(LAST_ROUTE_KEY, route); } catch (e) {}
-    }
-  }, [route]);
-  const navigate = useCallback((id) => { window.location.hash = '#' + id; }, []);
-  return [route, navigate];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Sidebar — visual continuity with Sidebar.tsx; active row reflects hash route
-// ─────────────────────────────────────────────────────────────────────────────
-const NAV_ITEMS = [
-  { id: 'home',     label: 'Home',     Icon: I.Home },
-  { id: 'rooms',    label: 'Rooms',    Icon: I.Light },
-  { id: 'music',    label: 'Music',    Icon: I.Music },
-  { id: 'energy',   label: 'Energy',   Icon: I.Zap },
-  { id: 'weather',  label: 'Weather',  Icon: I.Cloud },
-  { id: 'news',     label: 'News',     Icon: I.News },
-];
-
-// Bottom nav shows the five daily-control destinations on mobile (â‰¤720px).
-// Weather and News are sidebar-only; they're informational, not control pages.
-const BOTTOM_NAV_ITEMS = [
-  { id: 'home',     label: 'Home',     Icon: I.Home },
-  { id: 'rooms',    label: 'Rooms',    Icon: I.Light },
-  { id: 'music',    label: 'Music',    Icon: I.Music },
-  { id: 'energy',   label: 'Energy',   Icon: I.Zap },
-  { id: 'settings', label: 'Settings', Icon: I.Settings },
-];
-
-function BottomNav({ route, onNavigate }) {
-  return (
-    <nav className="bottom-nav" aria-label="Main navigation">
-      {BOTTOM_NAV_ITEMS.map(item => {
-        const Ic = item.Icon;
-        const active = route === item.id;
-        return (
-          <button
-            key={item.id}
-            className="bottom-nav-item"
-            onClick={() => onNavigate(item.id)}
-            aria-current={active ? 'page' : undefined}
-          >
-            <Ic size={22} strokeWidth={active ? 2 : 1.5} />
-            <span className="bottom-nav-label">{item.label}</span>
-          </button>
-        );
-      })}
-    </nav>
-  );
-}
-
-function Sidebar({ route, onNavigate, google }) {
-  return (
-    <aside className="sidebar">
-      <div className="brand">
-        <div className="brand-mark"><I.Home size={15} /></div>
-        <div className="brand-name">Home Domain</div>
-      </div>
-
-      <nav className="nav">
-        {NAV_ITEMS.map(item => {
-          const Ic = item.Icon;
-          return (
-            <button
-              key={item.id}
-              className={'nav-row' + (route === item.id ? ' row-active' : '')}
-              onClick={() => onNavigate(item.id)}
-              aria-current={route === item.id ? 'page' : undefined}
-            >
-              <span className="dot" />
-              <Ic className="icon" /> {item.label}
-            </button>
-          );
-        })}
-        <button
-          className={'nav-row' + (route === 'settings' ? ' row-active' : '')}
-          style={{ marginTop: 'auto' }}
-          onClick={() => onNavigate('settings')}
-          aria-current={route === 'settings' ? 'page' : undefined}
-        >
-          <span className="dot" /><I.Settings className="icon" /> Settings
-        </button>
-      </nav>
-
-      <button
-        type="button"
-        className="account"
-        style={{ marginTop: 16, background: 'none', border: 0, padding: 0, width: '100%', textAlign: 'left', cursor: 'pointer', borderTop: '1px solid var(--border)', paddingTop: 16 }}
-        onClick={() => onNavigate('settings')}
-        title={google?.user ? 'Manage account in Settings' : 'Sign in via Settings'}
-      >
-        {google?.user ? (
-          <>
-            {google.user.picture
-              ? <img className="avatar" src={google.user.picture} alt="" referrerPolicy="no-referrer" style={{ width: 32, height: 32, objectFit: 'cover', background: 'none' }} />
-              : <div className="avatar">{(google.user.given_name || google.user.name || '?').slice(0, 1).toUpperCase()}</div>}
-            <div style={{ minWidth: 0, overflow: 'hidden' }}>
-              <div className="account-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{google.user.name}</div>
-              <div className="account-email" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{google.user.email}</div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="avatar" style={{ background: 'color-mix(in oklch, var(--clay-50) 8%, transparent)', color: 'var(--muted-foreground)' }}>
-              <I.Settings size={14} />
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div className="account-name">Sign in</div>
-              <div className="account-email">Set up your account in Settings</div>
-            </div>
-          </>
-        )}
-      </button>
-    </aside>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Slider — drag-to-set, used by light brightness + speaker volume
-// ─────────────────────────────────────────────────────────────────────────────
-function Slider({ value, onChange, disabled, compact }) {
-  const ref = useRef(null);
-  const dragging = useRef(false);
-
-  const set = useCallback((clientX) => {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(100, ((clientX - r.left) / r.width) * 100));
-    onChange(Math.round(pct));
-  }, [onChange]);
-
-  useEffect(() => {
-    const mv = (e) => { if (!dragging.current) return; set(e.clientX ?? e.touches?.[0]?.clientX ?? 0); };
-    const up = () => { dragging.current = false; document.body.style.cursor = ''; };
-    window.addEventListener('pointermove', mv);
-    window.addEventListener('pointerup', up);
-    return () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
-  }, [set]);
-
-  return (
-    <div
-      ref={ref}
-      className={compact ? 'slider slider--compact' : 'slider'}
-      style={{ opacity: disabled ? 0.45 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}
-      onPointerDown={(e) => {
-        if (disabled) return;
-        dragging.current = true;
-        document.body.style.cursor = 'grabbing';
-        set(e.clientX);
-      }}
-    >
-      <div className="slider-fill" style={{ transform: `scaleX(${value / 100})` }} />
-      <div className="slider-thumb" style={{ left: `${value}%` }} />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Power toggle (Switch)
-// ─────────────────────────────────────────────────────────────────────────────
-function Toggle({ on, onToggle, ariaLabel }) {
-  return (
-    <button
-      type="button"
-      className="power-toggle"
-      data-on={on}
-      role="switch"
-      aria-checked={on}
-      aria-label={ariaLabel}
-      onClick={(e) => { e.stopPropagation(); onToggle(); }}
-    />
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Flicker pulse — quick acknowledgement when a state changes
-// ─────────────────────────────────────────────────────────────────────────────
-function useFlicker(deps) {
-  const [k, setK] = useState(0);
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    setK((x) => x + 1);
-  }, deps);
-  return k;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -994,105 +234,6 @@ function fmtAgo(then, now) {
 // script may load before or after React mounts; this handles both cases by
 // swapping in our callback if Spotify hasn't called it yet, or resolving
 // immediately if it already did.
-const spotifyIFrameApi = new Promise((resolve) => {
-  if (typeof window === 'undefined') return;
-  if (window.__hdgSpotifyApi) { resolve(window.__hdgSpotifyApi); return; }
-  const original = window.onSpotifyIframeApiReady;
-  window.onSpotifyIframeApiReady = (api) => {
-    window.__hdgSpotifyApi = api;
-    if (typeof original === 'function') try { original(api); } catch (e) {}
-    resolve(api);
-  };
-});
-
-// useSpotifyEmbed — wraps the iFrame API into a React-friendly hook. Returns
-// an `attach` ref-callback for the container div (the API injects an iframe
-// inside it), a `state` object with isPaused/position/duration, and play/
-// pause/seek/skip helpers. The controller is created once; URI changes call
-// loadUri so the iframe never reloads (audio doesn't blip between sources).
-function useSpotifyEmbed(uri) {
-  const controllerRef = useRef(null);
-  const elementRef = useRef(null);
-  const [state, setState] = useState({ isPaused: true, isBuffering: false, position: 0, duration: 0 });
-  const lastUriRef = useRef(uri);
-
-  const create = useCallback((api) => {
-    const el = elementRef.current;
-    if (!el || controllerRef.current) return;
-    // Use a safe default URI for the controller; loadUri() updates it once the
-    // user picks something. Passing null would cause the iFrame API to error.
-    const initUri = lastUriRef.current || 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M';
-    api.createController(el, { uri: initUri, width: '100%', height: '100%' }, (controller) => {
-      controllerRef.current = controller;
-      controller.addListener('playback_update', (e) => {
-        if (e?.data) setState(prev => ({ ...prev, ...e.data }));
-      });
-      controller.addListener('ready', () => {
-        // If we launched with the fallback URI, immediately pause so nothing plays.
-        if (!lastUriRef.current) controller.pause?.();
-      });
-    });
-  }, []); // intentional: create only on initial attach; URI updates handled below
-
-  const attach = useCallback((el) => {
-    elementRef.current = el;
-    if (!el) return;
-    spotifyIFrameApi.then(create);
-  }, [create]);
-
-  // Load new URI when it changes — the controller stays the same, just
-  // tells the embed to point at a new resource.
-  useEffect(() => {
-    if (lastUriRef.current === uri) return;
-    lastUriRef.current = uri;
-    if (controllerRef.current && uri) controllerRef.current.loadUri(uri);
-  }, [uri]);
-
-  const togglePlay   = useCallback(() => controllerRef.current?.togglePlay(), []);
-  const play         = useCallback(() => controllerRef.current?.play(), []);
-  const pause        = useCallback(() => controllerRef.current?.pause(), []);
-  // The iFrame API has no track-skip; we approximate with a +/-15s seek.
-  // Web Playback SDK has real next/prev but requires a Premium token.
-  const seekRel = useCallback((deltaSec) => {
-    const c = controllerRef.current;
-    if (!c) return;
-    setState(prev => {
-      const newPos = Math.max(0, Math.min(prev.duration || 0, (prev.position || 0) + deltaSec * 1000));
-      c.seek(newPos / 1000);
-      return { ...prev, position: newPos };
-    });
-  }, []);
-
-  return { attach, state, togglePlay, play, pause, seekRel };
-}
-
-// useSpotifyOEmbed — fetches the public oEmbed thumbnail + title for any
-// Spotify resource (album/playlist/track/artist). No auth needed and CORS-
-// friendly. Used for the album cover and human-readable title in the header
-// player. Cached in-memory so navigating back to the same source is instant.
-const oembedCache = new Map();
-function useSpotifyOEmbed(type, id) {
-  const [data, setData] = useState(() => {
-    const k = `${type}/${id}`;
-    return oembedCache.has(k) ? oembedCache.get(k) : null;
-  });
-  useEffect(() => {
-    if (!type || !id) { setData(null); return; }
-    const k = `${type}/${id}`;
-    if (oembedCache.has(k)) { setData(oembedCache.get(k)); return; }
-    let cancelled = false;
-    const url = `https://open.spotify.com/oembed?url=${encodeURIComponent(`https://open.spotify.com/${type}/${id}`)}`;
-    fetch(url).then(r => r.ok ? r.json() : null).then(j => {
-      if (cancelled || !j) return;
-      const next = { title: j.title, thumb: j.thumbnail_url, author: j.author_name || j.provider_name };
-      oembedCache.set(k, next);
-      setData(next);
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [type, id]);
-  return data;
-}
-
 // PersistentMusicPlayer — same role as before (own the iframe, position it),
 // but now the iframe is created by Spotify's iFrame API via the `attach`
 // callback. On Music it overlays the stage anchor; otherwise it's stashed
@@ -1172,20 +313,6 @@ function HeaderMusic({ playback, oembed, sourceLabel, sourceSub, onClickArt, tog
       </div>
     </div>
   );
-}
-
-// Prefers-reduced-motion (live)
-function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  );
-  useEffect(() => {
-    const m = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const h = () => setReduced(m.matches);
-    m.addEventListener?.('change', h);
-    return () => m.removeEventListener?.('change', h);
-  }, []);
-  return reduced;
 }
 
 // EnvSeedPrompt -- "we found credentials in your environment, want to
@@ -2796,39 +1923,66 @@ function HomePage({
 
   return (
     <>
+      {/* Hierarchy: Scenes and Lights master surface first — they are the
+          5-second actions a family member runs on entering the house. Music,
+          Sound, Power, Sensors, and Activity follow. The order here IS the
+          dashboard's information hierarchy; do not rearrange without
+          rechecking the 5-second test from CLAUDE.md. */}
       <Section
-        title="Music"
-        statusId="spotify"
-        source={null /* dot in title is enough; vendor name moved to Settings */}
-        summary={<>Streaming to <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> rooms</>}
-      >
-        <NowPlaying speakers={speakers} onCastToggle={handleCastToggle} spotify={spotify} />
-      </Section>
-
-      <Section
-        title="Sound"
-        statusId="sonos"
-        source={speakers.length ? `${speakers.length} ${speakers.length === 1 ? 'zone' : 'zones'} · live` : 'no speakers yet'}
+        title="Scenes"
+        source="local"
         summary={
-          speakers.length ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-              <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> speakers
-              <button className="group-toggle" data-active={groupAll} onClick={setGroup}>
-                {groupAll ? 'Grouped' : 'Group all'}
-              </button>
-            </span>
-          ) : <>No speakers found</>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
+            One tap. Affects <b style={{ margin: '0 4px' }}>{rooms.length}</b> rooms, <b style={{ margin: '0 4px' }}>{outlets.filter(o => !o.alwaysOn).length}</b> outlets, <b style={{ margin: '0 4px' }}>{speakers.length}</b> speakers.
+            {activeScene && activeSceneAt && (
+              <span className="scene-timer">
+                <span className="mono">{SCENES.find(s => s.id === activeScene)?.label || plejdScenes.find(s => s.id === activeScene)?.title}</span>
+                · Active <span className="mono">{fmtAgo(activeSceneAt, now)}</span>
+                <button className="clear-btn" onClick={breakScene} title="Clear active scene" aria-label="Clear active scene">×</button>
+              </span>
+            )}
+          </span>
         }
       >
-        {speakers.length ? (
-          <div className="speaker-grid">
-            {speakers.map(sp => (
-              <SpeakerCard key={sp.id} speaker={sp} onToggle={() => toggleSpeaker(sp.id)} onVolume={(v) => setVolume(sp.id, v)} />
-            ))}
-          </div>
-        ) : (
-          <EmptyIntegration title="No speakers found" sub="Add a Sonos bridge URL in Settings → Integrations." />
-        )}
+        <div className="scenes">
+          {plejdScenes.length > 0
+            ? plejdScenes.map((sc, i) => (
+                <button
+                  key={sc.id}
+                  className="scene"
+                  data-active={activeScene === sc.id}
+                  onClick={() => activatePlejdScene(sc.id, sc.title)}
+                  title={sc.title}
+                >
+                  <span className="scene-key">{String(i + 1)}</span>
+                  <span className="scene-icon"><I.Layers size={18} /></span>
+                  <div>
+                    <div className="scene-label">{sc.title}</div>
+                  </div>
+                </button>
+              ))
+            : SCENES.map((scene, i) => {
+                const SceneIcon = I[scene.icon];
+                const keyHint = i === 4 ? '0' : String(i + 1);
+                return (
+                  <button
+                    key={scene.id}
+                    className="scene"
+                    data-active={activeScene === scene.id}
+                    onClick={() => applyScene(scene)}
+                    title={`Press ${keyHint} to apply ${scene.label}`}
+                  >
+                    <span className="scene-key">{keyHint}</span>
+                    <span className="scene-icon"><SceneIcon size={18} /></span>
+                    <div>
+                      <div className="scene-label">{scene.label}</div>
+                      <div className="scene-sub">{scene.sub}</div>
+                    </div>
+                  </button>
+                );
+              })
+          }
+        </div>
       </Section>
 
       <Section
@@ -2877,6 +2031,41 @@ function HomePage({
       </Section>
 
       <Section
+        title="Music"
+        statusId="spotify"
+        source={null}
+        summary={<>Streaming to <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> rooms</>}
+      >
+        <NowPlaying speakers={speakers} onCastToggle={handleCastToggle} spotify={spotify} />
+      </Section>
+
+      <Section
+        title="Sound"
+        statusId="sonos"
+        source={speakers.length ? `${speakers.length} ${speakers.length === 1 ? 'zone' : 'zones'} · live` : 'no speakers yet'}
+        summary={
+          speakers.length ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> speakers
+              <button className="group-toggle" data-active={groupAll} onClick={setGroup}>
+                {groupAll ? 'Grouped' : 'Group all'}
+              </button>
+            </span>
+          ) : <>No speakers found</>
+        }
+      >
+        {speakers.length ? (
+          <div className="speaker-grid">
+            {speakers.map(sp => (
+              <SpeakerCard key={sp.id} speaker={sp} onToggle={() => toggleSpeaker(sp.id)} onVolume={(v) => setVolume(sp.id, v)} />
+            ))}
+          </div>
+        ) : (
+          <EmptyIntegration title="No speakers found" sub="Add a Sonos bridge URL in Settings → Integrations." />
+        )}
+      </Section>
+
+      <Section
         title="Power"
         statusId="shelly"
         source={outlets.length ? `${outlets.length} ${outlets.length === 1 ? 'outlet' : 'outlets'} · live` : 'no outlets yet'}
@@ -2894,63 +2083,6 @@ function HomePage({
         ) : (
           <EmptyIntegration title="No outlets configured" sub="Add Shelly device IPs in Settings → Integrations." />
         )}
-      </Section>
-
-      <Section
-        title="Scenes"
-        source="local"
-        summary={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
-            One tap. Affects <b style={{ margin: '0 4px' }}>{rooms.length}</b> rooms, <b style={{ margin: '0 4px' }}>{outlets.filter(o => !o.alwaysOn).length}</b> outlets, <b style={{ margin: '0 4px' }}>{speakers.length}</b> speakers.
-            {activeScene && activeSceneAt && (
-              <span className="scene-timer">
-                <span className="mono">{SCENES.find(s => s.id === activeScene)?.label || plejdScenes.find(s => s.id === activeScene)?.title}</span>
-                · Active <span className="mono">{fmtAgo(activeSceneAt, now)}</span>
-                <button className="clear-btn" onClick={breakScene} title="Clear active scene" aria-label="Clear active scene">Ã—</button>
-              </span>
-            )}
-          </span>
-        }
-      >
-        <div className="scenes">
-          {plejdScenes.length > 0
-            ? plejdScenes.map((sc, i) => (
-                <button
-                  key={sc.id}
-                  className="scene"
-                  data-active={activeScene === sc.id}
-                  onClick={() => activatePlejdScene(sc.id, sc.title)}
-                  title={sc.title}
-                >
-                  <span className="scene-key">{String(i + 1)}</span>
-                  <span className="scene-icon"><I.Layers size={18} /></span>
-                  <div>
-                    <div className="scene-label">{sc.title}</div>
-                  </div>
-                </button>
-              ))
-            : SCENES.map((scene, i) => {
-                const SceneIcon = I[scene.icon];
-                const keyHint = i === 4 ? '0' : String(i + 1);
-                return (
-                  <button
-                    key={scene.id}
-                    className="scene"
-                    data-active={activeScene === scene.id}
-                    onClick={() => applyScene(scene)}
-                    title={`Press ${keyHint} to apply ${scene.label}`}
-                  >
-                    <span className="scene-key">{keyHint}</span>
-                    <span className="scene-icon"><SceneIcon size={18} /></span>
-                    <div>
-                      <div className="scene-label">{scene.label}</div>
-                      <div className="scene-sub">{scene.sub}</div>
-                    </div>
-                  </button>
-                );
-              })
-          }
-        </div>
       </Section>
 
       <SensorsSection />
@@ -3092,7 +2224,7 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
           </div>
           <div className="weather-hero">
             <a className="weather-hero-icon" href="#weather" title="Open Weather" aria-label="Open Weather">
-              <span key={code ?? 'init'} className="weather-icon-mount"><WIcon size={72} /></span>
+              <span key={code ?? 'init'} className="weather-icon-mount"><WIcon size={44} /></span>
             </a>
             <div>
               <div className="weather-hero-temp"><span className="mono">{tempStr}</span></div>
@@ -3204,57 +2336,6 @@ function IntegrationStatusDot({ id, showWhenEmpty = false }) {
       title={title}
       aria-label={`${id} status: ${status.label}`}
     />
-  );
-}
-
-// HoldToggle: safe version of the master power toggle. Normal toggles (turn
-// everything ON) work immediately. The destructive direction (turn everything
-// OFF) requires a 500ms press-and-hold, shown as a red fill animation. This
-// prevents one-handed accidental taps from killing all lights mid-dinner.
-function HoldToggle({ on, onToggle, ariaLabel, holdMs = 500 }) {
-  const [progress, setProgress] = useState(0);
-  const rafRef = useRef(null);
-  const startRef = useRef(null);
-
-  const startHold = (e) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    startRef.current = performance.now();
-    const tick = () => {
-      const elapsed = performance.now() - startRef.current;
-      const pct = Math.min(1, elapsed / holdMs);
-      setProgress(pct);
-      if (pct < 1) {
-        rafRef.current = requestAnimationFrame(tick);
-      } else {
-        setProgress(0);
-        onToggle();
-      }
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  };
-
-  const cancelHold = () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    startRef.current = null;
-    setProgress(0);
-  };
-
-  if (!on) return <Toggle on={on} onToggle={onToggle} ariaLabel={ariaLabel} />;
-
-  return (
-    <button
-      className="hold-btn"
-      onPointerDown={startHold}
-      onPointerUp={cancelHold}
-      onPointerLeave={cancelHold}
-      onPointerCancel={cancelHold}
-      aria-label="Hold to turn all lights off"
-      title="Hold 0.5 s to turn all lights off"
-    >
-      <div className="hold-btn-fill" style={{ transform: `scaleX(${progress})` }} />
-      <I.PowerOff size={16} />
-    </button>
   );
 }
 
@@ -7295,7 +6376,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
   const shellyActive = demoMode || (integrations.config.shelly?.devices?.length ?? 0) > 0;
 
   return (
-    <>
+    <div className="settings-route">
       <Section
         title="Your account"
         source={google?.user ? 'Signed in' : 'Not signed in'}
@@ -7480,7 +6561,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
           </div>
         </div>
       </Section>
-    </>
+    </div>
   );
 }
 
