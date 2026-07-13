@@ -3616,13 +3616,13 @@ function MusicPage({
                         <div className="music-source-name">{f.name}</div>
                         <div className="music-source-sub">{f.sub}</div>
                       </button>
-                      <button className="music-source-rm" onClick={() => removeFav(f.id)} aria-label="Remove">Ã—</button>
+                      <button className="music-source-rm" onClick={() => removeFav(f.id)} aria-label="Remove">×</button>
                     </div>
                   ))}
                 </>
               )}
               {favourites.length === 0 && (
-                <div className="music-empty">â˜… from search results to save here.</div>
+                <div className="music-empty">★ from search results to save here.</div>
               )}
             </div>
           )}
@@ -3748,7 +3748,7 @@ function MusicPage({
                   <div className="np-label">Add to playlist</div>
                   <div className="music-picker-track">{picker.trackName}</div>
                 </div>
-                <button className="music-source-rm" onClick={() => { setPicker(null); setPickerMsg(null); }} aria-label="Close">Ã—</button>
+                <button className="music-source-rm" onClick={() => { setPicker(null); setPickerMsg(null); }} aria-label="Close">×</button>
               </div>
               {pickerMsg && <div className="music-picker-msg">{pickerMsg}</div>}
               <div className="music-picker-list">
@@ -3815,7 +3815,7 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.track(t)}>Play</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: t.id, type: 'track', name: t.name, sub: t.artists?.[0]?.name ?? '' })} title="Save to favourites">â˜…</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: t.id, type: 'track', name: t.name, sub: t.artists?.[0]?.name ?? '' })} title="Save to favourites">★</button>
                 {spotifyOn && (
                   <button className="group-toggle" onClick={() => onAddToPlaylist(t.uri, t.name)} title="Add to a playlist">+</button>
                 )}
@@ -3838,7 +3838,7 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.artist(a)}>Radio</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'artist', name: a.name, sub: 'Artist' })} title="Save artist">â˜…</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'artist', name: a.name, sub: 'Artist' })} title="Save artist">★</button>
               </span>
             </div>
           ))}
@@ -3858,7 +3858,7 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.playlist(p)}>Play</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: p.id, type: 'playlist', name: p.name, sub: `${p.tracks?.total ?? 0} tracks` })} title="Save playlist">â˜…</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: p.id, type: 'playlist', name: p.name, sub: `${p.tracks?.total ?? 0} tracks` })} title="Save playlist">★</button>
               </span>
             </div>
           ))}
@@ -3878,7 +3878,7 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.album(a)}>Play</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'album', name: a.name, sub: a.artists?.[0]?.name ?? '' })} title="Save album">â˜…</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: a.id, type: 'album', name: a.name, sub: a.artists?.[0]?.name ?? '' })} title="Save album">★</button>
               </span>
             </div>
           ))}
@@ -4538,7 +4538,7 @@ function NewsPage() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Brand SVG marks — inline, currentColor, so they inherit glass-card foreground.
-// Kept small (20Ã—20 viewBox / â‰¤5 paths) for crisp rendering at 18–22px.
+// Kept small (20×20 viewBox / ≤5 paths) for crisp rendering at 18–22px.
 // ─────────────────────────────────────────────────────────────────────────────
 function BrandSpotify({ size = 18 }) {
   // Spotify canonical logo: filled circle + 3 horizontal arcs.

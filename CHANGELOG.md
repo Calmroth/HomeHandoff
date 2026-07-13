@@ -21,6 +21,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 - Layout: sidebar grid `minmax(0, 1fr)` stops wide descendants (21-pill room filter) from blowing out the main column into a page-level horizontal scrollbar
 - Music widget: broken cover art falls back to a gradient panel that survives track-change crossfades (state-tracked, not DOM-mutated)
 - Music widget: global keyboard shortcuts no longer double-fire on focused buttons/role="button" elements
+- Music page: repaired reintroduced UTF-8 mojibake (`★`, `×`, `≤` rendered as `â˜…`, `Ã—`, `â‰¤`)
 
 ### Changed
 - Wi-Fi pill: quiet chrome by default (10px muted, no surface); becomes a loud destructive alarm chip only on network loss
