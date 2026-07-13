@@ -40,6 +40,29 @@ function useRafLoop(cb) {
   }, []);
 }
 
+/* ------------------------------------------------ usePrefersReducedMotion */
+// Reactive — flips when the OS setting changes mid-session. Honored by Disc
+// and ScalesMixer to freeze continuous motion even while audio is playing.
+function usePrefersReducedMotion() {
+  const get = () =>
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const [reduced, setReduced] = useState(get);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (e) => setReduced(e.matches);
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else mq.addListener(onChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+      else mq.removeListener(onChange);
+    };
+  }, []);
+  return reduced;
+}
+
 /* --------------------------------------------------- useTransitionSound */
 
 function useTransitionSound() {
@@ -198,6 +221,10 @@ function useAudioPlayer(tracks) {
   const audioRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  // Error chip: shown when play() rejects (404, CORS, codec, user-gesture
+  // policy, etc.). Auto-cleared by the audio's onPlay handler when a future
+  // play succeeds, and on track change.
+  const [playError, setPlayError] = useState(null);
 
   const [state, dispatch] = useReducer(reducer, {
     currentIndex: 0,
@@ -211,6 +238,18 @@ function useAudioPlayer(tracks) {
   const { getFrequencyData, getBandEnergy } = useAudioAnalyser(audioRef);
   const playTransitionSound = useTransitionSound();
 
+  const safePlay = useCallback((audio) => {
+    audio.play().catch((err) => {
+      const name = err && err.name ? err.name : 'PlaybackError';
+      const map = {
+        NotAllowedError: 'Tap play once — browser blocked auto-start.',
+        NotSupportedError: 'Track format not supported.',
+        AbortError: 'Playback aborted.',
+      };
+      setPlayError(map[name] || 'Playback failed.');
+    });
+  }, []);
+
   const loadTrack = useCallback(
     (index, autoplay, direction) => {
       const audio = audioRef.current;
@@ -218,19 +257,20 @@ function useAudioPlayer(tracks) {
       const bassEnergy = getBandEnergy(0, 4);
       playTransitionSound(bassEnergy);
       dispatch({ type: 'SET_TRACK', index, direction });
+      setPlayError(null);
       audio.src = tracks[index].src;
       audio.load();
-      if (autoplay) audio.play().catch(() => {});
+      if (autoplay) safePlay(audio);
     },
-    [tracks, playTransitionSound, getBandEnergy],
+    [tracks, playTransitionSound, getBandEnergy, safePlay],
   );
 
   const toggle = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) audio.play().catch(() => {});
+    if (audio.paused) safePlay(audio);
     else audio.pause();
-  }, []);
+  }, [safePlay]);
 
   const next = useCallback(() => {
     const audio = audioRef.current;
@@ -284,7 +324,7 @@ function useAudioPlayer(tracks) {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onPlay = () => dispatch({ type: 'PLAY' });
+    const onPlay = () => { dispatch({ type: 'PLAY' }); setPlayError(null); };
     const onPause = () => dispatch({ type: 'PAUSE' });
     const onLoadedMetadata = () => setDuration(audio.duration);
     const onTimeUpdate = () => {
@@ -294,22 +334,25 @@ function useAudioPlayer(tracks) {
     const onEnded = () => {
       if (state.loopMode === 'one') {
         audio.currentTime = 0;
-        audio.play().catch(() => {});
+        safePlay(audio);
       } else next();
     };
+    const onAudioError = () => setPlayError('Track failed to load.');
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onAudioError);
     return () => {
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onAudioError);
     };
-  }, [state.loopMode, next]);
+  }, [state.loopMode, next, safePlay]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -331,6 +374,8 @@ function useAudioPlayer(tracks) {
     toggleShuffle,
     cycleLoop,
     getFrequencyData,
+    playError,
+    clearPlayError: () => setPlayError(null),
   };
 }
 
@@ -339,7 +384,14 @@ function useAudioPlayer(tracks) {
 function useKeyboardShortcuts(actions) {
   useEffect(() => {
     const handler = (e) => {
-      if (e.target.tagName === 'INPUT') return;
+      const t = e.target;
+      // Bail when focus is on a form field or any button-like element. The
+      // disc (role="button") and the control buttons handle their own Space
+      // / Enter; we must not also toggle global shortcuts on top of them.
+      if (!t || !t.tagName) return;
+      const tag = t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (tag === 'BUTTON' || t.getAttribute('role') === 'button') return;
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -417,8 +469,12 @@ function ScalesMixer({ isPlaying, getFrequencyData }) {
   const colRefs = useRef([]);
   const circleRefs = useRef(Array.from({ length: COLS }, () => []));
   const tRef = useRef(50);
+  const reducedMotion = usePrefersReducedMotion();
 
   useRafLoop((_, dt) => {
+    // Reduced motion: freeze the mixer at its current frame. The grid still
+    // renders; we just stop advancing time and gain.
+    if (reducedMotion) return;
     if (isPlaying) tRef.current += dt / 1000;
     const time = tRef.current;
     const freqData = getFrequencyData?.();
@@ -503,6 +559,11 @@ function Disc({
   const velRef = useRef(0);
   const burstRef = useRef({ from: 0, start: 0, active: false, pending: false });
   const lastKey = useRef(trackKey);
+  const reducedMotion = usePrefersReducedMotion();
+  // Cover URLs that failed to load, tracked as React state (NOT a DOM
+  // classList hack -- React owns className and would wipe a manually added
+  // class when the layer flips enter->exit on the next track change).
+  const [brokenCovers, setBrokenCovers] = useState(() => new Set());
 
   useEffect(() => {
     if (trackKey !== lastKey.current) {
@@ -517,6 +578,17 @@ function Disc({
   useRafLoop((now) => {
     const el = spinRef.current;
     if (!el) return;
+    // Reduced motion: parked disc, no spin, no burst on track change. The
+    // cover crossfade is keyframe-driven and already opted-out via the CSS
+    // @media (prefers-reduced-motion: reduce) rule in musicPlayerWidget.css.
+    if (reducedMotion) {
+      velRef.current = 0;
+      rotRef.current = 0;
+      burstRef.current.active = false;
+      burstRef.current.pending = false;
+      el.style.transform = 'scale(1.01) rotate(0deg)';
+      return;
+    }
     if (isPlaying) velRef.current += (SPIN_MAX - velRef.current) * 0.2;
     else {
       velRef.current *= 0.96;
@@ -547,9 +619,20 @@ function Disc({
   return (
     <div
       className={`mpw-mask ${isZoomed ? 'is-zoomed' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isZoomed}
+      aria-label={isZoomed ? 'Exit zoom' : 'Zoom cover'}
       onClick={(e) => {
         e.stopPropagation();
         onZoomToggle();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          onZoomToggle();
+        }
       }}
     >
       <div className="mpw-spin" ref={spinRef}>
@@ -560,6 +643,19 @@ function Disc({
               ? 'mpw-cover mpw-cover-enter'
               : 'mpw-cover'
             : 'mpw-cover mpw-cover-exit';
+          // Broken cover: render a gradient <div> instead of the <img>.
+          // Same key keeps reconciliation stable; a div (unlike a src-less
+          // img) never shows Firefox's inline alt-text artifact.
+          if (brokenCovers.has(l.track.cover)) {
+            return (
+              <div
+                key={l.id}
+                role="img"
+                aria-label={`${l.track.title} -- ${l.track.artist}`}
+                className={`${cls} mpw-cover-fallback`}
+              />
+            );
+          }
           return (
             <img
               key={l.id}
@@ -567,6 +663,14 @@ function Disc({
               alt={`${l.track.title} -- ${l.track.artist}`}
               className={cls}
               draggable={false}
+              onError={() => {
+                setBrokenCovers(prev => {
+                  if (prev.has(l.track.cover)) return prev;
+                  const next = new Set(prev);
+                  next.add(l.track.cover);
+                  return next;
+                });
+              }}
             />
           );
         })}
@@ -652,7 +756,8 @@ function Controls({
       <button
         className={`mpw-ctrl mpw-ctrl-toggle ${shuffled ? 'is-active' : ''}`}
         onClick={onShuffle}
-        aria-label="Shuffle"
+        aria-pressed={shuffled}
+        aria-label={`Shuffle, currently ${shuffled ? 'on' : 'off'}`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -702,7 +807,8 @@ function Controls({
           loopMode !== 'off' ? 'is-active' : ''
         } ${loopMode === 'one' ? 'mode-one' : ''}`}
         onClick={onLoop}
-        aria-label="Loop"
+        aria-pressed={loopMode !== 'off'}
+        aria-label={`Loop, currently ${loopMode}`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -728,6 +834,21 @@ function Controls({
 /* ----------------------------------------------------- MusicPlayer root */
 
 export function MusicPlayer({ tracks, crossOrigin }) {
+  // Hard prop invariant. The reducer state and the layer initializer both
+  // deref tracks[0] synchronously, so an empty array can't be deferred to a
+  // useEffect — bail early before any hook reads it.
+  if (!tracks || tracks.length === 0) {
+    return (
+      <div className="mpw-card mpw-card-empty" role="status">
+        <p className="mpw-empty-title">No tracks</p>
+        <p className="mpw-empty-sub">Pass a non-empty <code>tracks</code> array.</p>
+      </div>
+    );
+  }
+  return <MusicPlayerInner tracks={tracks} crossOrigin={crossOrigin} />;
+}
+
+function MusicPlayerInner({ tracks, crossOrigin }) {
   const player = useAudioPlayer(tracks);
   const [isZoomed, setIsZoomed] = useState(false);
 
@@ -819,6 +940,17 @@ export function MusicPlayer({ tracks, crossOrigin }) {
           duration={player.duration}
           onSeek={player.seek}
         />
+        {player.playError && (
+          <div className="mpw-error" role="alert">
+            <span className="mpw-error-msg">{player.playError}</span>
+            <button
+              type="button"
+              className="mpw-error-dismiss"
+              onClick={player.clearPlayError}
+              aria-label="Dismiss error"
+            >×</button>
+          </div>
+        )}
         <Controls
           isPlaying={player.state.isPlaying}
           shuffled={player.state.shuffled}

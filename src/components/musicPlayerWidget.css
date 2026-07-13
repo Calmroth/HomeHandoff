@@ -43,6 +43,34 @@
     0 28px 56px -14px oklch(0 0 0 / 0.55);
 }
 
+/* Empty state -- shown when tracks={[]} */
+.mpw-card-empty {
+  min-height: 180px;
+  justify-content: center;
+  gap: 6px;
+}
+.mpw-empty-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+.mpw-empty-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.mpw-empty-sub code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: color-mix(in oklch, var(--clay-50) 6%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 /* ---------- disc + cover --------------------------------------------- */
 
 .mpw-mask {
@@ -58,6 +86,10 @@
     0 12px 24px -8px oklch(0 0 0 / 0.5);
   transition: transform var(--motion-duration-base) var(--motion-ease-out-quart);
   flex-shrink: 0;
+}
+.mpw-mask:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
 }
 .mpw-mask.is-zoomed {
   transform: scale(1.04);
@@ -85,6 +117,16 @@
 }
 .mpw-cover-exit {
   animation: mpw-cover-out 560ms var(--motion-ease-out-quart) both;
+}
+
+/* onError fallback. Mirrors the .np-art radial pattern from tokens.css.
+   The <img> stays mounted with its src removed so React keys stay stable
+   and alt text remains in the a11y tree. */
+.mpw-cover-fallback {
+  background:
+    radial-gradient(circle at 30% 30%, var(--amber-400) 0%, transparent 60%),
+    radial-gradient(circle at 70% 70%, var(--amber-600) 0%, transparent 65%),
+    linear-gradient(135deg, var(--clay-700), var(--clay-900));
 }
 
 @keyframes mpw-cover-in {
@@ -222,7 +264,7 @@
   justify-content: space-between;
   align-items: center;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
   letter-spacing: 0.04em;
@@ -230,13 +272,53 @@
 }
 .mpw-time-sep { opacity: 0.4; }
 
+/* Play-error chip. Appears between the time row and the controls when
+   audio.play() rejects, the <audio> emits an error event, or any error-
+   surface state is set on the player hook. Auto-clears on the next
+   successful play, on track change, or on user dismiss. */
+.mpw-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--destructive) 14%, var(--clay-850));
+  border: 1px solid color-mix(in oklch, var(--destructive) 45%, transparent);
+  border-radius: 6px;
+}
+.mpw-error-msg { flex: 1; min-width: 0; }
+.mpw-error-dismiss {
+  width: 20px; height: 20px;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color var(--motion-duration-fast), background var(--motion-duration-fast);
+}
+.mpw-error-dismiss:hover {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--clay-50) 8%, transparent);
+}
+.mpw-error-dismiss:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* ---------- controls -------------------------------------------------- */
 
 .mpw-controls {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 14px;
   margin-top: 6px;
 }
 .mpw-ctrl {
@@ -271,10 +353,11 @@
 }
 
 .mpw-ctrl-play {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   background: var(--foreground);
   color: var(--clay-900);
+  box-shadow: 0 4px 12px -2px color-mix(in oklch, var(--foreground) 35%, transparent);
 }
 .mpw-ctrl-play:hover {
   background: var(--foreground);
