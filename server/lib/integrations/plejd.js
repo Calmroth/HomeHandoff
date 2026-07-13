@@ -837,6 +837,11 @@ export function startPlejdPoller(hub, {
       if (rejected.length) {
         console.error(`[hub:plejd] room ${roomId} fan-out: ${rejected.length}/${devIds.length} devices failed`,
           rejected.map(r => r.reason?.message).join(', '));
+        // Session death fails the whole room at once — make it actionable.
+        if (rejected.some(r => r.reason?.status === 401 || r.reason?.status === 209 || /invalid session/i.test(r.reason?.message || ''))) {
+          sessionToken = null;
+          hub.pushError('plejd', 'Plejd session expired — sign in again from Settings');
+        }
       } else {
         console.log(`[hub:plejd] room ${roomId} fan-out: ${devIds.length} devices ok`);
       }
@@ -915,6 +920,12 @@ export function startPlejdPoller(hub, {
           d.isOn = prevIsOn;
           d.dim  = prevDim;
           broadcastFromMap();
+        }
+        // Expired Parse session (209/401): every command bounces instantly.
+        // Null the token and tell the browser exactly what to do.
+        if (e.status === 401 || e.status === 209 || /invalid session/i.test(e.message)) {
+          sessionToken = null;
+          hub.pushError('plejd', 'Plejd session expired — sign in again from Settings');
         }
         console.error(`[hub:plejd] cloud command failed for ${cloudObjectId}: ${e.message}`);
         throw e;

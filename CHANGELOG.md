@@ -8,6 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 ### Added
 - Sonos Cloud integration (official Control API, OAuth on the hub): real speaker grouping — "Group all" is party mode via `setGroupMembers`, per-player volume, play/pause per group. Sign in from Settings → Sonos; the client secret never reaches the browser. Tokens persist in gitignored `server/sonos-tokens.json`
 - Speaker source priority: healthy LAN bridge > Sonos Cloud > Spotify Connect > UPnP — a dead bridge no longer blocks the fallbacks
+- Hide speakers: × on any speaker card removes ghost devices (old phones, TVs) from the dashboard; per-browser, restorable via "N hidden — show"
+- Header on Music page shows WHICH speaker is playing ("Streaming to Living room")
+- Plejd toggle bounce-back is now diagnosable: failed hub commands surface on the integration dot (command_result was silently dropped), and an expired Plejd session (Parse 209) clears itself with "sign in again in Settings" instead of reverting every toggle with a cryptic message
 - Music widget: playback-error chip with dismiss button — surfaces `play()` rejections (autoplay policy, unsupported codec, 404) instead of failing silently
 - Music widget: empty state when `tracks` is empty, instead of crashing on `tracks[0]`
 - Music widget: `prefers-reduced-motion` support — disc parks, scales mixer freezes, reactive to OS setting changes mid-session

@@ -1,4 +1,4 @@
-﻿// Home Domain — Home control surface: Lights, Power, Sound.
+// Home Domain — Home control surface: Lights, Power, Sound.
 // Match DESIGN.md exactly: dark, clay/amber, flat translucent cards, 2px stack.
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -625,6 +625,13 @@ function App() {
     }, []),
     onError: useCallback((integration, message) => {
       console.warn(`[hub:${integration || 'general'}]`, message);
+    }, []),
+    onCommandResult: useCallback((msg) => {
+      if (msg.ok) return;
+      // A failed hub command is why a card "bounces back" -- surface it.
+      console.warn(`[hub:${msg.integration}] ${msg.action} failed:`, msg.error);
+      const statusKey = msg.integration === 'sonos-cloud' ? 'sonos' : msg.integration;
+      useHomeStore.getState().markFailed(statusKey, `${msg.action}: ${String(msg.error || 'command failed').slice(0, 80)}`);
     }, []),
   });
 
@@ -1404,6 +1411,25 @@ function App() {
     [speakers]
   );
 
+  // Speakers the user has hidden (ghost Connect devices, dead zones).
+  // Persisted per-browser. Hiding is control-surface-only -- the device stays
+  // available to Spotify/Sonos and can be restored with one tap.
+  const [hiddenSpeakerIds, setHiddenSpeakerIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('hdg-hidden-speakers') || '[]')); }
+    catch (e) { return new Set(); }
+  });
+  const hideSpeaker = useCallback((id) => {
+    setHiddenSpeakerIds(prev => {
+      const next = new Set(prev); next.add(id);
+      try { localStorage.setItem('hdg-hidden-speakers', JSON.stringify([...next])); } catch (e) {}
+      return next;
+    });
+  }, []);
+  const unhideAllSpeakers = useCallback(() => {
+    setHiddenSpeakerIds(new Set());
+    try { localStorage.removeItem('hdg-hidden-speakers'); } catch (e) {}
+  }, []);
+
   // Merge live speakers (Sonos bridge / Spotify Connect) with any discovered
   // speakers the user has assigned to the Music page. Discovered entries that
   // already appear in the live list (same id) are skipped to avoid duplicates.
@@ -1426,8 +1452,14 @@ function App() {
         _discovered: true, _protocol: d.protocol,
         _entityId: d.entityId, _ip: d.ip,
       }));
-    return [...speakers, ...discovered];
-  }, [speakers, integrations.config.discovered?.devices]);
+    return [...speakers, ...discovered].filter(s => !hiddenSpeakerIds.has(s.id));
+  }, [speakers, integrations.config.discovered?.devices, hiddenSpeakerIds]);
+
+  // Header caption: which speaker is actually playing right now.
+  const playingSpeakerName =
+    effectiveSpeakers.find(s => s.on && s.primary)?.name
+    ?? effectiveSpeakers.find(s => s.on)?.name
+    ?? null;
   const totalW = Math.round(litWatts + outletWatts + speakerWatts);
 
   // Clear active scene whenever the user adjusts anything manually — the
@@ -1453,6 +1485,21 @@ function App() {
     if (hubConnected) hubCommand('plejd', 'activateScene', { sceneId });
     logActivity('scene', `Scene **${title}** activated`);
   }, [hubConnected, hubCommand, logActivity]);
+
+  // Plejd session-expiry detector. Parse sessions die (code 209 "invalid
+  // session token"); every command then fails instantly and the optimistic
+  // toggle bounces straight back to off with a cryptic message. Detect it,
+  // clear the dead session, and tell the user exactly what to do.
+  const plejdAuthFail = (e) => {
+    const msg = String(e?.message || e || '');
+    if (!/209|invalid session|unauthorized|401/i.test(msg)) return false;
+    integrations.setIntegration('plejd', {
+      cloudSession: '', cloudUserId: '', cloudEmail: '', cloudSiteId: '', cloudSiteTitle: '',
+    });
+    useHomeStore.getState().markFailed('plejd', 'Plejd session expired — sign in again in Settings.');
+    logActivity('light', '**Plejd session expired** — sign in again in Settings');
+    return true;
+  };
 
   // Light handlers — optimistic local update + real Plejd call when configured.
   // Hub path routes through the server (no CORS, all tabs see the update).
@@ -1495,6 +1542,7 @@ function App() {
         .catch(e => {
           setCardFailed(r.id, () => toggleRoom(id));
           setRooms(rs => rs.map(rr => rr.id === id ? { ...rr, on: !next } : rr));
+          if (plejdAuthFail(e)) return; // expired session: clearer message + config reset
           logActivity('light', `**Needs Plejd Hub** — toggle reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud control needs a Plejd Hub. Discovery still works.' });
         });
@@ -1523,6 +1571,7 @@ function App() {
       Promise.all(devs.map(d => plejdSetDeviceState({ sessionToken: cfg.cloudSession, siteId: cfg.cloudSiteId, deviceId: d.id, on: b > 0, dim: dim255 })))
         .catch(e => {
           setCardFailed(r.id);
+          if (plejdAuthFail(e)) return;
           logActivity('light', `**Needs Plejd Hub** — dim reverted (${String(e.message || e).slice(0, 40)})`);
           useHomeStore.getState().setStatus('plejd', { detail: 'Cloud dim needs a Plejd Hub.' });
         });
@@ -1861,6 +1910,7 @@ function App() {
             musicSub={musicNowSub}
             onOpenMusic={() => navigate('music')}
             user={google.user}
+            playingSpeaker={playingSpeakerName}
           />
           <EnvSeedPrompt
             items={pendingEnvCreds}
@@ -1887,6 +1937,7 @@ function App() {
               expandedRooms={expandedRooms} toggleRoomExpand={toggleRoomExpand}
               toggleOutlet={toggleOutlet}
               toggleSpeaker={toggleSpeaker} setVolume={setVolume}
+              hideSpeaker={hideSpeaker} hiddenSpeakerCount={hiddenSpeakerIds.size} unhideAllSpeakers={unhideAllSpeakers}
               activeScene={activeScene} activeSceneAt={activeSceneAt} now={now}
               applyScene={applyScene} breakScene={breakScene}
               plejdScenes={plejdScenes} activatePlejdScene={activatePlejdScene}
@@ -1909,6 +1960,7 @@ function App() {
               speakers={effectiveSpeakers}
               toggleSpeaker={toggleSpeaker}
               setVolume={setVolume}
+              hideSpeaker={hideSpeaker}
               musicSource={musicSource}
               pickCurated={pickCurated}
               musicCustom={musicCustom}
@@ -1987,6 +2039,7 @@ function HomePage({
   expandedRooms = new Set(), toggleRoomExpand,
   toggleOutlet,
   toggleSpeaker, setVolume,
+  hideSpeaker, hiddenSpeakerCount = 0, unhideAllSpeakers,
   activeScene, activeSceneAt, now,
   applyScene, breakScene,
   plejdScenes = [], activatePlejdScene,
@@ -2143,11 +2196,16 @@ function HomePage({
         {speakers.length ? (
           <div className="speaker-grid">
             {speakers.map(sp => (
-              <SpeakerCard key={sp.id} speaker={sp} onToggle={() => toggleSpeaker(sp.id)} onVolume={(v) => setVolume(sp.id, v)} />
+              <SpeakerCard key={sp.id} speaker={sp} onToggle={() => toggleSpeaker(sp.id)} onVolume={(v) => setVolume(sp.id, v)} onHide={hideSpeaker ? () => hideSpeaker(sp.id) : undefined} />
             ))}
           </div>
         ) : (
           <EmptyIntegration title="No speakers found" sub="Add a Sonos bridge URL in Settings → Integrations." />
+        )}
+        {hiddenSpeakerCount > 0 && (
+          <button className="group-toggle" style={{ marginTop: 8 }} onClick={unhideAllSpeakers}>
+            {hiddenSpeakerCount} hidden speaker{hiddenSpeakerCount > 1 ? 's' : ''} — show
+          </button>
         )}
       </Section>
 
@@ -2244,7 +2302,7 @@ function SensorsSection() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Pieces
 // ─────────────────────────────────────────────────────────────────────────────
-function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, city, route, playback, togglePlay, seekRel, oembed, musicLabel, musicSub, onOpenMusic, user }) {
+function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, city, route, playback, togglePlay, seekRel, oembed, musicLabel, musicSub, onOpenMusic, user, playingSpeaker }) {
   const lanLost = useHomeStore(s => s.lanLost);
   const greeting = (() => {
     const h = now.getHours();
@@ -2265,7 +2323,7 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
   const subByRoute = {
     home:     `${onCount} rooms lit · ${totalW} W now`,
     rooms:    `Lights · ${onCount} on now`,
-    music:    `Streaming to home · ${deviceCount} devices online`,
+    music:    `Streaming to ${playingSpeaker || 'home'} · ${deviceCount} devices online`,
     energy:   `${totalW} W now · live`,
     weather:  `${condLabel} · ${city}`,
     news:     `Sveriges Radio · TT`,
@@ -2924,7 +2982,7 @@ function NowPlaying({ speakers, onCastToggle, spotify, hideNavActions }) {
   );
 }
 
-function SpeakerCard({ speaker, onToggle, onVolume }) {
+function SpeakerCard({ speaker, onToggle, onVolume, onHide }) {
   return (
     <div className="speaker" data-on={speaker.on}>
       <div className="speaker-head">
@@ -2934,14 +2992,24 @@ function SpeakerCard({ speaker, onToggle, onVolume }) {
             {speaker.on ? (
               speaker.source || 'Playing'
             ) : speaker.paused && speaker.source ? (
-              <><span style={{ opacity: 0.5, marginRight: 4 }}>â¸</span>{speaker.source}</>
+              <><span style={{ opacity: 0.5, marginRight: 4 }}>⏸</span>{speaker.source}</>
             ) : (
               'Off'
             )}
             {speaker.primary && <span style={{ marginLeft: 8, color: 'var(--primary)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em' }}>Lead</span>}
           </div>
         </div>
-        <Toggle on={speaker.on} onToggle={onToggle} ariaLabel={speaker.on ? `Turn off ${speaker.name}` : `Turn on ${speaker.name}`} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {onHide && (
+            <button
+              className="music-source-rm"
+              onClick={onHide}
+              title={`Hide ${speaker.name} from this dashboard`}
+              aria-label={`Hide ${speaker.name}`}
+            >×</button>
+          )}
+          <Toggle on={speaker.on} onToggle={onToggle} ariaLabel={speaker.on ? `Turn off ${speaker.name}` : `Turn on ${speaker.name}`} />
+        </span>
       </div>
 
       <div className="speaker-vol-row">
@@ -3451,7 +3519,7 @@ const spImg = (item) => item?.images?.[item.images.length - 1]?.url
   ?? null;
 
 function MusicPage({
-  speakers, toggleSpeaker, setVolume,
+  speakers, toggleSpeaker, setVolume, hideSpeaker,
   musicSource, pickCurated, musicCustom, playSpotify,
   spotify, favourites, addFav, removeFav, musicNowLabel, navigate,
 }) {
@@ -3844,6 +3912,7 @@ function MusicPage({
                   speaker={sp}
                   onToggle={() => toggleSpeaker(sp.id)}
                   onVolume={(v) => setVolume(sp.id, v)}
+                  onHide={hideSpeaker ? () => hideSpeaker(sp.id) : undefined}
                 />
               ))}
             </div>

@@ -45,6 +45,7 @@ function backoff(attempt) {
  *   onScanProgress?: (done: number, total: number) => void,
  *   onScanDone?:     (count: number) => void,
  *   onError?:        (integration: string|undefined, message: string) => void,
+ *   onCommandResult?: (msg: { integration: string, action: string, ok: boolean, result?: unknown, error?: string }) => void,
  *   enabled?:        boolean,
  * }} opts
  */
@@ -55,6 +56,7 @@ export function useWebSocketHub({
   onScanProgress,
   onScanDone,
   onError,
+  onCommandResult,
   enabled = true,
 } = {}) {
   const [connected, setConnected] = useState(false);
@@ -67,7 +69,7 @@ export function useWebSocketHub({
   // Keep all handlers in a ref — callers can pass inline functions without
   // causing the WebSocket to reconnect on every render.
   const handlersRef = useRef({});
-  handlersRef.current = { onSnapshot, onDeviceUpdate, onScanResult, onScanProgress, onScanDone, onError };
+  handlersRef.current = { onSnapshot, onDeviceUpdate, onScanResult, onScanProgress, onScanDone, onError, onCommandResult };
 
   const _clearTimers = useCallback(() => {
     clearTimeout(timerRef.current);
@@ -119,7 +121,13 @@ export function useWebSocketHub({
         case 'error':
           h.onError?.(msg.integration, msg.message);
           break;
-        // pong / command_result — ignored by the hook; callers can use onMessage
+        case 'command_result':
+          // Surfaced so the UI can react to failed commands -- a silently
+          // dropped ok:false is how "toggle bounces back with no message"
+          // bugs are born.
+          h.onCommandResult?.(msg);
+          break;
+        // pong — ignored by the hook
         default:
           break;
       }
