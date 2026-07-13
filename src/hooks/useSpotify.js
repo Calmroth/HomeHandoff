@@ -124,6 +124,9 @@ export function useSpotify() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const err  = params.get('error');
+    // Sonos OAuth shares this origin and also returns ?code= -- its state
+    // param is prefixed so we can tell the flows apart. Not ours: skip.
+    if ((params.get('state') || '').startsWith('hdg-sonos')) return;
     if (err) { setError(`Spotify denied: ${err}`); return; }
     if (!code) return;
     if (exchangeStarted.current) return;

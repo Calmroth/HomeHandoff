@@ -97,6 +97,25 @@ async function sonosCmd({ url }, room, command, ...args) {
   return r.json();
 }
 
+// Hub REST /command — for one-shot calls that need the RESULT back (the
+// WebSocket sendCommand is fire-and-forget). Used by OAuth handshakes where
+// the hub returns an authorize URL or exchange confirmation.
+const HUB_HTTP = ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_HUB_URL) || 'ws://localhost:3001')
+  .replace(/^ws/, 'http');
+async function hubRest(integration, action, params) {
+  const r = await fetch(`${HUB_HTTP}/command`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Hub-Secret': (typeof import.meta !== 'undefined' && import.meta.env?.VITE_HUB_SECRET) || '',
+    },
+    body: JSON.stringify({ integration, action, params }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.ok === false) throw new Error(j.error || `hub ${r.status}`);
+  return j.result;
+}
+
 // Tibber — GraphQL. Today's hourly spot prices for the user's first home.
 async function fetchTibberPrices(token) {
   const query = `{ viewer { homes { currentSubscription { priceInfo { today { total startsAt } } } } } }`;
@@ -703,6 +722,47 @@ function App() {
 
   const [plejdErr, setPlejdErr] = useState(null);
   const [sonosErr, setSonosErr] = useState(null);
+  // Sonos Cloud payload from the hub: { authorized, players, groups, speakers }
+  const [sonosCloud, setSonosCloud] = useState(null);
+
+  // Seed Sonos Cloud state from the connect snapshot (device_update only
+  // fires on changes after connect).
+  useEffect(() => {
+    if (hubConnected && hubStateRef.current.sonos_cloud) {
+      setSonosCloud(hubStateRef.current.sonos_cloud);
+    }
+  }, [hubConnected]);
+
+  // Sonos OAuth callback — Sonos redirects back with ?code&state=hdg-sonos-*.
+  // Same two rules as the Spotify exchange: ref-guard against StrictMode
+  // double-invoke, and strip the single-use code from the URL BEFORE the
+  // exchange. Difference: the exchange happens on the HUB (client_secret
+  // lives there), so we wait for hubConnected before handing the code over.
+  const sonosExchangeStarted = useRef(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code  = params.get('code');
+    const state = params.get('state') || '';
+    if (!code || !state.startsWith('hdg-sonos')) return;
+    if (!hubConnected) return; // keep code until the hub is reachable
+    if (sonosExchangeStarted.current) return;
+    sonosExchangeStarted.current = true;
+    window.history.replaceState({}, '', window.location.origin + window.location.pathname + '#music');
+    hubRest('sonos-cloud', 'exchangeCode', { code, state })
+      .then(() => useHomeStore.getState().markOk('sonos', 'Sonos account connected'))
+      .catch(e => useHomeStore.getState().markFailed('sonos', String(e.message || e)));
+  }, [hubConnected]);
+
+  // Sonos Cloud speakers take over when authorized — unless a HEALTHY LAN
+  // bridge is serving richer data (track titles). Priority:
+  // healthy bridge > Sonos Cloud > Spotify Connect > UPnP.
+  useEffect(() => {
+    if (demoMode) return;
+    if (integrations.config.sonos?.url && !sonosErr) return;
+    if (!sonosCloud?.authorized || !sonosCloud.speakers?.length) return;
+    setSpeakers(sonosCloud.speakers);
+    useHomeStore.getState().markOk('sonos', `${sonosCloud.speakers.length} via Sonos Cloud`);
+  }, [sonosCloud, sonosErr, demoMode]); // eslint-disable-line react-hooks/exhaustive-deps
   // newsTab state is managed locally in NewsPage
   // Weather is fetched live from open-meteo. `weatherData` holds the full
   // response (current/hourly/daily); `weather` is the derived bucket used by
@@ -733,6 +793,9 @@ function App() {
         break;
       case 'sonos':
         if (!demoMode) setSpeakers(payload);
+        break;
+      case 'sonos_cloud':
+        if (!demoMode) setSonosCloud(payload);
         break;
       case 'shelly':
         if (!demoMode) setOutlets(prev => {
@@ -1200,6 +1263,7 @@ function App() {
     // fallback permanently -- speakers went stale with no path to control
     // them even though Spotify Connect could see every Sonos zone.
     if (integrations.config.sonos?.url && !sonosErr) return;
+    if (sonosCloud?.authorized && sonosCloud.speakers?.length) return; // cloud outranks Connect
     if (!spotify.token) return;
     if (!spotify.devices?.length) return;
     const mapped = spotify.devices.map(d => ({
@@ -1217,7 +1281,7 @@ function App() {
     }));
     setSpeakers(mapped);
     useHomeStore.getState().markOk('sonos', `${mapped.length} via Spotify Connect`);
-  }, [spotify.token, spotify.devices, integrations.config.sonos?.url, sonosErr, demoMode]);
+  }, [spotify.token, spotify.devices, integrations.config.sonos?.url, sonosErr, sonosCloud, demoMode]);
 
   // Poll discovered Sonos speakers directly via UPnP (no bridge configured).
   // Runs parallel to the Spotify Connect path; bridge URL wins when present.
@@ -1631,6 +1695,11 @@ function App() {
       });
       return;
     }
+    // Sonos Cloud path — play/pause acts on the speaker's GROUP.
+    if (s._sonosCloud && s._groupId && hubConnected) {
+      hubCommand('sonos-cloud', next ? 'play' : 'pause', { groupId: s._groupId });
+      return;
+    }
     // Hub path for Sonos speakers (hub-sourced rooms have _room or _zone).
     if (hubConnected && s._room) {
       hubCommand('sonos', next ? 'play' : 'pause', { room: s._room });
@@ -1656,6 +1725,11 @@ function App() {
       spotify.setDeviceVolume(id, v).catch(e => logActivity('speaker', `Spotify volume: ${e.message || e}`));
       return;
     }
+    // Sonos Cloud path — per-player volume (grouping-aware).
+    if (s._sonosCloud && hubConnected) {
+      hubCommand('sonos-cloud', 'playerVolume', { playerId: id, volume: Math.round(v) });
+      return;
+    }
     // Hub path for Sonos volume.
     if (hubConnected && s._room) {
       hubCommand('sonos', 'volume', { room: s._room, value: Math.round(v) });
@@ -1672,8 +1746,9 @@ function App() {
     }
   };
   // Group all: ON groups every speaker to the lead room and turns them on;
-  // OFF restores each speaker to "Standalone" (we don't remember prior sources
-  // — keeping the model simple. Future: stash sources per-speaker on group).
+  // OFF restores each speaker to standalone. When Sonos Cloud is authorized
+  // this is REAL grouping via the Control API (createGroup/setGroupMembers on
+  // the hub); otherwise it stays the optimistic local-state version.
   const setGroup = () => {
     const next = !groupAll;
     setGroupAll(next);
@@ -1681,6 +1756,11 @@ function App() {
       ? { ...s, on: true, source: s.primary ? 'Now playing' : 'Living room' }
       : { ...s, source: s.primary ? 'Now playing' : 'Standalone' }
     ));
+    if (sonosCloud?.authorized && hubConnected) {
+      hubCommand('sonos-cloud', next ? 'groupAll' : 'ungroupAll', {});
+      logActivity('speaker', next ? 'Sonos: **party mode** — all speakers grouped' : 'Sonos: speakers **ungrouped**');
+      return;
+    }
     logActivity('speaker', next ? 'Speakers **grouped** to lead room' : 'Speakers **ungrouped**');
   };
 
@@ -5843,6 +5923,27 @@ function SonosConfig({ integrations }) {
             Disconnect
           </button>
         )}
+      </div>
+
+      {/* Official Sonos account (hub OAuth) — real grouping, no LAN bridge */}
+      <div>
+        <label className="catalog-label">Sonos account (grouping)</label>
+        <p className="catalog-help">
+          Sign in with your Sonos account for real speaker grouping and
+          per-speaker volume. The sign-in completes on the hub — this browser
+          never sees the app secret. No bridge process needed.
+        </p>
+        <button
+          className="group-toggle"
+          data-active="true"
+          onClick={() => {
+            hubRest('sonos-cloud', 'beginAuth', {})
+              .then(r => { if (r?.url) window.location.href = r.url; })
+              .catch(e => setTestResult({ ok: false, error: `Sonos sign-in: ${String(e.message || e)} — is the hub running?` }));
+          }}
+        >
+          Sign in with Sonos
+        </button>
       </div>
     </div>
   );

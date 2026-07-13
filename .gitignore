@@ -49,3 +49,5 @@ impeccable_stderr.txt
 
 # Runtime state -- hub persists/restores this itself; committing it is churn
 server/hub-state.json
+# Sonos OAuth tokens -- secrets, hub-local only
+server/sonos-tokens.json

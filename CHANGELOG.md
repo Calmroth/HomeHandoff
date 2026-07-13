@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 ## [Unreleased]
 
 ### Added
+- Sonos Cloud integration (official Control API, OAuth on the hub): real speaker grouping — "Group all" is party mode via `setGroupMembers`, per-player volume, play/pause per group. Sign in from Settings → Sonos; the client secret never reaches the browser. Tokens persist in gitignored `server/sonos-tokens.json`
+- Speaker source priority: healthy LAN bridge > Sonos Cloud > Spotify Connect > UPnP — a dead bridge no longer blocks the fallbacks
 - Music widget: playback-error chip with dismiss button — surfaces `play()` rejections (autoplay policy, unsupported codec, 404) instead of failing silently
 - Music widget: empty state when `tracks` is empty, instead of crashing on `tracks[0]`
 - Music widget: `prefers-reduced-motion` support — disc parks, scales mixer freezes, reactive to OS setting changes mid-session

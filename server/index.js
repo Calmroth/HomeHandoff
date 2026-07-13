@@ -60,9 +60,19 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
 
 const app = express();
 app.use(express.json());
+// Origin check tolerates scheme-less CORS_ORIGINS entries ("127.0.0.1:5183")
+// by comparing against the origin's host:port too -- a bare entry otherwise
+// never matches "http://127.0.0.1:5183" and silently blocks the REST
+// /command endpoint the browser uses for OAuth handshakes.
+const originAllowed = (origin) => {
+  if (!origin) return true;
+  if (CORS_ORIGINS.includes(origin)) return true;
+  const hostPort = origin.replace(/^[a-z]+:\/\//i, '');
+  return CORS_ORIGINS.includes(hostPort);
+};
 app.use(cors({
   origin: CORS_ORIGINS.length
-    ? (origin, cb) => cb(null, !origin || CORS_ORIGINS.includes(origin))
+    ? (origin, cb) => cb(null, originAllowed(origin))
     : true, // open in dev if no origins configured
 }));
 
@@ -192,10 +202,11 @@ app.post('/scan', requireSecret(), async (req, res) => {
 //   SONOS_URL      http://localhost:5005  (node-sonos-http-api)
 //   TIBBER_TOKEN   Tibber personal access token
 
-import { startPlejdPoller }  from './lib/integrations/plejd.js';
-import { startSonosPoller }  from './lib/integrations/sonos.js';
-import { startShellyPoller } from './lib/integrations/shelly.js';
-import { startTibberPoller } from './lib/integrations/tibber.js';
+import { startPlejdPoller }      from './lib/integrations/plejd.js';
+import { startSonosPoller }      from './lib/integrations/sonos.js';
+import { startSonosCloudPoller } from './lib/integrations/sonos-cloud.js';
+import { startShellyPoller }     from './lib/integrations/shelly.js';
+import { startTibberPoller }     from './lib/integrations/tibber.js';
 
 // Restore persisted state before integrations start so the first snapshot
 // sent to connecting browsers is already populated.
@@ -212,6 +223,14 @@ server.once('listening', () => {
 
   startSonosPoller(hub, {
     url: process.env.SONOS_URL,
+  });
+
+  // Official Sonos Control API (OAuth) — grouping, per-player volume.
+  // Requires client_secret, so the whole flow lives hub-side.
+  startSonosCloudPoller(hub, {
+    clientId:     process.env.SONOS_CLIENT_ID,
+    clientSecret: process.env.SONOS_CLIENT_SECRET,
+    redirectUri:  process.env.SONOS_REDIRECT_URI,
   });
 
   // Shelly device list comes from the frontend (Settings UI) via hub state cache.
