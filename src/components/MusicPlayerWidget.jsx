@@ -391,7 +391,11 @@ function useKeyboardShortcuts(actions) {
       if (!t || !t.tagName) return;
       const tag = t.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (tag === 'BUTTON' || t.getAttribute('role') === 'button') return;
+      // Buttons handle Space/Enter natively -- only those keys double-fire.
+      // Swallowing every key made arrows/M/L go dead after clicking any
+      // control (click parks focus on the button until focus moves).
+      if ((tag === 'BUTTON' || t.getAttribute('role') === 'button')
+        && (e.key === ' ' || e.key === 'Enter')) return;
       switch (e.key) {
         case ' ':
           e.preventDefault();
@@ -564,6 +568,22 @@ function Disc({
   // classList hack -- React owns className and would wipe a manually added
   // class when the layer flips enter->exit on the next track change).
   const [brokenCovers, setBrokenCovers] = useState(() => new Set());
+  // Reduced-motion park is a one-shot style write, not a per-frame one.
+  const parkedRef = useRef(false);
+
+  // Un-broken the newest layer's cover on each track change -- gives the
+  // <img> one retry per revisit so a transient CDN failure doesn't stick
+  // as a gradient panel until remount.
+  useEffect(() => {
+    const cover = layers[layers.length - 1]?.track?.cover;
+    if (!cover) return;
+    setBrokenCovers(prev => {
+      if (!prev.has(cover)) return prev;
+      const next = new Set(prev);
+      next.delete(cover);
+      return next;
+    });
+  }, [trackKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (trackKey !== lastKey.current) {
@@ -582,13 +602,17 @@ function Disc({
     // cover crossfade is keyframe-driven and already opted-out via the CSS
     // @media (prefers-reduced-motion: reduce) rule in musicPlayerWidget.css.
     if (reducedMotion) {
-      velRef.current = 0;
-      rotRef.current = 0;
-      burstRef.current.active = false;
-      burstRef.current.pending = false;
-      el.style.transform = 'scale(1.01) rotate(0deg)';
+      if (!parkedRef.current) {
+        velRef.current = 0;
+        rotRef.current = 0;
+        burstRef.current.active = false;
+        burstRef.current.pending = false;
+        el.style.transform = 'scale(1.01) rotate(0deg)';
+        parkedRef.current = true;
+      }
       return;
     }
+    parkedRef.current = false;
     if (isPlaying) velRef.current += (SPIN_MAX - velRef.current) * 0.2;
     else {
       velRef.current *= 0.96;

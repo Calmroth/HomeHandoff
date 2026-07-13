@@ -121,6 +121,7 @@ export function useSpotify() {
     if (!cid) { setError('Missing Spotify Client ID after redirect.'); return; }
     spExchangeCode(cid, code).then(t => {
       localStorage.setItem('hdg-sp-token', JSON.stringify(t));
+      tokenRef.current = t; // sync ref before state commit, same as doRefresh
       setToken(t);
       const back = localStorage.getItem('hdg-sp-return') || '#music';
       localStorage.removeItem('hdg-sp-return');
@@ -200,7 +201,9 @@ export function useSpotify() {
   // returns 401 even after a fresh refresh, disconnects so polling stops
   // hammering Spotify with a dead token.
   const api = useCallback(async (path, options = {}) => {
-    let tk = tokenRef.current || token;
+    // Ref only -- falling back to the closure `token` would resurrect a
+    // dead session after hardDisconnect (ref nulled, closure still stale).
+    let tk = tokenRef.current;
     if (!tk) throw new Error('Not connected to Spotify');
 
     // Preemptive refresh if we know the token has expired locally.
@@ -288,6 +291,7 @@ export function useSpotify() {
   }, [clientId]);
   const disconnect = useCallback(() => {
     localStorage.removeItem('hdg-sp-token');
+    tokenRef.current = null; // keep ref in lockstep -- api() reads ref only
     setToken(null);
     setMe(null);
     setDevices([]);
