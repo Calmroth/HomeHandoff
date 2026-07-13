@@ -54,29 +54,40 @@ export function useGoogleAuth() {
   }, []);
 
   // Track `user` in a ref so initialize() can read it for auto_select without
-  // re-running on every sign-in/sign-out cycle (which was the source of the
-  // GSI "initialize() called multiple times" console warning).
+  // re-running on every sign-in/sign-out cycle.
   const userRef = useRef(user);
   useEffect(() => { userRef.current = user; }, [user]);
 
-  // Initialize GIS as soon as both the script and a client_id are available.
-  // Stable deps: only re-runs if clientId or the callback changes.
+  // Ditto handleCredential: keep latest reference behind a ref so the GIS
+  // callback closure stays valid even though we only initialize once.
+  const handleCredentialRef = useRef(handleCredential);
+  useEffect(() => { handleCredentialRef.current = handleCredential; }, [handleCredential]);
+
+  // GSI is a process-wide singleton (window.google.accounts.id). Initializing
+  // it twice for the same client_id produces a console warning and "only the
+  // last initialized instance will be used" -- harmless functionally but it
+  // shows up loudly under React.StrictMode in dev because effects double-
+  // invoke. Guard with a ref so re-mounts and HMR don't re-initialize.
+  const initializedForClientId = useRef(null);
+
   useEffect(() => {
     if (!clientId) return;
+    if (initializedForClientId.current === clientId) return;
     const init = () => {
       if (!window.google?.accounts?.id) return false;
       window.google.accounts.id.initialize({
         client_id: clientId,
-        callback: handleCredential,
+        callback: (resp) => handleCredentialRef.current(resp),
         auto_select: !!userRef.current,
         cancel_on_tap_outside: false,
       });
+      initializedForClientId.current = clientId;
       return true;
     };
     if (init()) return;
     const t = setInterval(() => { if (init()) clearInterval(t); }, 300);
     return () => clearInterval(t);
-  }, [clientId, handleCredential]);
+  }, [clientId]);
 
   const promptSignIn = useCallback(() => {
     if (!clientId) { setError('Set a Google Client ID in Settings first.'); return; }
