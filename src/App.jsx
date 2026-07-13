@@ -1730,7 +1730,10 @@ function App() {
   //     control with full track metadata.
   // (3) Demo / no-op (just updates local state).
   const toggleSpeaker = (id) => {
-    const s = speakers.find(ss => ss.id === id);
+    // Look up in effectiveSpeakers, NOT the raw speakers state -- the UI
+    // renders the merged list, and discovered speakers exist ONLY there.
+    // Looking up the raw list made clicks on them silently do nothing.
+    const s = effectiveSpeakers.find(ss => ss.id === id);
     if (!s) return;
     const next = !s.on;
     setSpeakers(sp => sp.map(ss => ss.id === id ? { ...ss, on: next, primary: next ? true : ss.primary } : ss));
@@ -1768,7 +1771,8 @@ function App() {
   const setVolume = (id, v) => {
     setSpeakers(sp => sp.map(s => s.id === id ? { ...s, volume: v, on: v > 0 ? true : s.on } : s));
     if (groupAll) setGroupAll(false);
-    const s = speakers.find(ss => ss.id === id);
+    // Merged list, same reason as toggleSpeaker.
+    const s = effectiveSpeakers.find(ss => ss.id === id);
     if (!s) return;
     if (s._spotify) {
       spotify.setDeviceVolume(id, v).catch(e => logActivity('speaker', `Spotify volume: ${e.message || e}`));
@@ -2200,7 +2204,7 @@ function HomePage({
             ))}
           </div>
         ) : (
-          <EmptyIntegration title="No speakers found" sub="Add a Sonos bridge URL in Settings → Integrations." />
+          <EmptyIntegration title="No speakers found" sub="Sign in with Sonos in Settings — or connect Spotify and your Connect devices appear here." />
         )}
         {hiddenSpeakerCount > 0 && (
           <button className="group-toggle" style={{ marginTop: 8 }} onClick={unhideAllSpeakers}>
@@ -3903,7 +3907,7 @@ function MusicPage({
             </span>
           </div>
           {speakers.length === 0 ? (
-            <div className="music-empty">No speakers — add a Sonos bridge in Settings.</div>
+            <div className="music-empty">No speakers — sign in with Sonos in Settings, or connect Spotify.</div>
           ) : (
             <div className="speaker-grid" style={{ gap: 2 }}>
               {speakers.map(sp => (
