@@ -110,25 +110,39 @@ export function useSpotify() {
   const [devices, setDevices] = useState([]);
 
   // Handle the OAuth callback exactly once: if the URL has ?code=...,
-  // exchange it for a token and clean the URL. Runs before any API calls.
+  // exchange it for a token. Two hard rules, both learned the hard way:
+  //   1. Authorization codes are SINGLE-USE. React.StrictMode double-invokes
+  //      mount effects in dev, so an unguarded effect sends the same code
+  //      twice -- the second exchange gets "Invalid authorization code" and
+  //      can race the first one dead too. Guard with a ref (refs survive the
+  //      StrictMode double-invoke).
+  //   2. Strip ?code from the URL BEFORE exchanging, not after success.
+  //      A failed exchange used to leave the dead code in the URL, so every
+  //      reload re-burned it and the error never cleared.
+  const exchangeStarted = useRef(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     const err  = params.get('error');
     if (err) { setError(`Spotify denied: ${err}`); return; }
     if (!code) return;
+    if (exchangeStarted.current) return;
+    exchangeStarted.current = true;
+
+    // Clean the URL immediately -- the code is consumed (or dead) either way.
+    const back = localStorage.getItem('hdg-sp-return') || '#music';
+    localStorage.removeItem('hdg-sp-return');
+    window.history.replaceState({}, '', window.location.origin + window.location.pathname + back);
+
     const cid = localStorage.getItem('hdg-sp-clientid');
     if (!cid) { setError('Missing Spotify Client ID after redirect.'); return; }
     spExchangeCode(cid, code).then(t => {
       localStorage.setItem('hdg-sp-token', JSON.stringify(t));
       tokenRef.current = t; // sync ref before state commit, same as doRefresh
       setToken(t);
-      const back = localStorage.getItem('hdg-sp-return') || '#music';
-      localStorage.removeItem('hdg-sp-return');
-      const clean = window.location.origin + window.location.pathname + back;
-      window.history.replaceState({}, '', clean);
+      setError(null); // clear any stale auth error from a previous attempt
     }).catch(e => setError(String(e.message || e)));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Latest-token ref -- api() closures capture `token` at render time, but a
   // concurrent caller may rotate it mid-flight. The ref is updated
