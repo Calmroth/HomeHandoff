@@ -1195,9 +1195,13 @@ function App() {
   // to their Spotify account. The shape mirrors what SoundSection expects.
   useEffect(() => {
     if (demoMode) return;
-    if (integrations.config.sonos?.url) return; // bridge wins if present
+    // Bridge wins only while HEALTHY. A configured-but-dead bridge URL
+    // (node-sonos-http-api process not running) used to disable this
+    // fallback permanently -- speakers went stale with no path to control
+    // them even though Spotify Connect could see every Sonos zone.
+    if (integrations.config.sonos?.url && !sonosErr) return;
     if (!spotify.token) return;
-    if (!spotify.devices) return;
+    if (!spotify.devices?.length) return;
     const mapped = spotify.devices.map(d => ({
       id: d.id,
       name: d.name,
@@ -1212,7 +1216,8 @@ function App() {
       _spotify: true,
     }));
     setSpeakers(mapped);
-  }, [spotify.token, spotify.devices, integrations.config.sonos?.url, demoMode]);
+    useHomeStore.getState().markOk('sonos', `${mapped.length} via Spotify Connect`);
+  }, [spotify.token, spotify.devices, integrations.config.sonos?.url, sonosErr, demoMode]);
 
   // Poll discovered Sonos speakers directly via UPnP (no bridge configured).
   // Runs parallel to the Spotify Connect path; bridge URL wins when present.
@@ -1221,7 +1226,7 @@ function App() {
   useEffect(() => {
     if (demoMode) return;
     if (!pageVisible) return;
-    if (integrations.config.sonos?.url) return; // bridge handles polling
+    if (integrations.config.sonos?.url && !sonosErr) return; // healthy bridge handles polling
     const sonosDevs = (integrations.config.discovered?.devices || [])
       .filter(d => d.protocol === 'sonos' && d.ip && d.assignedTo === 'music');
     if (!sonosDevs.length) return;
@@ -1253,7 +1258,7 @@ function App() {
     load();
     const t = setInterval(load, 15_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [demoMode, pageVisible, integrations.config.sonos?.url, integrations.config.discovered?.devices]);
+  }, [demoMode, pageVisible, integrations.config.sonos?.url, sonosErr, integrations.config.discovered?.devices]);
 
   // Fetch live Tibber prices when configured. Refresh hourly. Drives both
   // the local prices state and the home store's `price` slice -- the latter
