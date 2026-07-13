@@ -5,7 +5,7 @@
 // store {access, refresh, expires_at} in localStorage. Refresh happens on
 // demand inside spotifyApi() before each call. Disconnect drops tokens.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 const SP_AUTH_URL   = 'https://accounts.spotify.com/authorize';
 const SP_TOKEN_URL  = 'https://accounts.spotify.com/api/token';
@@ -129,18 +129,33 @@ export function useSpotify() {
     }).catch(e => setError(String(e.message || e)));
   }, []);
 
-  // Always-fresh accessor: refreshes the token if it's about to expire,
-  // then calls the API. Callers use this for every fetch so retries on 401
-  // never have to think about refresh state.
-  const api = useCallback(async (path, options = {}) => {
-    let tk = token;
-    if (!tk) throw new Error('Not connected to Spotify');
-    if (Date.now() >= (tk.expires_at || 0)) {
-      const fresh = await spRefresh(clientId, tk.refresh_token);
-      localStorage.setItem('hdg-sp-token', JSON.stringify(fresh));
-      setToken(fresh);
-      tk = fresh;
-    }
+  // Latest-token ref -- api() closures capture `token` at render time, but a
+  // concurrent caller may rotate it mid-flight. The ref is updated
+  // synchronously on every rotation so other callers pick up the fresh token
+  // instead of burning (and invalidating) a second refresh.
+  const tokenRef = useRef(token);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+
+  // Hard disconnect -- token can no longer be refreshed (typically
+  // invalid_grant from a revoked or rotated refresh_token). Clears local
+  // state so subsequent api() calls fail fast instead of looping refresh
+  // requests against accounts.spotify.com forever.
+  const hardDisconnect = useCallback((reason) => {
+    localStorage.removeItem('hdg-sp-token');
+    tokenRef.current = null;
+    setToken(null);
+    setMe(null);
+    setDevices([]);
+    setError(reason || 'Spotify session expired -- click Connect to sign in again.');
+  }, []);
+
+  // Internal: do one fetch with the supplied token. Returns a normalized
+  // shape so the caller can branch on status without re-reading the body.
+  // Body parsing is defensive -- Spotify returns plain-text bodies for
+  // some error states (e.g. 403 "User is not registered for this
+  // application." on Dev-Mode allowlist failures), which would crash an
+  // unconditional JSON.parse and bypass the 401/403 branches below.
+  const _spFetch = useCallback(async (path, options, tk) => {
     const r = await fetch(`${SP_API}${path}`, {
       ...options,
       headers: {
@@ -149,12 +164,111 @@ export function useSpotify() {
         ...(options.headers || {}),
       },
     });
-    if (r.status === 204) return null;
+    if (r.status === 204) return { ok: true, json: null, status: 204, text: '' };
     const text = await r.text();
-    const j = text ? JSON.parse(text) : null;
-    if (!r.ok) throw new Error(j?.error?.message || `Spotify API ${r.status}`);
-    return j;
-  }, [token, clientId]);
+    let json = null;
+    if (text) {
+      try { json = JSON.parse(text); } catch { /* plain-text body, keep null */ }
+    }
+    return { ok: r.ok, json, status: r.status, text };
+  }, []);
+
+  // Refresh mutex -- Spotify rotates refresh tokens on use, so two
+  // overlapping api() calls that both hit the expiry window must share ONE
+  // refresh request. Without this, the second spRefresh presents an
+  // already-consumed refresh_token, gets invalid_grant, and hard-disconnects
+  // the user even though the session was perfectly recoverable.
+  const refreshInFlight = useRef(null);
+  const doRefresh = useCallback((tk) => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    // Always refresh with the NEWEST refresh_token -- the one in this
+    // caller's closure may already have been consumed by another caller.
+    const rt = (tokenRef.current || tk).refresh_token;
+    refreshInFlight.current = spRefresh(clientId, rt)
+      .then((fresh) => {
+        tokenRef.current = fresh; // sync before any state/effect timing gap
+        localStorage.setItem('hdg-sp-token', JSON.stringify(fresh));
+        setToken(fresh);
+        return fresh;
+      })
+      .finally(() => { refreshInFlight.current = null; });
+    return refreshInFlight.current;
+  }, [clientId]);
+
+  // Always-fresh accessor: refreshes the token if it's about to expire,
+  // then calls the API. If refresh fails (invalid_grant) or the server
+  // returns 401 even after a fresh refresh, disconnects so polling stops
+  // hammering Spotify with a dead token.
+  const api = useCallback(async (path, options = {}) => {
+    let tk = tokenRef.current || token;
+    if (!tk) throw new Error('Not connected to Spotify');
+
+    // Preemptive refresh if we know the token has expired locally.
+    if (Date.now() >= (tk.expires_at || 0)) {
+      try {
+        tk = await doRefresh(tk);
+      } catch (e) {
+        hardDisconnect();
+        throw new Error('Spotify session expired');
+      }
+    }
+
+    let result = await _spFetch(path, options, tk);
+
+    // Server-side rejection despite our local clock. One refresh + retry
+    // covers the common case where the cached token was revoked server-side.
+    if (result.status === 401) {
+      try {
+        // A concurrent caller may have rotated the token while our request
+        // was in flight -- reuse that fresh token before spending a refresh.
+        const latest = tokenRef.current;
+        const borrowed = !!(latest && latest.access_token !== tk.access_token);
+        tk = borrowed ? latest : await doRefresh(tk);
+        result = await _spFetch(path, options, tk);
+        // Borrowed token also rejected? Spend a real refresh before giving up.
+        if (result.status === 401 && borrowed) {
+          tk = await doRefresh(tk);
+          result = await _spFetch(path, options, tk);
+        }
+      } catch (e) {
+        hardDisconnect();
+        throw new Error('Spotify session expired');
+      }
+      // If even the retry returns 401, the token issuance pipeline is
+      // broken -- disconnect rather than loop.
+      if (result.status === 401) {
+        hardDisconnect();
+        throw new Error('Spotify session expired');
+      }
+    }
+
+    // 403 = token authenticated but rejected for this request. Two cases:
+    //   A) Feature lock -- "Premium required", "Restriction violated", etc.
+    //      Leave the session alone; the UI can show "Premium required".
+    //   B) Anything else (/me, /me/tracks, /me/playlists return 403) means
+    //      the token is globally rejected. Common causes:
+    //        - App in Development Mode and this Spotify account isn't in
+    //          the dashboard's user allowlist
+    //        - User revoked the app at spotify.com/account/apps
+    //        - Token issued under a different client_id than current VITE_SPOTIFY_CLIENT_ID
+    //      Disconnect so polling stops looping 403s forever.
+    if (result.status === 403) {
+      // Spotify uses both JSON ({error:{message:"..."}}) and plain-text
+      // bodies for 403s. Check both.
+      const msg = result.json?.error?.message || result.text || '';
+      const isFeatureLock = /premium|restriction/i.test(msg);
+      if (!isFeatureLock) {
+        hardDisconnect(`Spotify rejected token (403): ${msg || 'Forbidden'} — check Developer Dashboard user allowlist or click Connect to re-auth.`);
+        throw new Error('Spotify session rejected');
+      }
+    }
+
+    if (!result.ok) {
+      const msg = result.json?.error?.message || result.text || `Spotify API ${result.status}`;
+      throw new Error(msg);
+    }
+    return result.json;
+  }, [token, doRefresh, _spFetch, hardDisconnect]);
 
   // Fetch the user profile once we have a token so the UI can greet them.
   useEffect(() => {

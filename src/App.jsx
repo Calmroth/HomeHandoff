@@ -1833,6 +1833,7 @@ function App() {
               addFav={addFav}
               removeFav={removeFav}
               musicNowLabel={musicNowLabel}
+              navigate={navigate}
             />
           )}
           {route === 'energy' && (
@@ -3367,7 +3368,7 @@ const spImg = (item) => item?.images?.[item.images.length - 1]?.url
 function MusicPage({
   speakers, toggleSpeaker, setVolume,
   musicSource, pickCurated, musicCustom, playSpotify,
-  spotify, favourites, addFav, removeFav, musicNowLabel,
+  spotify, favourites, addFav, removeFav, musicNowLabel, navigate,
 }) {
   const onCount = speakers.filter(s => s.on).length;
   const playback = useHomeStore(s => s.playback);
@@ -3510,12 +3511,26 @@ function MusicPage({
                 <span className="music-account-dot" />
                 {spotify.me.display_name}
               </div>
-            ) : (
+            ) : spotify.clientId ? (
               <button className="group-toggle" data-active="true" onClick={spotify.connect}>
                 Connect Spotify
               </button>
+            ) : (
+              <button
+                className="group-toggle"
+                data-active="true"
+                onClick={() => navigate?.('settings')}
+                title="Paste a Spotify Client ID in Settings before connecting"
+              >
+                Set up Spotify in Settings
+              </button>
             )}
           </div>
+          {spotify.error && (
+            <p className="catalog-help" style={{ color: 'var(--destructive)', margin: '4px 0 0' }}>
+              {spotify.error}
+            </p>
+          )}
 
           {/* Search results overlay, or the custom player stage */}
           {results ? (
