@@ -2,6 +2,24 @@
    Single theme: clay (warm dark, photo backdrop). */
 
 :root {
+  /* Single dark theme -- tell the UA so NATIVE chrome follows: <select>
+     popup panels, scrollbars, date pickers. Without this Chromium paints
+     the option list on a white panel while options inherit the app's light
+     text color -- white-on-white, invisible until hover. */
+  color-scheme: dark;
+}
+
+/* Native <select> popup options -- Chromium honors these two properties
+   inside the popup. iOS renders its own sheet and ignores them (fine). */
+select option {
+  background-color: oklch(0.19 0.01 65); /* solid --popover; popups can't blur */
+  color: var(--clay-50);
+}
+select option:disabled {
+  color: var(--clay-400);
+}
+
+:root {
   /* Layer 1 -- primitives (Clay theme -- default).
      Ramp steps are kept complete even when individual steps are not directly
      referenced (clay-100/300/500/600, amber-300/500) so the scale stays

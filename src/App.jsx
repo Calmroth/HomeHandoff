@@ -3393,6 +3393,7 @@ function MusicPage({
   const [libErr, setLibErr] = useState(null);
   const [recentlyPlayed, setRecentlyPlayed] = useState(null);  // recently played tracks
   const [likedSongs, setLikedSongs] = useState(null);          // saved tracks sample
+  const [lastPlayedId, setLastPlayedId] = useState(null);      // playlist id from newest history context
   const [picker, setPicker] = useState(null);     // { trackUri, trackName } when user wants to "add to playlist"
   const [sideTab, setSideTab] = useState('browse'); // 'browse' | 'library' | 'recent'
   const [pickerMsg, setPickerMsg] = useState(null);
@@ -3407,8 +3408,9 @@ function MusicPage({
     spotify.api('/me/playlists?limit=50')
       .then(r => setLibrary(r?.items ?? []))
       .catch(e => setLibErr(String(e.message || e)));
-    // Recently played (last 8 unique tracks).
-    spotify.api('/me/player/recently-played?limit=8')
+    // Recently played (last 8 unique tracks). Fetch more than 8 so the
+    // playlist-context scan below has real history to work with.
+    spotify.api('/me/player/recently-played?limit=24')
       .then(r => {
         // Deduplicate by track ID — same song can appear many times in history.
         const seen = new Set();
@@ -3417,6 +3419,10 @@ function MusicPage({
           seen.add(i.track.id);
           return true;
         });
+        // History is newest-first; the first entry played FROM a playlist
+        // tells us which playlist to float to the top of the library list.
+        const ctx = (r?.items ?? []).find(i => i?.context?.type === 'playlist')?.context;
+        setLastPlayedId(ctx?.uri ? ctx.uri.split(':').pop() : null);
         setRecentlyPlayed(items.slice(0, 8).map(i => i.track));
       })
       .catch(() => setRecentlyPlayed([]));
@@ -3425,6 +3431,21 @@ function MusicPage({
       .then(r => setLikedSongs({ total: r?.total ?? 0, items: (r?.items ?? []).map(i => i.track) }))
       .catch(() => setLikedSongs({ total: 0, items: [] }));
   }, [spotify.token, spotify.api]);
+
+  // Library display order: the playlist you played most recently first,
+  // Daily Mix 1 as the standing default under it, then the other Daily
+  // Mixes, then everything else in Spotify's own order (sort is stable).
+  const sortedLibrary = useMemo(() => {
+    if (!library) return library;
+    const rank = (p) => {
+      if (lastPlayedId && p.id === lastPlayedId) return 0;
+      const n = (p.name || '').toLowerCase();
+      if (n === 'daily mix 1') return 1;
+      if (n.startsWith('daily mix')) return 2;
+      return 3;
+    };
+    return [...library].sort((a, b) => rank(a) - rank(b));
+  }, [library, lastPlayedId]);
 
   // Debounced search. When not connected, just filter the curated list. When
   // connected, hit /v1/search across tracks/artists/playlists/albums.
@@ -3673,7 +3694,7 @@ function MusicPage({
               {libErr && <div className="music-empty">{libErr}</div>}
               {library === null && !libErr && <div className="music-empty">Loading…</div>}
               {library?.length === 0 && <div className="music-empty">No playlists yet.</div>}
-              {library?.slice(0, 20).map(p => (
+              {sortedLibrary?.slice(0, 20).map(p => (
                 <button
                   key={p.id}
                   className="music-source-row"
@@ -3757,7 +3778,7 @@ function MusicPage({
               </div>
               {pickerMsg && <div className="music-picker-msg">{pickerMsg}</div>}
               <div className="music-picker-list">
-                {library?.filter(p => p.owner?.id === spotify.me?.id).map(p => (
+                {sortedLibrary?.filter(p => p.owner?.id === spotify.me?.id).map(p => (
                   <button key={p.id} className="music-source-row" onClick={() => addToPlaylist(p.id, picker.trackUri)}>
                     <span className="src-icon"><I.Music size={12} /></span>
                     <div>
