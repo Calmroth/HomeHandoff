@@ -188,7 +188,13 @@ a { color: inherit; }
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 256px 1fr;
+  /* minmax(0, 1fr) -- without this, the 1fr column's default min-width: auto
+     lets any wide descendant (e.g. the 21-pill .room-filter row) blow out
+     the main column, which expands the page past the viewport and produces
+     a page-level horizontal scrollbar. The 0 lower-bound lets the column
+     shrink to its parent's width, so contained .overflow-x: auto rules can
+     actually take effect on their own children. */
+  grid-template-columns: 256px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -369,7 +375,7 @@ img.avatar { display: block; }
   gap: 14px;
 }
 .weather-hero-icon {
-  width: 88px; height: 88px;
+  width: 56px; height: 56px;
   display: grid; place-items: center;
   background: transparent;
   border: 0;
@@ -386,7 +392,7 @@ img.avatar { display: block; }
 }
 .weather-hero-temp {
   font-family: var(--font-heading);
-  font-size: clamp(52px, 6vw, 88px);
+  font-size: clamp(36px, 4vw, 56px);
   font-weight: 100;
   letter-spacing: -0.06em;
   line-height: 0.9;
@@ -434,13 +440,21 @@ img.avatar { display: block; }
   opacity: 0.6;
 }
 .section-title {
-  font-size: 11px; font-weight: 600;
+  font-size: 10px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.18em;
   color: var(--muted-foreground);
   margin: 0;
   display: inline-flex; align-items: center; gap: 8px;
 }
-.section-summary { font-size: 12px; color: var(--muted-foreground); }
+/* Inverted from the original 12px muted: the summary carries the live data
+   ("3 of 4 rooms · 142 W") so it earns the foreground weight; the title is
+   the small uppercase label. */
+.section-summary {
+  font-size: 14px;
+  color: var(--foreground);
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
 .section-summary b { color: var(--foreground); font-weight: 500; }
 
 /* Sensors -- generic HA entity tiles. 4-up grid that follows the same
@@ -1658,25 +1672,38 @@ img.avatar { display: block; }
 .weather-chip:hover { background: color-mix(in oklch, var(--clay-800) 75%, transparent); }
 .weather-temp { color: var(--muted-foreground); font-size: 10px; }
 
+/* Default state is chrome -- "X on Wi-Fi" is true 99% of the time, so the
+   pill recedes to a quiet 10px muted line with no surface treatment. The
+   transition from chrome to alarm happens on data-lost=true. */
 .wifi-pill {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 0;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  transition:
+    opacity var(--motion-duration-fast) ease,
+    color var(--motion-duration-fast) ease,
+    background var(--motion-duration-fast) ease,
+    border-color var(--motion-duration-fast) ease,
+    padding var(--motion-duration-fast) ease;
+}
+/* Network-lost state: pill becomes loud -- destructive border, full opacity,
+   clickable, recovers its glass surface so it reads as an alarm chip. */
+.wifi-pill[data-lost="true"] {
   padding: 6px 12px;
   font-size: 11px;
   color: var(--foreground);
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: color-mix(in oklch, var(--clay-850) 70%, transparent);
-}
-/* Network-lost state: pill turns red, dot stops pulsing */
-.wifi-pill[data-lost="true"] {
-  border-color: color-mix(in oklch, var(--destructive) 40%, var(--border));
-  color: var(--muted-foreground);
+  opacity: 1;
+  background: color-mix(in oklch, var(--destructive) 12%, var(--clay-850));
+  border: 1px solid color-mix(in oklch, var(--destructive) 50%, transparent);
   cursor: pointer;
-  transition: border-color var(--motion-duration-fast) ease, color var(--motion-duration-fast) ease;
 }
 .wifi-pill[data-lost="true"]:hover {
   border-color: var(--destructive);
-  color: var(--foreground);
 }
 .wifi-pill[data-lost="true"]:focus-visible {
   outline: 2px solid var(--ring);
@@ -1684,14 +1711,14 @@ img.avatar { display: block; }
 }
 .wifi-pill[data-lost="true"] .wifi-dot {
   background: var(--destructive);
-  box-shadow: none;
+  box-shadow: 0 0 6px color-mix(in oklch, var(--destructive) 70%, transparent);
   animation: none;
 }
 .wifi-dot {
-  width: 7px; height: 7px; border-radius: 999px;
+  width: 6px; height: 6px; border-radius: 999px;
   background: var(--green-500);
-  box-shadow: 0 0 6px color-mix(in oklch, var(--green-500) 80%, transparent);
-  animation: pulse 2.4s ease-in-out infinite;
+  box-shadow: none;
+  animation: none;
 }
 .wifi-sub { color: var(--muted-foreground); font-size: 10px; margin-left: 6px; }
 @keyframes pulse {
@@ -2251,17 +2278,18 @@ img.avatar { display: block; }
   .rooms-grid { grid-template-columns: 1fr; }
 }
 
-/* Room filter strip — horizontal scrollable pill bar above the rooms grid.
-   Pills are derived from Plejd's room configuration, not hardcoded. */
+/* Room filter strip -- wrapping pill bar above the rooms grid. Pills are
+   derived from Plejd's room configuration, not hardcoded. With ~21 rooms
+   this wraps into 2-3 rows on desktop and 4-5 rows on a narrow iPad
+   portrait viewport -- preferable to a hidden horizontal-scroll affordance
+   that the user can't see on a touchscreen. */
 .room-filter {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  overflow-x: auto;
   padding-bottom: 4px;
-  scrollbar-width: none;
 }
-.room-filter::-webkit-scrollbar { display: none; }
 .room-filter-pill {
   display: inline-flex;
   align-items: center;
@@ -3559,7 +3587,13 @@ img.avatar { display: block; }
   100% { background-position: -200% 0; }
 }
 
-/* Settings page -- integrations + device list + about. */
+/* Settings page -- integrations + device list + about.
+   The .settings-route wrapper exists only on the Settings page, so the
+   adjacent-section divider below doesn't affect Home or any other route. */
+.settings-route .section + .section {
+  border-top: 1px solid var(--border);
+  padding-top: var(--section-gap);
+}
 .settings-page {
   display: flex;
   flex-direction: column;
@@ -3594,6 +3628,13 @@ img.avatar { display: block; }
 .settings-row[data-on="true"] .settings-row-icon {
   background: color-mix(in oklch, var(--amber-400) 18%, transparent);
   color: var(--primary);
+}
+/* Active rows get a 2px primary left-edge stripe in addition to the icon
+   tint. The stripe runs the full row height including the bottom-border
+   divider, so adjacent active rows read as a single live column. */
+.settings-row[data-on="true"] {
+  box-shadow: inset 2px 0 0 var(--primary);
+  padding-left: 8px;
 }
 .settings-row-name { font-weight: 500; }
 .settings-row-sub { font-size: 11px; color: var(--muted-foreground); margin-top: 2px; }
