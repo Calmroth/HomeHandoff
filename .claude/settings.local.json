@@ -33,7 +33,17 @@
       "Bash(findstr /i \"PLEJD\")",
       "Bash(Get-Content \"C:\\\\Users\\\\chris_mm9nopi\\\\OneDrive - IDfuel AB\\\\PersonalProjects\\\\design_handoff_home_control\\\\server\\\\lib\\\\plejd-gateway.js\")",
       "Bash(Select-Object -First 10)",
-      "Bash(Measure-Object -Line)"
+      "Bash(Measure-Object -Line)",
+      "PowerShell(claude mcp *)",
+      "PowerShell(claude *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell($args = @\\('mcp','add','sequential-thinking','-s','user','--','npx','-y','@modelcontextprotocol/server-sequential-thinking'\\); & claude @args)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(npm run *)",
+      "PowerShell(git add *)",
+      "PowerShell($line = \\(Get-Content src/App.jsx -TotalCount 3234\\)[-1]; $line; \"Length: $\\($line.Length\\)\"; \\($line.ToCharArray\\(\\) | Select-Object -First 30 | ForEach-Object { \"$_=$\\([int]$_\\)\" }\\) -join ' ')",
+      "PowerShell(npx --no-install vite build --logLevel error 2>&1 | Select-Object -Last 25)"
     ]
   }
 }

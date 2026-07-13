@@ -207,18 +207,36 @@ all are improvements rather than fixes.
 
 In order of effort × impact:
 
-1. **Guard `tracks={[]}`.** Component crashes today. Either add an
-   `EmptyState` render or document `tracks.length >= 1` as a hard prop
-   invariant in the JSDoc. (5 min.)
-2. **Add `aria-pressed` to the shuffle and loop toggle buttons** and
-   change their `aria-label` to communicate state. (5 min.)
-3. **Cover-art `onError` fallback.** Swap to the existing `.np-art` radial
-   gradient (or a simpler `--muted` solid) so a broken image URL doesn't
-   show the browser's broken-image glyph. (10 min.)
-4. **Bump time display from 10px to 11px** to match the existing
-   `.np-progress` pattern and improve kitchen-iPad legibility. (1 min.)
-5. **Surface play errors.** Even a small destructive-tinted strip below
-   the controls is enough. Today, a broken `src` is invisible. (15 min.)
+1. ✅ **Guard `tracks={[]}`.** Done — `MusicPlayer` early-returns an empty
+   state card; the actual hook tree moved into `MusicPlayerInner`.
+2. ✅ **Add `aria-pressed` to the shuffle and loop toggle buttons** and
+   change their `aria-label` to communicate state. Done.
+3. ✅ **Cover-art `onError` fallback.** Done — broken `src` triggers the
+   `.mpw-cover-fallback` class which paints the `.np-art` triple-radial
+   pattern.
+4. ✅ **Bump time display from 10px to 11px.** Done.
+5. ✅ **Surface play errors.** Done — `safePlay()` wraps every play() call,
+   maps the rejection `name` to a human message, and the chip renders
+   between the time row and controls. Auto-clears on next successful
+   play, on track change, or on user dismiss. Also handles `<audio
+   error>` events.
+
+### Hardening pass (post-audit, 2026-05-23)
+
+Three further fixes applied beyond the original top-5:
+
+6. ✅ **Reduced-motion gap.** Added `usePrefersReducedMotion()` hook;
+   `ScalesMixer` rAF bails when reduced, `Disc` parks rotation at 0deg
+   and disables the burst-on-skip transform when reduced. Cover crossfade
+   already opted out via CSS media query in `musicPlayerWidget.css`.
+7. ✅ **Disc keyboard a11y.** `mpw-mask` is now `role="button"
+   tabIndex={0} aria-pressed={isZoomed}` with Enter/Space key handler.
+   Adds `:focus-visible` ring (2px ring, 4px offset). Cursor was already
+   `pointer`.
+8. ✅ **Global shortcut conflict.** `useKeyboardShortcuts` now bails when
+   focus is on any BUTTON / role=button / INPUT / TEXTAREA / SELECT — so
+   pressing Space on the focused disc only triggers zoom, not the global
+   play-toggle on top of it.
 
 ## Out of Scope
 
