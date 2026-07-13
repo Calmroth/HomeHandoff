@@ -3400,10 +3400,11 @@ function MusicPage({
   // Load the user's playlists once when connected.
   useEffect(() => {
     if (!spotify.token) { setLibrary(null); setRecentlyPlayed(null); setLikedSongs(null); return; }
-    // fields param forces tracks(total) to be included — without it some clients
-    // receive simplified objects where tracks.total is 0 or absent.
-    const fields = 'items(id,name,description,images,owner(id,display_name),tracks(total)),total,next';
-    spotify.api(`/me/playlists?limit=50&fields=${encodeURIComponent(fields)}`)
+    // NO fields param here -- /me/playlists officially supports only
+    // limit/offset. Sending a fields selector made the API return stripped
+    // objects with tracks.total missing, which rendered "0 tracks" on every
+    // playlist. Default response includes full tracks:{href,total}.
+    spotify.api('/me/playlists?limit=50')
       .then(r => setLibrary(r?.items ?? []))
       .catch(e => setLibErr(String(e.message || e)));
     // Recently played (last 8 unique tracks).
@@ -3648,7 +3649,7 @@ function MusicPage({
                   <div className="music-source-name">Play all</div>
                   <div className="music-source-sub">{likedSongs ? `${likedSongs.total} tracks` : 'Loading…'}</div>
                 </div>
-                <span className="music-source-state">â–¶</span>
+                <span className="music-source-state">▶</span>
               </button>
 
               {/* Preview: first 3 liked tracks */}
@@ -3684,9 +3685,13 @@ function MusicPage({
                   </span>
                   <div>
                     <div className="music-source-name">{p.name}</div>
-                    <div className="music-source-sub">{p.tracks?.total ?? 0} tracks</div>
+                    {/* Count only when the API gave a real total -- "0 tracks"
+                        on every row means stripped objects, not empty lists. */}
+                    <div className="music-source-sub">
+                      {p.tracks?.total > 0 ? `${p.tracks.total} tracks` : (p.owner?.display_name ?? 'Playlist')}
+                    </div>
                   </div>
-                  <span className="music-source-state">â–¶</span>
+                  <span className="music-source-state">▶</span>
                 </button>
               ))}
             </div>
@@ -3757,7 +3762,9 @@ function MusicPage({
                     <span className="src-icon"><I.Music size={12} /></span>
                     <div>
                       <div className="music-source-name">{p.name}</div>
-                      <div className="music-source-sub">{p.tracks?.total ?? 0} tracks</div>
+                      <div className="music-source-sub">
+                        {p.tracks?.total > 0 ? `${p.tracks.total} tracks` : 'Playlist'}
+                      </div>
                     </div>
                     <span className="music-source-state">Add</span>
                   </button>
@@ -3854,11 +3861,13 @@ function SearchResults({ results, spotifyOn, onPlay, onPickCurated, onAddFav, on
                 : <span className="src-icon"><I.Music size={12} /></span>}
               <div>
                 <div className="music-source-name">{p.name}</div>
-                <div className="music-source-sub">{p.owner?.display_name ?? ''} · {p.tracks?.total ?? 0} tracks</div>
+                <div className="music-source-sub">
+                  {p.owner?.display_name ?? ''}{p.tracks?.total > 0 ? ` · ${p.tracks.total} tracks` : ''}
+                </div>
               </div>
               <span style={{ display: 'inline-flex', gap: 6 }}>
                 <button className="group-toggle" onClick={() => onPlay.playlist(p)}>Play</button>
-                <button className="group-toggle" onClick={() => onAddFav({ id: p.id, type: 'playlist', name: p.name, sub: `${p.tracks?.total ?? 0} tracks` })} title="Save playlist">★</button>
+                <button className="group-toggle" onClick={() => onAddFav({ id: p.id, type: 'playlist', name: p.name, sub: p.tracks?.total > 0 ? `${p.tracks.total} tracks` : 'Playlist' })} title="Save playlist">★</button>
               </span>
             </div>
           ))}
@@ -6423,7 +6432,7 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
                     ? google.user.email || 'Local profile'
                     : google?.clientId
                       ? 'Tap the Google button below to sign in.'
-                      : 'Add a Google connection (Advanced â–¾) or sign up with email.'}
+                      : 'Add a Google connection (Advanced ▾) or sign up with email.'}
                 </div>
                 {!google?.user && google?.clientId && (
                   <div ref={gsiBtnRef} style={{ marginTop: 8, minHeight: 40 }} />
