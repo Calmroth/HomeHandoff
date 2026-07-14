@@ -169,7 +169,10 @@ export class PlejdBle extends EventEmitter {
     this._peripheral = peripheral;
     this._connAddr = addrToReversedBuffer(peripheral.address);
 
-    peripheral.once('disconnect', () => this._onDisconnect());
+    // NB: the 'disconnect' handler is wired only AFTER auth succeeds (below).
+    // Wiring it here means a drop during connect/discovery (common WinRT
+    // flakiness — "Disconnected unknown") fires _onDisconnect's own reconnect
+    // WHILE the connect() multi-node loop is also retrying → two rival flows.
     await peripheral.connectAsync();
 
     // WinRT quirk: GATT service discovery immediately after connect often
@@ -202,14 +205,13 @@ export class PlejdBle extends EventEmitter {
     const challenge = await this._authChar.readAsync();
     await this._authChar.writeAsync(computeAuthResponse(this._key, challenge), false);
 
-    // Subscribe to state notifications (best-effort; cloud poll covers display).
-    try {
-      this._dataChar.on('data', (buf) => this._onNotify(buf));
-      await this._dataChar.subscribeAsync();
-    } catch (e) {
-      console.warn('[plejd-ble] state notifications unavailable:', e.message);
-    }
+    // NOTE: we deliberately do NOT subscribe to notifications. On WinRT the
+    // CCCD write during subscribe can knock the freshly-authed link over, and
+    // control doesn't need inbound state (the cloud poll drives the display).
 
+    // Only now, with a working authenticated link, treat a disconnect as a
+    // real drop worth reconnecting.
+    peripheral.once('disconnect', () => this._onDisconnect());
     this._authed = true;
     this._startPing();
     console.log('[plejd-ble] Authenticated — mesh control active over Bluetooth');
@@ -234,8 +236,10 @@ export class PlejdBle extends EventEmitter {
     }
 
     const enc = plejdEncDec(this._key, this._connAddr, payload);
+    console.log(`[plejd-ble] TX mesh=${meshId} connAddr=${this._connAddr.toString('hex')} payload=${payload.toString('hex')} enc=${enc.toString('hex')}`);
     // Write WITH response so a dropped link surfaces as a rejected promise.
     await this._dataChar.writeAsync(enc, false);
+    console.log(`[plejd-ble] TX ok (mesh=${meshId})`);
   }
 
   destroy() {
@@ -266,15 +270,19 @@ export class PlejdBle extends EventEmitter {
   // ── Keepalive ────────────────────────────────────────────────────────────────
   _startPing() {
     this._stopPing();
+    this._authedAt = Date.now();
     this._pingTimer = setInterval(async () => {
       if (!this._authed || !this._pingChar) return;
       try {
         const ping = randomBytes(1);
         await this._pingChar.writeAsync(ping, false);
-        await this._pingChar.readAsync(); // response proves the link is alive
+        await this._pingChar.readAsync();
       } catch (e) {
-        console.warn('[plejd-ble] ping failed — link stale, reconnecting');
-        this._onDisconnect();
+        // NON-FATAL. A ping read hiccup on WinRT must NOT tear down a link
+        // that is otherwise fine — that self-inflicted disconnect was exactly
+        // the ~20s drop. Real drops arrive via the peripheral 'disconnect'
+        // event, which is the only thing that triggers reconnect.
+        console.warn(`[plejd-ble] ping hiccup (ignored): ${e.message}`);
       }
     }, PING_MS);
   }
@@ -285,6 +293,8 @@ export class PlejdBle extends EventEmitter {
 
   _onDisconnect() {
     if (this._destroyed) return;
+    const alive = this._authedAt ? Math.round((Date.now() - this._authedAt) / 1000) : '?';
+    console.log(`[plejd-ble] disconnect fired (link was up ${alive}s)`);
     const wasReady = this._authed;
     this._authed = false;
     this._stopPing();

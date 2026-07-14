@@ -609,6 +609,8 @@ export function startPlejdPoller(hub, {
   /** @type {PlejdGateway|null} */
   let gateway      = null;
   let localActive  = false; // true when TCP connection is authenticated
+  let connecting   = false; // single-flight guard for the local transport
+  let initDone     = false; // initFromSession has run once (idempotent thereafter)
   // Plejd removed the sendStateToDevice Parse function — every cloud command
   // 400s with "Invalid function". Flip this on first sighting so we fail fast
   // with an actionable message instead of spamming dead requests.
@@ -760,12 +762,17 @@ export function startPlejdPoller(hub, {
   }
 
   function connectBle() {
-    if (cleanedUp || !cryptoKey) return;
+    // Single-flight: a second setSession (React re-fire) must not spin up a
+    // rival BLE flow — two centrals fighting one adapter drop the link right
+    // after auth. Skip if a connect is in progress or already active.
+    if (cleanedUp || !cryptoKey || connecting || localActive) return;
+    connecting = true;
     console.log('[hub:plejd] Connecting to Plejd mesh over Bluetooth…');
     let ble;
     try {
       ble = new PlejdBle(cryptoKey, addressMap);
     } catch (e) {
+      connecting = false;
       console.warn(`[hub:plejd] BLE init failed: ${e.message} — trying TCP`);
       return connectTcp();
     }
@@ -777,11 +784,13 @@ export function startPlejdPoller(hub, {
     });
     ble.connect()
       .then(() => {
+        connecting = false;
         localActive = true;
         hub.pushHealth('plejd', 'ok', 'Local control active over Bluetooth');
         console.log('[hub:plejd] Bluetooth mesh control active');
       })
       .catch((err) => {
+        connecting = false;
         localActive = false;
         gateway = null;
         console.warn(`[hub:plejd] BLE connect failed: ${err.message}`);
@@ -796,7 +805,8 @@ export function startPlejdPoller(hub, {
   }
 
   function connectTcp() {
-    if (cleanedUp || !gatewayIp || !cryptoKey) return;
+    if (cleanedUp || !gatewayIp || !cryptoKey || localActive) return;
+    connecting = true;
     console.log(`[hub:plejd] Connecting to GWY-01 at ${gatewayIp}:${GWY_TCP_PORT}`);
     const tcp = new PlejdGateway(gatewayIp, cryptoKey, addressMap);
     gateway = tcp;
@@ -807,11 +817,13 @@ export function startPlejdPoller(hub, {
     });
     tcp.connect()
       .then(() => {
+        connecting = false;
         localActive = true;
         hub.pushHealth('plejd', 'ok', `Local TCP active — ${gatewayIp}:${GWY_TCP_PORT}`);
         console.log('[hub:plejd] Local TCP active');
       })
       .catch((err) => {
+        connecting = false;
         localActive = false;
         gateway = null;
         hub.pushHealth('plejd', 'down', `GWY-01 TCP connect failed: ${err.message} — retrying BLE`);
@@ -833,14 +845,21 @@ export function startPlejdPoller(hub, {
   }
 
   // Shared post-auth initialization — runs whether we booted via credentials
-  // or via a browser-provided session token.
+  // or via a browser-provided session token. Idempotent: the browser re-sends
+  // setSession on every reconnect (and React can double-fire it), but the
+  // local transport must be brought up exactly once — a second connect races
+  // the first over the single BLE adapter and drops the link.
   async function initFromSession() {
-    await fetchAndSeedDevices();
-    startFallbackPoller(); // always poll cloud for display state
+    await fetchAndSeedDevices();     // always refresh device list/state
+    startFallbackPoller();           // always poll cloud for display state
+
+    if (initDone) return;            // transport already being managed
+    initDone = true;
 
     if (!cryptoKey) {
       console.warn('[hub:plejd] No crypto key — local control unavailable');
       hub.pushHealth('plejd', 'degraded', 'No crypto key from Plejd cloud — sign in again in Settings');
+      initDone = false;              // allow a later setSession with a key to retry
       return;
     }
 
@@ -976,6 +995,7 @@ export function startPlejdPoller(hub, {
       ?? [...meshToCloudId.entries()].find(([, cid]) => cid === cloudObjectId)?.[0]
       ?? (typeof deviceId === 'number' ? deviceId : parseInt(deviceId, 10));
     const meshIdValid = Number.isInteger(meshId) && meshId >= 0 && meshId <= 255;
+    console.log(`[hub:plejd] resolve deviceId=${deviceId} → cloudId=${cloudObjectId} meshId=${meshId} valid=${meshIdValid} localActive=${localActive} name="${d?.name ?? '?'}"`);
 
     if (!meshIdValid && localActive && gateway) {
       console.warn(`[hub:plejd] meshId unresolved for "${cloudObjectId}" (got ${meshId}) — falling back to cloud REST`);
