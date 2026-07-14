@@ -995,7 +995,6 @@ export function startPlejdPoller(hub, {
       ?? [...meshToCloudId.entries()].find(([, cid]) => cid === cloudObjectId)?.[0]
       ?? (typeof deviceId === 'number' ? deviceId : parseInt(deviceId, 10));
     const meshIdValid = Number.isInteger(meshId) && meshId >= 0 && meshId <= 255;
-    console.log(`[hub:plejd] resolve deviceId=${deviceId} → cloudId=${cloudObjectId} meshId=${meshId} valid=${meshIdValid} localActive=${localActive} name="${d?.name ?? '?'}"`);
 
     if (!meshIdValid && localActive && gateway) {
       console.warn(`[hub:plejd] meshId unresolved for "${cloudObjectId}" (got ${meshId}) — falling back to cloud REST`);

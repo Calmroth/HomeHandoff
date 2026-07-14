@@ -236,10 +236,8 @@ export class PlejdBle extends EventEmitter {
     }
 
     const enc = plejdEncDec(this._key, this._connAddr, payload);
-    console.log(`[plejd-ble] TX mesh=${meshId} connAddr=${this._connAddr.toString('hex')} payload=${payload.toString('hex')} enc=${enc.toString('hex')}`);
     // Write WITH response so a dropped link surfaces as a rejected promise.
     await this._dataChar.writeAsync(enc, false);
-    console.log(`[plejd-ble] TX ok (mesh=${meshId})`);
   }
 
   destroy() {
