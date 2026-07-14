@@ -207,6 +207,7 @@ import { startSonosPoller }      from './lib/integrations/sonos.js';
 import { startSonosCloudPoller } from './lib/integrations/sonos-cloud.js';
 import { startShellyPoller }     from './lib/integrations/shelly.js';
 import { startTibberPoller }     from './lib/integrations/tibber.js';
+import { startNibePoller }       from './lib/integrations/nibe.js';
 
 // Restore persisted state before integrations start so the first snapshot
 // sent to connecting browsers is already populated.
@@ -238,6 +239,14 @@ server.once('listening', () => {
 
   startTibberPoller(hub, {
     token: process.env.TIBBER_TOKEN,
+  });
+
+  // Nibe heat pump via myUplink (read-only). OAuth is hub-side; secret stays
+  // server-side. Dormant until NIBE_CLIENT_ID/SECRET/REDIRECT_URI are set.
+  startNibePoller(hub, {
+    clientId:     process.env.NIBE_CLIENT_ID,
+    clientSecret: process.env.NIBE_CLIENT_SECRET,
+    redirectUri:  process.env.NIBE_REDIRECT_URI,
   });
 });
 // ─────────────────────────────────────────────────────────────────────────

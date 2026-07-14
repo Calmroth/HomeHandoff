@@ -83,6 +83,14 @@ export const useHomeStore = create(subscribeWithSelector((set, get) => ({
   livePower: { watts: null, todayKwh: null, minW: null, maxW: null, avgW: null, ts: null },
   setLivePower: (patch) => set(s => ({ livePower: { ...s.livePower, ...patch } })),
 
+  // -------- Heat pump (Nibe via myUplink) --------
+  // Normalized, driver-agnostic climate shape; the UI hides whichever fields
+  // are null. `online` false = not connected / not signed in. Read-only in v1.
+  heatpump: null, // { online, source, name, indoorTemp, targetTemp, outdoorTemp,
+                  //   supplyTemp, returnTemp, hotWaterTemp, power, degreeMinutes,
+                  //   compressor, mode, status, fetchedAt, points[] }
+  setHeatpump: (payload) => set({ heatpump: payload }),
+
   // -------- Integration status --------
   status: {
     plejd:   initialStatusRow('Not set up'),
@@ -90,6 +98,7 @@ export const useHomeStore = create(subscribeWithSelector((set, get) => ({
     shelly:  initialStatusRow('Not set up'),
     spotify: initialStatusRow('Not connected'),
     tibber:  initialStatusRow('Not set up'),
+    nibe:    initialStatusRow('Not signed in'),
     weather: initialStatusRow('Using defaults'),
     google:  initialStatusRow('Not signed in'),
   },

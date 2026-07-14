@@ -51,3 +51,5 @@ impeccable_stderr.txt
 server/hub-state.json
 # Sonos OAuth tokens -- secrets, hub-local only
 server/sonos-tokens.json
+# Nibe (myUplink) OAuth tokens -- secrets, hub-local only
+server/nibe-tokens.json

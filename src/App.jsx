@@ -757,6 +757,23 @@ function App() {
       .catch(e => useHomeStore.getState().markFailed('sonos', String(e.message || e)));
   }, [hubConnected]);
 
+  // Nibe (myUplink) OAuth callback — same hub-side exchange pattern as Sonos.
+  // Nibe redirects back with ?code&state=hdg-nibe-*; the hub holds the secret.
+  const nibeExchangeStarted = useRef(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code  = params.get('code');
+    const state = params.get('state') || '';
+    if (!code || !state.startsWith('hdg-nibe')) return;
+    if (!hubConnected) return;
+    if (nibeExchangeStarted.current) return;
+    nibeExchangeStarted.current = true;
+    window.history.replaceState({}, '', window.location.origin + window.location.pathname + '#energy');
+    hubRest('nibe', 'exchangeCode', { code, state })
+      .then(() => useHomeStore.getState().markOk('nibe', 'Nibe account connected'))
+      .catch(e => useHomeStore.getState().markFailed('nibe', String(e.message || e)));
+  }, [hubConnected]);
+
   // Sonos Cloud speakers take over when authorized — unless a HEALTHY LAN
   // bridge is serving richer data (track titles). Priority:
   // healthy bridge > Sonos Cloud > Spotify Connect > UPnP.
@@ -842,6 +859,11 @@ function App() {
           avgW:     payload?.averagePower ?? null,
           ts:       Date.now(),
         });
+        break;
+      }
+      case 'heatpump': {
+        // Nibe (myUplink) normalized climate payload — read-only in v1.
+        useHomeStore.getState().setHeatpump(payload);
         break;
       }
       default:
@@ -1982,11 +2004,14 @@ function App() {
             />
           )}
           {route === 'energy' && (
-            <EnergyPage rooms={rooms} outlets={outlets} speakers={speakers}
-              totalW={totalW} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts}
-              tibberPrices={tibberPrices} tibberErr={tibberErr}
-              tibberConfigured={integrations.status('tibber') === 'configured'}
-              now={now} />
+            <>
+              <HeatPumpSection />
+              <EnergyPage rooms={rooms} outlets={outlets} speakers={speakers}
+                totalW={totalW} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts}
+                tibberPrices={tibberPrices} tibberErr={tibberErr}
+                tibberConfigured={integrations.status('tibber') === 'configured'}
+                now={now} />
+            </>
           )}
           {route === 'weather' && (
             <WeatherPage weather={weather} weatherData={weatherData} weatherErr={weatherErr} city={integrations.config.weather?.city || 'Stockholm'} now={now} />
@@ -4155,6 +4180,66 @@ function PriceBarChart({ prices, now }) {
 // EnergyPage — redesigned with KPI strip, 24h bar chart, source breakdown,
 // price insights, and per-device power table.
 // ─────────────────────────────────────────────────────────────────────────────
+// Heat pump (Nibe via myUplink) — read-only climate card. Hidden entirely when
+// the integration isn't configured (hub never pushes a payload). When
+// configured but not signed in, shows a "Sign in with Nibe" prompt. When live,
+// shows the model, current status, and a grid of temperatures + degree-minutes
+// + compressor + power (only the readings the pump actually reports).
+function HeatPumpSection() {
+  const hp = useHomeStore(s => s.heatpump);
+  if (!hp) return null; // not configured
+
+  if (hp.online === false) {
+    return (
+      <Section title="Heat pump" statusId="nibe" source="Nibe · not connected"
+        summary={<>Sign in with your Nibe account to see temperatures and status.</>}>
+        <div style={{ padding: '4px 0 8px' }}>
+          <button className="group-toggle" data-active="true" onClick={() => {
+            hubRest('nibe', 'beginAuth', {})
+              .then(r => { if (r?.url) window.location.href = r.url; })
+              .catch(e => useHomeStore.getState().markFailed('nibe', `Nibe sign-in: ${String(e.message || e)} — is the hub running?`));
+          }}>Sign in with Nibe</button>
+        </div>
+      </Section>
+    );
+  }
+
+  const readings = hp.readings || [];
+  const fmt = (v, unit) => {
+    if (v == null) return '—';
+    const n = Number.isInteger(v) ? v : Number(v).toFixed(1);
+    return unit === '°C' ? `${n}°` : `${n}`;
+  };
+
+  return (
+    <Section title="Heat pump" statusId="nibe"
+      source={hp.model || 'Nibe'}
+      summary={<>
+        {hp.status ? <b>{hp.status}</b> : 'Idle'}
+        {hp.compressor && <> · compressor <b>{hp.compressor}</b></>}
+        {hp.outdoorTemp != null && <> · outdoor <b className="mono">{hp.outdoorTemp.toFixed(1)}°</b></>}
+      </>}>
+      {readings.length ? (
+        <div className="sensors-grid">
+          {readings.map(r => (
+            <div key={r.label} className="sensor-tile">
+              <div className="sensor-tile-head">
+                <div className="sensor-tile-label">{r.label}</div>
+              </div>
+              <div className="sensor-tile-value mono">
+                {fmt(r.value, r.unit)}
+                {r.unit !== '°C' && <span className="sensor-tile-unit">{r.unit}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="energy-empty">Connected — waiting for the first readings…</div>
+      )}
+    </Section>
+  );
+}
+
 function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, speakerWatts, tibberPrices, tibberErr, tibberConfigured, now }) {
   const price = useHomeStore(s => s.price);
   const livePower = useHomeStore(s => s.livePower);

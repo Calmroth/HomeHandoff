@@ -6,6 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 ## [Unreleased]
 
 ### Added
+- **Nibe heat pump** (read-only) via the official myUplink cloud API. Hub-side OAuth2 (`READSYSTEM offline_access`, client secret stays server-side, HTTPS redirect); polls the pump every 60s and shows a climate card on the Energy page with outdoor/indoor/supply/return/hot-water temperatures, degree-minutes, compressor state, and power. Readings are identified by the Nibe sensor tag (`BT1`, `BT2`, …) embedded in each parameter's name, so it works across both F-series and S-series pumps despite their different parameter IDs. `-32768` sentinels are treated as "unavailable". Dormant until `NIBE_CLIENT_ID/SECRET/REDIRECT_URI` are set; then "Sign in with Nibe" appears on the Energy page. Tokens persist in gitignored `server/nibe-tokens.json`.
 - **Tibber live power** (real whole-home consumption): the hub opens a `liveMeasurement` WebSocket subscription to the Tibber Pulse and streams true instantaneous watts + today's kWh, replacing the simulated jitter on the energy screen. Shows a LIVE indicator; falls back to the estimated device-sum when no Pulse is present. `PowerLive` and the Energy page now read real draw.
 - Tibber is now hub-owned end to end (token stays server-side); the frontend consumes prices + live power over the WebSocket only — the redundant, shape-conflicting browser fetch is gone.
 
