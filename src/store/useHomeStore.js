@@ -73,7 +73,9 @@ export const useHomeStore = create(subscribeWithSelector((set, get) => ({
   // `hasSubscription` false = the account has no active Tibber power contract,
   // so spot prices are genuinely unavailable (not an error) — the UI shows an
   // honest "no price contract" state rather than a failure.
-  price: { current: null, today: null, tomorrow: null, currency: 'SEK', hasSubscription: null, err: null },
+  // `source`: 'tibber' = the account's contract price; 'public' = Nord Pool
+  // market spot (fallback when there's no Tibber contract); null = none yet.
+  price: { current: null, today: null, tomorrow: null, currency: 'SEK', hasSubscription: null, source: null, zone: null, err: null },
   setPrice: (patch) => set(s => ({ price: { ...s.price, ...patch } })),
 
   // -------- Live power (Tibber Pulse / Watty) --------

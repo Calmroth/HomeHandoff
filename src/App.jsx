@@ -835,13 +835,15 @@ function App() {
         });
         break;
       case 'tibber': {
-        // Hub is the single Tibber owner. payload = { hasSubscription, currency,
-        // current, today[], tomorrow[] }. Drive the local chart array AND the
-        // store price slice + status dot from this one path.
+        // Hub is the single Tibber owner. payload = { hasSubscription, priceSource,
+        // zone, currency, current, today[], tomorrow[] }. Prices may come from the
+        // account's Tibber CONTRACT or, when there's none, the PUBLIC market spot
+        // curve — either way we render the chart; only the label differs.
         const today = payload?.today ?? [];
         setTibberPrices(today);
         const store = useHomeStore.getState();
-        if (payload?.hasSubscription) {
+        const source = payload?.hasSubscription ? 'tibber' : (payload?.priceSource || null);
+        if (today.length) {
           const nowMs = Date.now();
           const slot = today.find(row => {
             const t0 = new Date(row.startsAt).getTime();
@@ -849,12 +851,14 @@ function App() {
           });
           const current = payload.current?.total ?? slot?.total ?? today?.[0]?.total ?? null;
           const currency = payload.currency || 'SEK';
-          store.setPrice({ current, today, tomorrow: payload.tomorrow ?? null, currency, hasSubscription: true, err: null });
-          store.markOk('tibber', current != null ? `${current.toFixed(2)} ${currency}/kWh` : 'prices ok');
+          store.setPrice({ current, today, tomorrow: payload.tomorrow ?? null, currency, hasSubscription: !!payload.hasSubscription, source, zone: payload.zone || null, err: null });
+          store.markOk('tibber', current != null
+            ? `${current.toFixed(2)} ${currency}/kWh${source === 'public' ? ` · spot ${payload.zone || ''}` : ''}`
+            : 'prices ok');
         } else {
-          // No active price contract — honest, non-error state.
-          store.setPrice({ current: null, today: null, tomorrow: null, hasSubscription: false, err: null });
-          store.setStatus('tibber', { state: STATUS.DEGRADED, label: 'No price contract', detail: 'Live power works; spot prices need a Tibber electricity subscription' });
+          // No contract AND no public prices available — honest empty state.
+          store.setPrice({ current: null, today: null, tomorrow: null, hasSubscription: !!payload?.hasSubscription, source, zone: payload?.zone || null, err: null });
+          store.setStatus('tibber', { state: STATUS.DEGRADED, label: 'No prices', detail: 'No Tibber contract and no public spot prices available' });
         }
         break;
       }
@@ -4155,13 +4159,10 @@ function PriceBarChart({ prices, now }) {
   const minP = Math.min(...vals);
   const range = maxP - minP || 0.001;
   const cIdx = Math.max(0, prices.findIndex(p => new Date(p.startsAt).getTime() + 3600_000 > nowT));
-  const cheapSet = new Set(
-    prices.map((p, i) => ({ i, v: p.total }))
-      .filter(x => x.i > cIdx)
-      .sort((a, b) => a.v - b.v)
-      .slice(0, 3)
-      .map(x => x.i)
-  );
+  // Absolute cheapest and most-expensive hour of the whole day (any time),
+  // so the "when is it best/worst" answer is always marked even if it's past.
+  let minI = 0, maxI = 0;
+  prices.forEach((p, i) => { if (p.total < prices[minI].total) minI = i; if (p.total > prices[maxI].total) maxI = i; });
 
   return (
     <>
@@ -4170,14 +4171,14 @@ function PriceBarChart({ prices, now }) {
           const frac = (p.total - minP) / range;
           const isCurrent = i === cIdx;
           const isPast = i < cIdx;
-          const isCheap = cheapSet.has(i);
           return (
             <div
               key={i}
               className="price-bar-col"
               data-current={isCurrent || undefined}
               data-past={isPast || undefined}
-              data-cheap={isCheap || undefined}
+              data-cheap={i === minI || undefined}
+              data-expensive={i === maxI || undefined}
               title={`${new Date(p.startsAt).getHours()}:00 — ${p.total.toFixed(3)} SEK/kWh`}
             >
               <div className="price-bar-inner" style={{ height: `${Math.max(frac * 72, 3)}px` }} />
@@ -4263,7 +4264,19 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
   // Distinguish "no active price contract" (honest, permanent until the user
   // gets a Tibber electricity subscription) from "loading" or "token missing".
   const noPriceContract = price.hasSubscription === false;
+  const isPublicPrice = price.source === 'public';
+  const priceZone = price.zone || 'SE3';
   const cur = price.currency || 'SEK';
+
+  // Cheapest and most-expensive hour of the day, with clock times — the plain
+  // "when should I run the dishwasher / avoid the oven" answer.
+  const extremes = useMemo(() => {
+    if (!tibberPrices?.length) return null;
+    let lo = tibberPrices[0], hi = tibberPrices[0];
+    for (const p of tibberPrices) { if (p.total < lo.total) lo = p; if (p.total > hi.total) hi = p; }
+    const hh = (p) => new Date(p.startsAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+    return { lo, hi, loTime: hh(lo), hiTime: hh(hi) };
+  }, [tibberPrices]);
 
   const currentPrice = useMemo(() => {
     if (!tibberPrices?.length) return null;
@@ -4311,7 +4324,7 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
       summary={<>
         Live load <b className="mono">{totalW} W</b>
         {isLive && <> · <span style={{ color: 'var(--primary)' }}>live</span></>}
-        {currentPrice != null && <> · spot <b className="mono">{currentPrice.toFixed(2)} {cur}/kWh</b></>}
+        {currentPrice != null && <> · {isPublicPrice ? 'market' : 'spot'} <b className="mono">{currentPrice.toFixed(2)} {cur}/kWh</b></>}
       </>}
     >
       <div className="energy-page">
@@ -4332,7 +4345,7 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
             <div className="energy-kpi-val">
               {currentPrice != null ? currentPrice.toFixed(2) : '—'}<span className="unit">{cur}/kWh</span>
             </div>
-            <div className="energy-kpi-sub">{noPriceContract ? 'no Tibber price contract' : currentPrice != null ? 'Tibber · live' : 'connecting…'}</div>
+            <div className="energy-kpi-sub">{isPublicPrice ? `market spot · ${priceZone}` : currentPrice != null ? 'Tibber · live' : noPriceContract ? 'no prices' : 'connecting…'}</div>
           </div>
           <div className="energy-kpi">
             <span className="micro-label">Cost this hour</span>
@@ -4346,30 +4359,52 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
         {/* 24h price bar chart */}
         <div className="energy-card">
           <div className="energy-card-head">
-            <span className="micro-label">Today's electricity prices</span>
+            <span className="micro-label">
+              {isPublicPrice ? `Market spot price · ${priceZone}` : "Today's electricity prices"}
+            </span>
             {currentPrice != null && (
               <span className="energy-card-val">
-                {currentPrice.toFixed(2)}<span style={{ fontSize: 11, color: 'var(--muted-foreground)', marginLeft: 4 }}>SEK/kWh now</span>
+                {currentPrice.toFixed(2)}<span style={{ fontSize: 11, color: 'var(--muted-foreground)', marginLeft: 4 }}>{cur}/kWh now</span>
               </span>
             )}
           </div>
           {tibberPrices?.length ? (
             <>
+              {/* Cheapest vs most-expensive — the glanceable "when" answer */}
+              {extremes && (
+                <div className="price-extremes">
+                  <div className="price-extreme is-cheap">
+                    <span className="price-extreme-label">Cheapest</span>
+                    <b className="mono">{extremes.lo.total.toFixed(2)}</b>
+                    <span className="price-extreme-time">{extremes.loTime}</span>
+                  </div>
+                  <div className="price-extreme is-exp">
+                    <span className="price-extreme-label">Most expensive</span>
+                    <b className="mono">{extremes.hi.total.toFixed(2)}</b>
+                    <span className="price-extreme-time">{extremes.hiTime}</span>
+                  </div>
+                </div>
+              )}
               <PriceBarChart prices={tibberPrices} now={now} />
               {priceStats && (
                 <div className="price-bar-minmax">
                   <span>low {priceStats.minP.toFixed(2)}</span>
                   <span>avg {priceStats.avgP.toFixed(2)}</span>
-                  <span>high {priceStats.maxP.toFixed(2)} SEK/kWh</span>
+                  <span>high {priceStats.maxP.toFixed(2)} {cur}/kWh</span>
+                </div>
+              )}
+              {isPublicPrice && (
+                <div className="price-source-note">
+                  Nord Pool market spot price for zone {priceZone} (excl. grid fees &amp; tax). Connect a Tibber contract in Settings to show your actual price.
                 </div>
               )}
             </>
           ) : (
             <div className="energy-empty">
               {noPriceContract
-                ? 'No active Tibber price contract. Live power works; spot prices need a Tibber electricity subscription (tibber.com).'
+                ? `Public market prices unavailable for ${priceZone} right now. Live power still works.`
                 : tibberErr ? `Tibber error: ${tibberErr}`
-                : 'Connecting to Tibber…'}
+                : 'Connecting to prices…'}
             </div>
           )}
         </div>

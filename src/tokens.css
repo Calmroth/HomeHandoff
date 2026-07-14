@@ -3190,7 +3190,12 @@ img.avatar { display: block; }
   background: color-mix(in oklch, var(--clay-50) 12%, transparent);
 }
 .price-bar-col[data-cheap="true"] .price-bar-inner {
-  background: color-mix(in oklch, var(--primary) 42%, transparent);
+  background: color-mix(in oklch, var(--primary) 55%, transparent);
+}
+/* Most expensive hour — the one warm-red exception to the amber-only accent,
+   because "avoid this hour" carries clear, distinct meaning on a price chart. */
+.price-bar-col[data-expensive="true"] .price-bar-inner {
+  background: color-mix(in oklch, oklch(0.62 0.16 25) 62%, transparent);
 }
 .price-bar-axis {
   display: flex; justify-content: space-between;
@@ -3205,6 +3210,33 @@ img.avatar { display: block; }
   font-size: 10px;
   color: var(--muted-foreground);
   opacity: 0.65;
+}
+
+/* Cheapest vs most-expensive callout — the glanceable "when" answer */
+.price-extremes {
+  display: flex; gap: 2px; margin-bottom: 12px;
+}
+.price-extreme {
+  flex: 1;
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 9px 13px;
+  background: color-mix(in oklch, var(--clay-850) 55%, transparent);
+  border-radius: 8px;
+}
+.price-extreme-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted-foreground);
+}
+.price-extreme b { font-size: 15px; letter-spacing: -0.01em; }
+.price-extreme-time {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted-foreground); margin-left: auto;
+}
+.price-extreme.is-cheap b { color: var(--primary); }
+.price-extreme.is-exp   b { color: oklch(0.66 0.16 25); }
+.price-source-note {
+  font-size: 10px; color: var(--muted-foreground); opacity: 0.72;
+  margin-top: 10px; line-height: 1.45;
 }
 
 /* 2-col row below the price chart */
