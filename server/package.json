@@ -8,6 +8,7 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@stoprocent/noble": "^2.5.7",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "ws": "^8.18.0"

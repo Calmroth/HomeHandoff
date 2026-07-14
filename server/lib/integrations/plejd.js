@@ -27,6 +27,7 @@
 
 import { createConnection } from 'net';
 import { PlejdGateway } from '../plejd-gateway.js';
+import { PlejdBle } from '../plejd-ble.js';
 
 const PLEJD_BASE      = 'https://cloud.plejd.com';
 const PLEJD_APP_ID    = 'zHtVqXt8k4yFyk2QGmgp48D9xZr2G94xWYnF4dak';
@@ -675,25 +676,27 @@ export function startPlejdPoller(hub, {
     console.log(`[hub:plejd] Cloud fallback polling every ${FALLBACK_POLL_MS / 1000}s`);
   }
 
-  // ── Local TCP connection management ───────────────────────────────────────
+  // ── Local transport management (BLE preferred, TCP fallback) ──────────────
+  //
+  // Two local transports share one contract (connect / sendCommand / isReady /
+  // destroy + ready|state|error|close events):
+  //   PlejdBle     — talks Bluetooth straight to the mesh (what the phone does).
+  //                  Works on modern GWY-01 firmware that closed the TCP socket.
+  //   PlejdGateway — legacy TCP:9001 to the GWY-01 (older firmware only).
+  // Whichever connects first becomes `gateway`; the command handler is unaware
+  // which one it's driving.
 
-  function connectLocal() {
-    if (cleanedUp || !gatewayIp || !cryptoKey) return;
-
-    console.log(`[hub:plejd] Connecting to GWY-01 at ${gatewayIp}:${GWY_TCP_PORT}`);
-    gateway = new PlejdGateway(gatewayIp, cryptoKey, addressMap);
-
-    gateway.on('state', ({ deviceId: meshId, on, brightness }) => {
-      // TCP state events carry meshId (1-byte integer); deviceMap is keyed by cloud objectId
+  // Shared state-event handler — meshId (1-byte int) into the cloud-keyed map.
+  function attachTransportEvents(transport, label, onClose) {
+    transport.on('state', ({ deviceId: meshId, on, brightness }) => {
       const cloudId = meshToCloudId.get(meshId);
       const existing = deviceMap.get(meshId)
                     || deviceMap.get(String(meshId))
                     || (cloudId ? deviceMap.get(cloudId) : null);
       if (existing) {
         existing.isOn = on;
-        existing.dim  = Math.round((brightness / 100) * 255); // store as 0-255 to match cloud format
+        existing.dim  = Math.round((brightness / 100) * 255);
       } else {
-        // Unknown device reported by TCP — create minimal entry keyed by meshId
         deviceMap.set(meshId, {
           id: cloudId ?? meshId, meshId, name: `Plejd ${meshId}`, type: 'Light',
           isOn: on, dim: Math.round((brightness / 100) * 255), room: '',
@@ -701,34 +704,75 @@ export function startPlejdPoller(hub, {
       }
       broadcastFromMap();
     });
+    transport.on('error', (err) => console.error(`[hub:plejd] ${label} error: ${err.message}`));
+    transport.on('close', onClose);
+  }
 
-    gateway.on('error', (err) => {
-      console.error(`[hub:plejd] Gateway TCP error: ${err.message}`);
-    });
+  // Try BLE first (needs only the crypto key — no gateway IP, works on locked
+  // firmware). If BLE can't find the mesh, fall through to TCP when an IP exists.
+  function connectLocal() {
+    if (cleanedUp || !cryptoKey) return;
+    connectBle();
+  }
 
-    gateway.on('close', () => {
+  function connectBle() {
+    if (cleanedUp || !cryptoKey) return;
+    console.log('[hub:plejd] Connecting to Plejd mesh over Bluetooth…');
+    let ble;
+    try {
+      ble = new PlejdBle(cryptoKey, addressMap);
+    } catch (e) {
+      console.warn(`[hub:plejd] BLE init failed: ${e.message} — trying TCP`);
+      return connectTcp();
+    }
+    gateway = ble;
+    attachTransportEvents(ble, 'BLE', () => {
       localActive = false;
-      hub.pushHealth('plejd', 'down', 'TCP disconnected — reconnecting');
-      console.log('[hub:plejd] Gateway connection closed — will retry');
-      if (!cleanedUp) {
-        reconnectTimer = setTimeout(connectLocal, RECONNECT_MS);
-      }
+      hub.pushHealth('plejd', 'down', 'Bluetooth link dropped — reconnecting');
+      // PlejdBle reconnects itself; just reflect status.
     });
-
-    gateway.connect()
+    ble.connect()
       .then(() => {
         localActive = true;
-        hub.pushHealth('plejd', 'ok', `Local TCP active — ${gatewayIp}:${GWY_TCP_PORT}`);
-        console.log(`[hub:plejd] Local TCP active — real-time state updates enabled`);
+        hub.pushHealth('plejd', 'ok', 'Local control active over Bluetooth');
+        console.log('[hub:plejd] Bluetooth mesh control active');
       })
       .catch((err) => {
         localActive = false;
-        hub.pushHealth('plejd', 'down', `GWY-01 TCP connect failed: ${err.message} — retrying`);
-        console.warn(`[hub:plejd] TCP connect failed: ${err.message} — retrying in ${RECONNECT_MS / 1000}s`);
         gateway = null;
-        if (!cleanedUp) {
-          reconnectTimer = setTimeout(connectLocal, RECONNECT_MS);
+        console.warn(`[hub:plejd] BLE connect failed: ${err.message}`);
+        // Fall back to TCP if a gateway IP is available; else retry BLE later.
+        if (gatewayIp) {
+          connectTcp();
+        } else {
+          hub.pushHealth('plejd', 'degraded', `Bluetooth: ${err.message} — retrying`);
+          if (!cleanedUp) reconnectTimer = setTimeout(connectBle, RECONNECT_MS);
         }
+      });
+  }
+
+  function connectTcp() {
+    if (cleanedUp || !gatewayIp || !cryptoKey) return;
+    console.log(`[hub:plejd] Connecting to GWY-01 at ${gatewayIp}:${GWY_TCP_PORT}`);
+    const tcp = new PlejdGateway(gatewayIp, cryptoKey, addressMap);
+    gateway = tcp;
+    attachTransportEvents(tcp, 'TCP', () => {
+      localActive = false;
+      hub.pushHealth('plejd', 'down', 'TCP disconnected — reconnecting');
+      if (!cleanedUp) reconnectTimer = setTimeout(connectTcp, RECONNECT_MS);
+    });
+    tcp.connect()
+      .then(() => {
+        localActive = true;
+        hub.pushHealth('plejd', 'ok', `Local TCP active — ${gatewayIp}:${GWY_TCP_PORT}`);
+        console.log('[hub:plejd] Local TCP active');
+      })
+      .catch((err) => {
+        localActive = false;
+        gateway = null;
+        hub.pushHealth('plejd', 'down', `GWY-01 TCP connect failed: ${err.message} — retrying BLE`);
+        console.warn(`[hub:plejd] TCP connect failed: ${err.message} — retrying BLE in ${RECONNECT_MS / 1000}s`);
+        if (!cleanedUp) reconnectTimer = setTimeout(connectBle, RECONNECT_MS);
       });
   }
 
@@ -748,25 +792,19 @@ export function startPlejdPoller(hub, {
   // or via a browser-provided session token.
   async function initFromSession() {
     await fetchAndSeedDevices();
+    startFallbackPoller(); // always poll cloud for display state
+
     if (!cryptoKey) {
-      console.warn('[hub:plejd] No crypto key — local TCP commands unavailable');
-      hub.pushHealth('plejd', 'degraded', 'No crypto key from Plejd cloud — local control unavailable');
+      console.warn('[hub:plejd] No crypto key — local control unavailable');
+      hub.pushHealth('plejd', 'degraded', 'No crypto key from Plejd cloud — sign in again in Settings');
+      return;
     }
-    gatewayIp = await discoverGatewayIP(gatewayIp);
-    if (gatewayIp && cryptoKey) {
-      connectLocal();
-      startFallbackPoller();
-    } else {
-      // Cloud-only is STATE ONLY: Plejd removed the sendStateToDevice cloud
-      // function, so without the GWY-01 TCP connection nothing is controllable.
-      // Say so on the health dot instead of leaving "unknown".
-      if (!gatewayIp) {
-        hub.pushHealth('plejd', 'degraded',
-          'GWY-01 not found on LAN — set PLEJD_GATEWAY_IP in .env.local (router DHCP list, device "Plejd GWY-01") and restart the hub');
-      }
-      console.log('[hub:plejd] Running in cloud-only mode (state only — no control)');
-      startFallbackPoller();
-    }
+
+    // BLE needs only the crypto key. Resolve the optional gateway IP in the
+    // background so the TCP fallback is ready if BLE can't reach the mesh, but
+    // don't block local control on it.
+    discoverGatewayIP(gatewayIp).then((ip) => { gatewayIp = ip; }).catch(() => {});
+    connectLocal(); // BLE first, TCP fallback inside
   }
 
   if (hasCredentials) {
@@ -808,7 +846,9 @@ export function startPlejdPoller(hub, {
         const devMeshId = dev?.meshId
           ?? [...meshToCloudId.entries()].find(([, cid]) => cid === sd.deviceId)?.[0];
         if (localActive && gateway && devMeshId != null) {
-          gateway.sendCommand(devMeshId, sd.on, sd.on ? sd.brightness : undefined);
+          // await: PlejdBle.sendCommand is async (BLE write); PlejdGateway's is
+          // sync and returns undefined — awaiting undefined is a no-op.
+          await gateway.sendCommand(devMeshId, sd.on, sd.on ? sd.brightness : undefined);
           if (dev) { dev.isOn = sd.on; dev.dim = Math.round((sd.brightness / 100) * 255); }
         } else {
           if (cloudControlDead) throw new Error('Plejd cloud control unavailable — GWY-01 required');
@@ -840,8 +880,8 @@ export function startPlejdPoller(hub, {
         // NaN passes the old `!= null` check, silently becoming 0 in Buffer — sending to device 0.
         const devMeshIdValid = Number.isInteger(devMeshId) && devMeshId >= 0 && devMeshId <= 255;
         if (localActive && gateway && devMeshIdValid) {
-          if (action === 'toggle')      gateway.sendCommand(devMeshId, !!on);
-          else if (action === 'dim')    gateway.sendCommand(devMeshId, (brightness ?? 0) > 0, brightness ?? 0);
+          if (action === 'toggle')      await gateway.sendCommand(devMeshId, !!on);
+          else if (action === 'dim')    await gateway.sendCommand(devMeshId, (brightness ?? 0) > 0, brightness ?? 0);
           if (dev) {
             if (action === 'toggle')   { dev.isOn = !!on; }
             else if (action === 'dim') { dev.isOn = (brightness ?? 0) > 0; dev.dim = Math.round(((brightness ?? 0) / 100) * 255); }
@@ -898,11 +938,12 @@ export function startPlejdPoller(hub, {
     }
 
     if (localActive && gateway && meshIdValid) {
-      // Fast path: local TCP — sendCommand expects brightness in 0-100
+      // Fast path: local transport (BLE or TCP) — brightness in 0-100.
+      // await surfaces a BLE write failure as command_result ok:false.
       if (action === 'toggle') {
-        gateway.sendCommand(meshId, !!on);
+        await gateway.sendCommand(meshId, !!on);
       } else if (action === 'dim') {
-        gateway.sendCommand(meshId, (brightness ?? 0) > 0, brightness ?? 0);
+        await gateway.sendCommand(meshId, (brightness ?? 0) > 0, brightness ?? 0);
       } else {
         throw new Error(`Unknown Plejd action: "${action}"`);
       }
