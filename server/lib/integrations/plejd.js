@@ -58,6 +58,26 @@ function toPlejdArray(val) {
   return null; // null → try next ?? candidate
 }
 
+// The site crypto key comes back as a Parse "Bytes" type
+// ({__type:'Bytes', base64:'...'}), NOT the hex string the transports assumed.
+// Passing that object to Buffer.from(x,'hex') silently yields 1 garbage byte,
+// which the BLE/TCP constructors reject. Normalise every form to a 16-byte
+// Buffer (or null).
+function normalizeCryptoKey(v) {
+  if (!v) return null;
+  if (Buffer.isBuffer(v)) return v.length === 16 ? v : null;
+  if (typeof v === 'object' && typeof v.base64 === 'string') {
+    const b = Buffer.from(v.base64, 'base64');
+    return b.length === 16 ? b : null;
+  }
+  if (typeof v === 'string') {
+    const hex = v.replace(/[^0-9a-fA-F]/g, '');
+    if (hex.length === 32) return Buffer.from(hex, 'hex');
+    try { const b = Buffer.from(v, 'base64'); if (b.length === 16) return b; } catch {}
+  }
+  return null;
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 function plejdHeaders(sessionToken) {
@@ -184,15 +204,33 @@ async function fetchSiteDetails(sessionToken, siteId) {
   //   macToBleAddr:  MAC_hex_lower → Buffer(6)   (lets us look up by user-device deviceId field)
   const deviceBleAddr = new Map();  // hwObjId → Buffer(6) reversed BLE addr
   const macToBleAddr  = new Map();  // MAC hex (lowercase) → Buffer(6)
+  const macToMeshId   = new Map();  // MAC hex (lowercase) → meshId:number
   const rawAddrMap = detail.deviceAddresses ?? detail.outputAddress ?? {};
   for (const [objId, rawEntry] of Object.entries(rawAddrMap)) {
-    const hex = typeof rawEntry === 'string' ? rawEntry
-      : (rawEntry?.address ?? rawEntry?.bleAddress ?? null);
-    if (typeof hex === 'string' && hex.length === 12) {
-      // Plejd MAC stored big-endian; reversed = mesh byte order, [0] = mesh address
-      const buf = Buffer.from(hex, 'hex').reverse();
+    // Three observed shapes of a deviceAddresses entry:
+    //   A (v4 firmware): key = MAC hex,  value = { '0': meshId }   ← the mesh
+    //                    address is the value under output index '0', NOT the
+    //                    last byte of the MAC. Deriving it from the MAC is wrong.
+    //   B (older):       key = objId,    value = MAC hex string
+    //   C:               value = { address|bleAddress: MAC hex }
+    const keyIsMac = /^[0-9a-fA-F]{12}$/.test(objId);
+    let macHex = keyIsMac ? objId.toLowerCase() : null;
+    let meshId = null;
+
+    if (typeof rawEntry === 'string' && rawEntry.length === 12) {
+      macHex = rawEntry.toLowerCase();                     // B
+    } else if (rawEntry && typeof rawEntry === 'object') {
+      if (rawEntry['0'] != null) meshId = Number(rawEntry['0']); // A
+      const addr = rawEntry.address ?? rawEntry.bleAddress;
+      if (typeof addr === 'string' && addr.length === 12) macHex = addr.toLowerCase(); // C
+    }
+
+    if (macHex) {
+      // Plejd MAC stored big-endian; reversed = mesh byte order.
+      const buf = Buffer.from(macHex, 'hex').reverse();
       deviceBleAddr.set(objId, buf);
-      macToBleAddr.set(hex.toLowerCase(), buf);
+      macToBleAddr.set(macHex, buf);
+      if (Number.isInteger(meshId)) macToMeshId.set(macHex, meshId);
     }
   }
 
@@ -254,9 +292,12 @@ async function fetchSiteDetails(sessionToken, siteId) {
 
     if (perDeviceOutputs.length > 0) {
       for (const out of perDeviceOutputs) {
-        // outputSettings[i].deviceId is the TCP mesh address when it's a small integer
-        const outMeshId = typeof out.deviceId === 'number' && out.deviceId < 256 ? out.deviceId
-          : (bleAddr ? bleAddr[0] : undefined);
+        // Mesh address priority: deviceAddresses {'0':meshId} (authoritative on
+        // v4 firmware) > outputSettings.deviceId small int (older) > MAC last
+        // byte (last-ditch; wrong on v4, kept only for legacy sites).
+        const outMeshId = macToMeshId.get(macHex)
+          ?? (typeof out.deviceId === 'number' && out.deviceId < 256 ? out.deviceId : undefined)
+          ?? (bleAddr ? bleAddr[0] : undefined);
         if (outMeshId !== undefined && bleAddr) {
           addressMap.set(outMeshId, bleAddr);
           meshToCloudId.set(outMeshId, objectId);
@@ -275,10 +316,11 @@ async function fetchSiteDetails(sessionToken, siteId) {
         });
       }
     } else {
-      // Single-output device — derive meshId from BLE address last byte
-      const meshId = bleAddr ? bleAddr[0] : undefined;
-      if (meshId !== undefined && bleAddr) {
-        addressMap.set(meshId, bleAddr);
+      // Single-output device — authoritative meshId from deviceAddresses,
+      // else MAC last byte (legacy only).
+      const meshId = macToMeshId.get(macHex) ?? (bleAddr ? bleAddr[0] : undefined);
+      if (meshId !== undefined) {
+        if (bleAddr) addressMap.set(meshId, bleAddr);
         meshToCloudId.set(meshId, objectId);
         cloudToMeshId.set(objectId, meshId);
       }
@@ -296,12 +338,14 @@ async function fetchSiteDetails(sessionToken, siteId) {
     }
   }
 
-  // Crypto key — check all known nesting paths
-  const cryptoKey = detail.plejdMesh?.cryptoKey
+  // Crypto key — check all known nesting paths, normalise Parse Bytes → Buffer
+  const cryptoKey = normalizeCryptoKey(
+    detail.plejdMesh?.cryptoKey
     || detail.site?.cryptoKey
     || detail.cryptoKey
     || detail.key
-    || null;
+    || null
+  );
 
   // Parse scenes — sceneDevices may be a separate top-level list or nested per scene.
   // toPlejdArray() handles JSON-string responses that caused "nested.map is not a function".

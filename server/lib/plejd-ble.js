@@ -110,9 +110,26 @@ export class PlejdBle extends EventEmitter {
       }
     }
     await this._waitPoweredOn();
-    const peripheral = await this._scanForStrongest();
-    if (!peripheral) throw new Error('PlejdBle: no Plejd mesh device found in range');
-    await this._connectAndAuth(peripheral);
+    const candidates = await this._scanCandidates();
+    if (!candidates.length) throw new Error('PlejdBle: no Plejd mesh device found in range');
+
+    // Any mesh node can relay commands to the whole mesh, but an individual
+    // node may refuse a GATT session (busy with the phone app or mesh chatter),
+    // surfacing as "unreachable while discovering services". Walk the nodes in
+    // signal order until one accepts a connection + auth.
+    let lastErr = null;
+    for (const c of candidates.slice(0, 6)) {
+      try {
+        console.log(`[plejd-ble] Trying ${c.peripheral.address} (rssi ${c.rssi})`);
+        await this._connectAndAuth(c.peripheral);
+        return; // success
+      } catch (e) {
+        lastErr = e;
+        console.warn(`[plejd-ble] ${c.peripheral.address} failed: ${e.message}`);
+        try { await c.peripheral.disconnectAsync(); } catch {}
+      }
+    }
+    throw new Error(`PlejdBle: no node accepted a connection (${lastErr?.message || 'unknown'})`);
   }
 
   _waitPoweredOn() {
@@ -127,26 +144,23 @@ export class PlejdBle extends EventEmitter {
     });
   }
 
-  // Scan the mesh, pick the strongest Plejd node (best link = most reliable relay).
-  _scanForStrongest() {
+  // Scan the mesh, return all Plejd nodes sorted by signal (strongest first).
+  _scanCandidates() {
     const noble = this._noble;
     return new Promise(async (resolve) => {
       const seen = new Map(); // address -> { peripheral, rssi }
       const onDiscover = (p) => {
-        const name = p.advertisement?.localName || '';
-        // Every device advertising the service is a mesh node; "P mesh" is the
-        // canonical localName but not all nodes set it, so trust the filter.
-        seen.set(p.address, { peripheral: p, rssi: p.rssi, name });
+        seen.set(p.address, { peripheral: p, rssi: p.rssi, name: p.advertisement?.localName || '' });
       };
       noble.on('discover', onDiscover);
-      try { await noble.startScanningAsync([PLEJD_SERVICE], false); } catch (e) { /* fall through */ }
+      try { await noble.startScanningAsync([PLEJD_SERVICE], false); } catch { /* fall through */ }
 
       setTimeout(async () => {
         noble.removeListener('discover', onDiscover);
         try { await noble.stopScanningAsync(); } catch {}
-        const best = [...seen.values()].sort((a, b) => b.rssi - a.rssi)[0];
-        if (best) console.log(`[plejd-ble] Connecting to ${best.peripheral.address} (rssi ${best.rssi}${best.name ? `, "${best.name}"` : ''})`);
-        resolve(best?.peripheral ?? null);
+        const list = [...seen.values()].sort((a, b) => b.rssi - a.rssi);
+        console.log(`[plejd-ble] Scan found ${list.length} mesh node(s)`);
+        resolve(list);
       }, SCAN_TIMEOUT_MS);
     });
   }
@@ -158,10 +172,22 @@ export class PlejdBle extends EventEmitter {
     peripheral.once('disconnect', () => this._onDisconnect());
     await peripheral.connectAsync();
 
-    // Discover the Plejd service + the three characteristics we use.
-    const { characteristics } = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
-      [PLEJD_SERVICE], [CHAR_DATA, CHAR_AUTH, CHAR_PING],
-    );
+    // WinRT quirk: GATT service discovery immediately after connect often
+    // throws "Device is unreachable" — the GATT session isn't ready yet. A
+    // short settle delay plus one retry clears it in practice.
+    let characteristics;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await new Promise(r => setTimeout(r, 600));
+      try {
+        ({ characteristics } = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
+          [PLEJD_SERVICE], [CHAR_DATA, CHAR_AUTH, CHAR_PING],
+        ));
+        break;
+      } catch (e) {
+        if (attempt === 2) throw e;
+        console.warn(`[plejd-ble] discovery retry (${e.message})`);
+      }
+    }
     for (const c of characteristics) {
       if (c.uuid === CHAR_DATA) this._dataChar = c;
       else if (c.uuid === CHAR_AUTH) this._authChar = c;
