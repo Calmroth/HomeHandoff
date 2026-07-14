@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 ## [Unreleased]
 
 ### Added
+- **Tibber live power** (real whole-home consumption): the hub opens a `liveMeasurement` WebSocket subscription to the Tibber Pulse and streams true instantaneous watts + today's kWh, replacing the simulated jitter on the energy screen. Shows a LIVE indicator; falls back to the estimated device-sum when no Pulse is present. `PowerLive` and the Energy page now read real draw.
+- Tibber is now hub-owned end to end (token stays server-side); the frontend consumes prices + live power over the WebSocket only — the redundant, shape-conflicting browser fetch is gone.
+
+### Fixed
+- Tibber "No priceInfo" error spam every hour: root cause was an account with no active price contract (`currentSubscription` is null). The poller now distinguishes no-homes / no-subscription / http / graphql and surfaces an honest, actionable status ("no Tibber price contract — live power works, spot prices need a subscription") instead of a repeating error. Prices light up automatically if a contract is activated.
+- Real Shelly measured watts (`apower`) were being overwritten every 1.8s by a demo-only watt-jitter simulation; that effect is now gated on demo mode.
+- Hub snapshot on WebSocket connect is now seeded into the store like live updates, so integrations whose last push predates the browser connecting (e.g. the hourly Tibber poll) no longer sit stuck "connecting…".
 - **Plejd Bluetooth control** (`server/lib/plejd-ble.js`): the hub now talks BLE straight to the Plejd mesh, exactly like the phone app. This is the control path that works on modern GWY-01 firmware, which closed the local TCP socket (verified: all 65535 ports shut) after Plejd also removed the `sendStateToDevice` cloud function. The hub connects to the strongest mesh node with the site crypto key, authenticates, and writes encrypted commands the mesh relays internally. One BLE connection controls every light. Transport priority is now BLE > legacy TCP (GWY-01) > cloud (state only). Requires the hub machine to have Bluetooth LE within range of a Plejd device; uses `@stoprocent/noble` (N-API prebuild, no driver replacement on Windows)
 - Sonos Cloud integration (official Control API, OAuth on the hub): real speaker grouping — "Group all" is party mode via `setGroupMembers`, per-player volume, play/pause per group. Sign in from Settings → Sonos; the client secret never reaches the browser. Tokens persist in gitignored `server/sonos-tokens.json`
 - Speaker source priority: healthy LAN bridge > Sonos Cloud > Spotify Connect > UPnP — a dead bridge no longer blocks the fallbacks

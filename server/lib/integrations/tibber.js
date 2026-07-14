@@ -1,24 +1,44 @@
 /**
- * Tibber integration — fetches hourly electricity prices via GraphQL.
+ * Tibber integration — spot prices (hourly poll) + real-time power (WebSocket).
+ *
+ * Two independent data streams, gated on what the account actually has:
+ *   1. Spot prices (priceInfo) — REQUIRES an active Tibber power contract.
+ *      When currentSubscription is null (monitoring/Pulse-only account, or the
+ *      contract ended) there is NO priceInfo and never will be until a contract
+ *      is active. We surface that as an honest, non-spammy state instead of a
+ *      generic error every hour.
+ *   2. Live power (liveMeasurement) — REQUIRES a Tibber Pulse or Watty
+ *      (features.realTimeConsumptionEnabled). Independent of any price contract.
+ *      Streams whole-home instantaneous watts + today's kWh over a
+ *      graphql-transport-ws subscription.
  *
  * Environment variables:
- *   TIBBER_TOKEN  Personal access token from https://developer.tibber.com/settings/access-token
+ *   TIBBER_TOKEN  Personal access token (developer.tibber.com)
  *
- * Pushes: hub.pushUpdate('tibber', { today: PricePoint[], tomorrow: PricePoint[] })
- *
- * PricePoint: { total: number, startsAt: string (ISO), level: string }
- *
- * Polls once per hour — Tibber prices don't change more often, and tomorrow's
- * prices appear around 13:00 CET so the hourly cadence catches that update.
+ * Pushes:
+ *   hub.pushUpdate('tibber',      { hasSubscription, currency, current, today[], tomorrow[], fetchedAt })
+ *   hub.pushUpdate('tibber_live', { power, accumulatedConsumption, accumulatedCost, currency,
+ *                                   minPower, maxPower, averagePower, timestamp })
  */
 
-const DEFAULT_POLL_MS = 60 * 60 * 1_000;  // 1 hour
+import { WebSocket } from 'ws';
 
+const DEFAULT_POLL_MS = 60 * 60 * 1_000;  // 1 hour — prices update at most hourly
+const LIVE_RECONNECT_MS = 10_000;
+
+// Prices live under currentSubscription (null without an active contract).
+// features.realTimeConsumptionEnabled tells us whether the live stream exists.
 const QUERY = /* GraphQL */ `{
   viewer {
+    websocketSubscriptionUrl
     homes {
+      id
+      appNickname
+      features { realTimeConsumptionEnabled }
       currentSubscription {
+        status
         priceInfo {
+          current  { total currency level startsAt }
           today    { total startsAt level }
           tomorrow { total startsAt level }
         }
@@ -37,37 +57,124 @@ export function startTibberPoller(hub, { token, pollMs = DEFAULT_POLL_MS } = {})
     return;
   }
 
+  let liveSocket   = null;
+  let liveReconnect = null;
+  let stopped      = false;
+  let liveStarted  = false;
+
+  // ── Price polling ────────────────────────────────────────────────────────
   async function poll() {
     try {
       const r = await fetch('https://api.tibber.com/v1-beta/gql', {
-        method:  'POST',
-        headers: {
-          Authorization:  `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: QUERY }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const { data, errors } = await r.json();
       if (errors?.length) throw new Error(errors[0].message);
 
-      const priceInfo = data?.viewer?.homes?.[0]?.currentSubscription?.priceInfo;
-      if (!priceInfo) throw new Error('No priceInfo in Tibber response');
+      const viewer = data?.viewer;
+      const home = viewer?.homes?.[0];
+      if (!home) {
+        hub.pushUpdate('tibber', { hasSubscription: false, reason: 'no-homes', today: [], tomorrow: [], fetchedAt: new Date().toISOString() });
+        hub.pushHealth('tibber', 'degraded', 'No homes on this Tibber account');
+        return;
+      }
 
+      // Kick off the live stream once we know a Pulse is present.
+      if (home.features?.realTimeConsumptionEnabled && viewer.websocketSubscriptionUrl) {
+        startLive(viewer.websocketSubscriptionUrl, home.id);
+      }
+
+      const sub = home.currentSubscription;
+      if (!sub || !sub.priceInfo) {
+        // No active price contract — honest, non-error state. Prices will
+        // appear automatically once a Tibber power contract is active.
+        hub.pushUpdate('tibber', {
+          hasSubscription: false, reason: 'no-subscription',
+          today: [], tomorrow: [], fetchedAt: new Date().toISOString(),
+        });
+        hub.pushHealth('tibber', 'degraded',
+          'No active Tibber price contract — live power works, spot prices need a Tibber electricity subscription');
+        return;
+      }
+
+      const pi = sub.priceInfo;
       hub.pushUpdate('tibber', {
-        today:    priceInfo.today    ?? [],
-        tomorrow: priceInfo.tomorrow ?? [],
+        hasSubscription: true,
+        currency: pi.current?.currency ?? 'SEK',
+        current:  pi.current  ?? null,
+        today:    pi.today    ?? [],
+        tomorrow: pi.tomorrow ?? [],
         fetchedAt: new Date().toISOString(),
       });
-      console.log(`[hub:tibber] ${(priceInfo.today ?? []).length} prices today, ${(priceInfo.tomorrow ?? []).length} tomorrow`);
+      hub.pushHealth('tibber', 'ok', `${(pi.today ?? []).length} prices today, ${(pi.tomorrow ?? []).length} tomorrow`);
     } catch (e) {
-      hub.pushError('tibber', `Poll failed: ${e.message}`);
+      hub.pushError('tibber', `Price poll failed: ${e.message}`);
     }
   }
 
-  poll();  // fetch immediately on start
-  const interval = setInterval(poll, pollMs);
-  console.log(`[hub:tibber] Polling every ${pollMs / 1000 / 60} min`);
+  // ── Live power (graphql-transport-ws subscription) ─────────────────────────
+  function startLive(url, homeId) {
+    if (liveStarted || stopped) return; // single subscription
+    liveStarted = true;
+    connectLive(url, homeId);
+  }
 
-  return () => clearInterval(interval);
+  function connectLive(url, homeId) {
+    if (stopped) return;
+    const sock = new WebSocket(url, 'graphql-transport-ws', {
+      headers: { 'User-Agent': 'HomeDomainHub/1.0' },
+    });
+    liveSocket = sock;
+
+    sock.on('open', () => {
+      sock.send(JSON.stringify({ type: 'connection_init', payload: { token } }));
+    });
+
+    sock.on('message', (raw) => {
+      let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
+      switch (msg.type) {
+        case 'connection_ack':
+          sock.send(JSON.stringify({
+            id: '1', type: 'subscribe',
+            payload: { query: `subscription{ liveMeasurement(homeId:"${homeId}"){ timestamp power accumulatedConsumption accumulatedCost currency minPower maxPower averagePower } }` },
+          }));
+          console.log('[hub:tibber] Live power subscription active');
+          break;
+        case 'next': {
+          const m = msg.payload?.data?.liveMeasurement;
+          if (m) hub.pushUpdate('tibber_live', m);
+          break;
+        }
+        case 'ping':
+          sock.send(JSON.stringify({ type: 'pong' }));
+          break;
+        case 'error':
+          console.warn('[hub:tibber] live error:', JSON.stringify(msg.payload));
+          break;
+        // 'complete' / 'ka' fall through
+      }
+    });
+
+    const retry = () => {
+      if (stopped) return;
+      hub.pushHealth('tibber', 'degraded', 'Live power link dropped — reconnecting');
+      liveReconnect = setTimeout(() => connectLive(url, homeId), LIVE_RECONNECT_MS);
+    };
+    sock.on('close', retry);
+    sock.on('error', (e) => { console.warn('[hub:tibber] live socket error:', e.message); try { sock.close(); } catch {} });
+  }
+
+  poll();
+  const interval = setInterval(poll, pollMs);
+  console.log(`[hub:tibber] Polling prices every ${pollMs / 1000 / 60} min`);
+
+  return () => {
+    stopped = true;
+    clearInterval(interval);
+    if (liveReconnect) clearTimeout(liveReconnect);
+    if (liveSocket) { try { liveSocket.close(); } catch {} }
+  };
 }

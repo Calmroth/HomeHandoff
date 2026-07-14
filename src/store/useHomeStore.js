@@ -70,8 +70,18 @@ export const useHomeStore = create(subscribeWithSelector((set, get) => ({
   // -------- Price (Tibber) --------
   // `current` is the active SEK/kWh. Null = not configured or unfetched (the
   // Power tile shows "—" with an amber dot, not a hardcoded value).
-  price: { current: null, today: null, currency: 'SEK', err: null },
+  // `hasSubscription` false = the account has no active Tibber power contract,
+  // so spot prices are genuinely unavailable (not an error) — the UI shows an
+  // honest "no price contract" state rather than a failure.
+  price: { current: null, today: null, tomorrow: null, currency: 'SEK', hasSubscription: null, err: null },
   setPrice: (patch) => set(s => ({ price: { ...s.price, ...patch } })),
+
+  // -------- Live power (Tibber Pulse / Watty) --------
+  // Real whole-home instantaneous draw from the Tibber realtime subscription.
+  // `watts` null = no Pulse or not yet streaming; the UI falls back to the
+  // estimated device-sum total. `ts` is the last reading time (staleness).
+  livePower: { watts: null, todayKwh: null, minW: null, maxW: null, avgW: null, ts: null },
+  setLivePower: (patch) => set(s => ({ livePower: { ...s.livePower, ...patch } })),
 
   // -------- Integration status --------
   status: {

@@ -116,19 +116,8 @@ async function hubRest(integration, action, params) {
   return j.result;
 }
 
-// Tibber — GraphQL. Today's hourly spot prices for the user's first home.
-async function fetchTibberPrices(token) {
-  const query = `{ viewer { homes { currentSubscription { priceInfo { today { total startsAt } } } } } }`;
-  const r = await fetch('https://api.tibber.com/v1-beta/gql', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-  });
-  if (!r.ok) throw new Error(`Tibber ${r.status}`);
-  const j = await r.json();
-  if (j.errors) throw new Error(j.errors[0]?.message || 'Tibber error');
-  return j.data?.viewer?.homes?.[0]?.currentSubscription?.priceInfo?.today || [];
-}
+// Tibber prices + live power are fetched by the HUB (token stays server-side)
+// and pushed over the WebSocket as 'tibber' / 'tibber_live'. No browser fetch.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Domain state — initial fixture
@@ -617,7 +606,15 @@ function App() {
   const hubDispatchRef = useRef(null);
   const { connected: hubConnected, sendCommand: hubCommand } = useWebSocketHub({
     onSnapshot: useCallback((state) => {
-      hubStateRef.current = state.integrations || {};
+      const integrations = state.integrations || {};
+      hubStateRef.current = integrations;
+      // Seed the store from the snapshot exactly as live updates flow. Without
+      // this, any integration whose last hub push happened BEFORE this browser
+      // connected (e.g. the hourly Tibber price poll) arrives only in the
+      // snapshot and never reaches the store — leaving it stuck "connecting…".
+      for (const [integration, payload] of Object.entries(integrations)) {
+        hubDispatchRef.current?.(integration, payload);
+      }
     }, []),
     onDeviceUpdate: useCallback((integration, payload) => {
       hubStateRef.current[integration] = payload;
@@ -810,9 +807,43 @@ function App() {
           return [...nonShelly, ...payload];
         });
         break;
-      case 'tibber':
-        setTibberPrices(payload);
+      case 'tibber': {
+        // Hub is the single Tibber owner. payload = { hasSubscription, currency,
+        // current, today[], tomorrow[] }. Drive the local chart array AND the
+        // store price slice + status dot from this one path.
+        const today = payload?.today ?? [];
+        setTibberPrices(today);
+        const store = useHomeStore.getState();
+        if (payload?.hasSubscription) {
+          const nowMs = Date.now();
+          const slot = today.find(row => {
+            const t0 = new Date(row.startsAt).getTime();
+            return nowMs >= t0 && nowMs < t0 + 3_600_000;
+          });
+          const current = payload.current?.total ?? slot?.total ?? today?.[0]?.total ?? null;
+          const currency = payload.currency || 'SEK';
+          store.setPrice({ current, today, tomorrow: payload.tomorrow ?? null, currency, hasSubscription: true, err: null });
+          store.markOk('tibber', current != null ? `${current.toFixed(2)} ${currency}/kWh` : 'prices ok');
+        } else {
+          // No active price contract — honest, non-error state.
+          store.setPrice({ current: null, today: null, tomorrow: null, hasSubscription: false, err: null });
+          store.setStatus('tibber', { state: STATUS.DEGRADED, label: 'No price contract', detail: 'Live power works; spot prices need a Tibber electricity subscription' });
+        }
         break;
+      }
+      case 'tibber_live': {
+        // Real whole-home power from the Tibber Pulse. Independent of prices.
+        const store = useHomeStore.getState();
+        store.setLivePower({
+          watts:    payload?.power ?? null,
+          todayKwh: payload?.accumulatedConsumption ?? null,
+          minW:     payload?.minPower ?? null,
+          maxW:     payload?.maxPower ?? null,
+          avgW:     payload?.averagePower ?? null,
+          ts:       Date.now(),
+        });
+        break;
+      }
       default:
         break;
     }
@@ -1331,50 +1362,16 @@ function App() {
     return () => { cancelled = true; clearInterval(t); };
   }, [demoMode, pageVisible, integrations.config.sonos?.url, sonosErr, integrations.config.discovered?.devices]);
 
-  // Fetch live Tibber prices when configured. Refresh hourly. Drives both
-  // the local prices state and the home store's `price` slice -- the latter
-  // is what the Power section's "live draw" tile reads. Hardcoded
-  // 0.84 SEK/kWh fallback removed.
+  // Tibber (prices + live power) is owned entirely by the hub now — it holds
+  // the token server-side and pushes 'tibber' / 'tibber_live' over the
+  // WebSocket, handled in the dispatch switch above. When the hub is offline
+  // there is no price/live data (the token is server-side by design), which
+  // the tibber status dot reflects via the LAN watchdog. No browser fetch here.
   useEffect(() => {
-    if (!pageVisible) return; // pause hourly poll while tab is hidden
-    const token = integrations.config.tibber?.token;
-    const setPriceStore = useHomeStore.getState().setPrice;
-    if (!token) {
-      setTibberPrices(null);
-      setPriceStore({ current: null, today: null, err: null });
-      useHomeStore.getState().setStatus('tibber', { state: STATUS.EMPTY, label: 'Not set up', detail: null });
-      return;
-    }
-    let cancelled = false;
-    const load = () => {
-      fetchTibberPrices(token)
-        .then(p => {
-          if (cancelled) return;
-          setTibberPrices(p); setTibberErr(null);
-          // Compute "current" price -- pick the slot whose [startsAt, +1h] window
-          // contains now. Tibber returns 24 hourly slots ordered by startsAt.
-          const nowMs = Date.now();
-          const slot = (p || []).find(row => {
-            const t0 = new Date(row.startsAt).getTime();
-            return nowMs >= t0 && nowMs < t0 + 3_600_000;
-          });
-          const currentPrice = slot?.total ?? p?.[0]?.total ?? null;
-          const currency = slot?.currency || p?.[0]?.currency || 'SEK';
-          setPriceStore({ current: currentPrice, today: p, currency, err: null });
-          useHomeStore.getState().markOk('tibber', `${currentPrice != null ? currentPrice.toFixed(2) + ' ' + currency + '/kWh' : 'live'}`);
-        })
-        .catch(e => {
-          if (cancelled) return;
-          const msg = String(e.message || e);
-          setTibberErr(msg);
-          setPriceStore({ err: msg });
-          useHomeStore.getState().markFailed('tibber', msg);
-        });
-    };
-    load();
-    const t = setInterval(load, 60 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, [pageVisible, integrations.config.tibber?.token]);
+    if (hubConnected) return;
+    // Hub down: clear live power so a stale reading doesn't linger.
+    useHomeStore.getState().setLivePower({ watts: null, ts: null });
+  }, [hubConnected]);
 
   // Live clock — slow tick (30s) for the wall clock; fast tick (15s) only
   // while a scene timer is showing so the "Active 12m" stays fresh.
@@ -1384,11 +1381,12 @@ function App() {
     return () => clearInterval(t);
   }, [activeScene]);
 
-  // Update outlet watts to simulate live data. Skip when prefers-reduced-motion:
-  // a ticking number-counter every 1.8s is exactly the kind of constant motion
-  // that prompts the preference in the first place.
+  // DEMO-ONLY watt jitter. Real Shelly outlets report measured power (apower)
+  // pushed from the hub; this simulation must never run against real devices or
+  // it clobbers those readings with fake ~30W noise. Gated on demoMode (and
+  // reduced-motion, which cancels the ticking counter regardless).
   useEffect(() => {
-    if (reducedMotion) return;
+    if (reducedMotion || !demoMode) return;
     const t = setInterval(() => {
       setOutlets((os) => os.map(o => {
         if (!o.on) return { ...o, watts: 0 };
@@ -1398,7 +1396,7 @@ function App() {
       }));
     }, 1800);
     return () => clearInterval(t);
-  }, [reducedMotion]);
+  }, [reducedMotion, demoMode]);
 
   const onCount = rooms.filter(r => r.on).length;
   const litWatts = useMemo(
@@ -1460,7 +1458,13 @@ function App() {
     effectiveSpeakers.find(s => s.on && s.primary)?.name
     ?? effectiveSpeakers.find(s => s.on)?.name
     ?? null;
-  const totalW = Math.round(litWatts + outletWatts + speakerWatts);
+  const estimatedW = Math.round(litWatts + outletWatts + speakerWatts);
+  // Prefer REAL whole-home draw from the Tibber Pulse when it's streaming
+  // (fresh within 30s); fall back to the estimated device sum otherwise.
+  const livePower = useHomeStore(s => s.livePower);
+  const liveFresh = livePower.watts != null && livePower.ts != null && (Date.now() - livePower.ts) < 30_000;
+  const liveWatts = liveFresh ? Math.round(livePower.watts) : null;
+  const totalW = liveWatts ?? estimatedW;
 
   // Clear active scene whenever the user adjusts anything manually — the
   // preset no longer matches reality. Centralised so handlers stay terse.
@@ -2596,6 +2600,10 @@ function PowerLive({ outlets, totalW, litWatts, outletWatts, speakerWatts }) {
   }, [totalW]);
   const max = Math.max(...history, 1);
 
+  // Real whole-home power from the Tibber Pulse when streaming.
+  const livePower = useHomeStore(s => s.livePower);
+  const isLive = livePower.watts != null && livePower.ts != null && (Date.now() - livePower.ts) < 30_000;
+
   const cats = [
     { name: 'Lights',   val: Math.round(litWatts),    color: 'var(--chart-1)' },
     { name: 'Outlets',  val: Math.round(outletWatts), color: 'var(--chart-2)' },
@@ -2605,7 +2613,12 @@ function PowerLive({ outlets, totalW, litWatts, outletWatts, speakerWatts }) {
   return (
     <div className="power-live">
       <div>
-        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--muted-foreground)', marginBottom: 12 }}>Live draw</div>
+        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--muted-foreground)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          Live draw
+          {isLive
+            ? <span title="Real-time from Tibber Pulse" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--primary)', fontSize: 9 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--primary)' }} />LIVE</span>
+            : <span title="Estimated from device states — no live meter" style={{ opacity: 0.6, fontSize: 9 }}>EST</span>}
+        </div>
         <div className="live-watts mono">
           {totalW}<span className="unit">W</span>
         </div>
@@ -2625,18 +2638,22 @@ function PowerLive({ outlets, totalW, litWatts, outletWatts, speakerWatts }) {
       </div>
 
       <div className="live-legend">
+        {/* When live, the sum is real but per-source split isn't measurable —
+            keep the estimated breakdown but mark it with ~. */}
         {cats.map(c => (
           <div className="legend-row" key={c.name}>
             <span className="legend-swatch" style={{ background: c.color }} />
             <span className="legend-name">{c.name}</span>
-            <span className="legend-val">{c.val} W</span>
+            <span className="legend-val">{isLive ? '~' : ''}{c.val} W</span>
           </div>
         ))}
       </div>
 
       <div className="live-meta">
         <TibberPriceCell totalW={totalW} />
-        <span>This hour <b className="mono">{(totalW * 0.001).toFixed(2)} kWh</b></span>
+        {isLive && livePower.todayKwh != null
+          ? <span title="Accumulated today from Tibber Pulse">Today <b className="mono">{livePower.todayKwh.toFixed(1)} kWh</b></span>
+          : <span title="Projected from current draw">This hour <b className="mono">{(totalW * 0.001).toFixed(2)} kWh</b></span>}
       </div>
     </div>
   );
@@ -4139,6 +4156,14 @@ function PriceBarChart({ prices, now }) {
 // price insights, and per-device power table.
 // ─────────────────────────────────────────────────────────────────────────────
 function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, speakerWatts, tibberPrices, tibberErr, tibberConfigured, now }) {
+  const price = useHomeStore(s => s.price);
+  const livePower = useHomeStore(s => s.livePower);
+  const isLive = livePower.watts != null && livePower.ts != null && (Date.now() - livePower.ts) < 30_000;
+  // Distinguish "no active price contract" (honest, permanent until the user
+  // gets a Tibber electricity subscription) from "loading" or "token missing".
+  const noPriceContract = price.hasSubscription === false;
+  const cur = price.currency || 'SEK';
+
   const currentPrice = useMemo(() => {
     if (!tibberPrices?.length) return null;
     const nowT = now.getTime();
@@ -4181,10 +4206,11 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
   return (
     <Section
       title="Energy"
-      source={tibberConfigured ? 'tibber.com · live' : 'no Tibber token configured'}
+      source={isLive ? 'Tibber Pulse · live power' : 'estimated draw'}
       summary={<>
         Live load <b className="mono">{totalW} W</b>
-        {currentPrice != null && <> · spot <b className="mono">{currentPrice.toFixed(2)} SEK/kWh</b></>}
+        {isLive && <> · <span style={{ color: 'var(--primary)' }}>live</span></>}
+        {currentPrice != null && <> · spot <b className="mono">{currentPrice.toFixed(2)} {cur}/kWh</b></>}
       </>}
     >
       <div className="energy-page">
@@ -4192,21 +4218,25 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
         {/* KPI strip */}
         <div className="energy-kpi-strip">
           <div className="energy-kpi">
-            <span className="micro-label">Live draw</span>
+            <span className="micro-label">Live draw {isLive ? '· live' : '· est'}</span>
             <div className="energy-kpi-val">{totalW}<span className="unit">W</span></div>
-            <div className="energy-kpi-sub">{litRooms.length} rooms · {onOutlets.length} outlets active</div>
+            <div className="energy-kpi-sub">
+              {isLive && livePower.todayKwh != null
+                ? <>{livePower.todayKwh.toFixed(1)} kWh today · {onOutlets.length} outlets on</>
+                : <>{litRooms.length} rooms · {onOutlets.length} outlets active</>}
+            </div>
           </div>
           <div className="energy-kpi">
             <span className="micro-label">Spot price</span>
             <div className="energy-kpi-val">
-              {currentPrice != null ? currentPrice.toFixed(2) : '—'}<span className="unit">SEK/kWh</span>
+              {currentPrice != null ? currentPrice.toFixed(2) : '—'}<span className="unit">{cur}/kWh</span>
             </div>
-            <div className="energy-kpi-sub">{tibberConfigured ? 'Tibber · live' : 'add Tibber in Settings'}</div>
+            <div className="energy-kpi-sub">{noPriceContract ? 'no Tibber price contract' : currentPrice != null ? 'Tibber · live' : 'connecting…'}</div>
           </div>
           <div className="energy-kpi">
             <span className="micro-label">Cost this hour</span>
             <div className="energy-kpi-val">
-              {costPerHour != null ? costPerHour.toFixed(2) : '—'}<span className="unit">SEK</span>
+              {costPerHour != null ? costPerHour.toFixed(2) : '—'}<span className="unit">{cur}</span>
             </div>
             <div className="energy-kpi-sub">at current load</div>
           </div>
@@ -4235,9 +4265,10 @@ function EnergyPage({ rooms, outlets, speakers, totalW, litWatts, outletWatts, s
             </>
           ) : (
             <div className="energy-empty">
-              {tibberErr
-                ? `Tibber error: ${tibberErr}`
-                : tibberConfigured ? 'Loading prices…' : 'Add a Tibber token in Settings to see live prices.'}
+              {noPriceContract
+                ? 'No active Tibber price contract. Live power works; spot prices need a Tibber electricity subscription (tibber.com).'
+                : tibberErr ? `Tibber error: ${tibberErr}`
+                : 'Connecting to Tibber…'}
             </div>
           )}
         </div>
