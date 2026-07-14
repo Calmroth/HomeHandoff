@@ -57,6 +57,7 @@ export function useWebSocketHub({
   onScanDone,
   onError,
   onCommandResult,
+  onHealthUpdate,
   enabled = true,
 } = {}) {
   const [connected, setConnected] = useState(false);
@@ -69,7 +70,7 @@ export function useWebSocketHub({
   // Keep all handlers in a ref — callers can pass inline functions without
   // causing the WebSocket to reconnect on every render.
   const handlersRef = useRef({});
-  handlersRef.current = { onSnapshot, onDeviceUpdate, onScanResult, onScanProgress, onScanDone, onError, onCommandResult };
+  handlersRef.current = { onSnapshot, onDeviceUpdate, onScanResult, onScanProgress, onScanDone, onError, onCommandResult, onHealthUpdate };
 
   const _clearTimers = useCallback(() => {
     clearTimeout(timerRef.current);
@@ -126,6 +127,12 @@ export function useWebSocketHub({
           // dropped ok:false is how "toggle bounces back with no message"
           // bugs are born.
           h.onCommandResult?.(msg);
+          break;
+        case 'health_update':
+          // Integration health pushed by the hub (pushHealth). Without this
+          // the status dot never tracks ongoing polling — it stays whatever
+          // the last command set it to (grey/green) regardless of reality.
+          h.onHealthUpdate?.(msg.integration, msg.status, msg.detail);
           break;
         // pong — ignored by the hook
         default:

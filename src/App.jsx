@@ -630,6 +630,16 @@ function App() {
       const statusKey = msg.integration === 'sonos-cloud' ? 'sonos' : msg.integration;
       useHomeStore.getState().markFailed(statusKey, `${msg.action}: ${String(msg.error || 'command failed').slice(0, 80)}`);
     }, []),
+    onHealthUpdate: useCallback((integration, status, detail) => {
+      // Map the hub integration name to a store status row, then reflect the
+      // pushed health. Fixes the dot being decoupled from ongoing polling
+      // (previously only command results / OAuth exchange touched the dot).
+      const key = { 'sonos-cloud': 'sonos', nibe: 'nibe', tibber: 'tibber', plejd: 'plejd', shelly: 'shelly' }[integration] || integration;
+      const store = useHomeStore.getState();
+      if (!store.status[key]) return; // unknown integration
+      if (status === 'ok') store.markOk(key, detail || undefined);
+      else store.setStatus(key, { state: status === 'down' ? STATUS.DOWN : STATUS.DEGRADED, detail: detail || null });
+    }, []),
   });
 
   // Reset the hub-has-plejd latch whenever the hub drops so the frontend-direct
@@ -863,7 +873,13 @@ function App() {
       }
       case 'heatpump': {
         // Nibe (myUplink) normalized climate payload — read-only in v1.
-        useHomeStore.getState().setHeatpump(payload);
+        const store = useHomeStore.getState();
+        store.setHeatpump(payload);
+        // Reflect connect state on the dot: offline/not-signed-in → quiet
+        // "not connected"; online is asserted by the health_update path.
+        if (payload && payload.online === false) {
+          store.setStatus('nibe', { state: STATUS.EMPTY, label: 'Not connected', detail: null });
+        }
         break;
       }
       default:

@@ -124,9 +124,18 @@ export function startNibePoller(hub, { clientId, clientSecret, redirectUri } = {
     const byBT   = {};
     const findByName = (re) => points.find(p => re.test(p.parameterName || ''));
     const findById   = (id) => points.find(p => String(p.parameterId) === id);
+    // Bind each BT tag to the LIVE sensor, not an average/min/max/setpoint
+    // variant (many pumps expose "BT1 Average" alongside "BT1"), and prefer the
+    // primary climate system (EB100) over a secondary one (EB101, dual-climate).
+    const isVariant = (n) => /\baverage\b|\bavg\b|\bmin\b|\bmax\b|set ?point|calc|börvärde|\bmedel|mittel|mittlere/i.test(n);
     for (const p of points) {
-      const bt = extractBT(p.parameterName);
-      if (bt != null && byBT[bt] === undefined) byBT[bt] = p;
+      const name = p.parameterName || '';
+      if (isVariant(name)) continue;
+      const bt = extractBT(name);
+      if (bt == null) continue;
+      const existing = byBT[bt];
+      if (existing === undefined) { byBT[bt] = p; continue; }
+      if (/EB100/i.test(name) && !/EB100/i.test(existing.parameterName || '')) byBT[bt] = p;
     }
 
     const compState = findById('43427') || findByName(/compressor state/i);
@@ -151,7 +160,9 @@ export function startNibePoller(hub, { clientId, clientSecret, redirectUri } = {
     ].filter(([, v]) => v != null).map(([label, value, unit]) => ({ label, value, unit }));
 
     return {
-      online:         true,
+      // Real connection state from /systems/me, not a hardcoded true — a pump
+      // that dropped off myUplink shouldn't read as online with empty tiles.
+      online:         deviceInfo?.connectionState ? /connected/i.test(deviceInfo.connectionState) : true,
       source:         'nibe',
       name:           deviceInfo?.product?.name || 'Nibe heat pump',
       model:          deviceInfo?.product?.name || null,
@@ -176,15 +187,16 @@ export function startNibePoller(hub, { clientId, clientSecret, redirectUri } = {
   async function poll() {
     if (!tokens) return;
     try {
-      if (!deviceId) {
-        const sys = await api('/v2/systems/me');
-        const first = sys?.systems?.[0];
-        const dev = first?.devices?.[0];
-        if (!dev?.id) throw new Error('No Nibe system/device on this myUplink account');
-        deviceId = dev.id;
-        deviceInfo = dev;
-        console.log(`[hub:nibe] System "${first.name}" · device ${deviceInfo?.product?.name || deviceId}`);
-      }
+      // Re-resolve the device each cycle (two cheap calls/min, well within
+      // limits): keeps connectionState fresh and picks up a hardware swap
+      // instead of caching a stale deviceId for the whole process lifetime.
+      const sys = await api('/v2/systems/me');
+      const first = sys?.systems?.[0];
+      const dev = first?.devices?.[0];
+      if (!dev?.id) throw new Error('No Nibe system/device on this myUplink account');
+      if (dev.id !== deviceId) console.log(`[hub:nibe] System "${first.name}" · device ${dev.product?.name || dev.id}`);
+      deviceId = dev.id;
+      deviceInfo = dev;
       const points = await api(`/v2/devices/${deviceId}/points`);
       const payload = normalize(Array.isArray(points) ? points : []);
       const hash = JSON.stringify(payload);
