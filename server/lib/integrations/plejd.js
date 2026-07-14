@@ -341,7 +341,10 @@ async function fetchSiteDetails(sessionToken, siteId) {
   return { devices, cryptoKey, addressMap, meshToCloudId, roomNames, scenes };
 }
 
-// Cloud fallback: send command via REST (used when local TCP is unavailable)
+// Cloud fallback: send command via REST (used when local TCP is unavailable).
+// NOTE: Plejd's Parse backend rejects this with 400 'Invalid function' as of
+// 2026 — the function was removed (or never public). Kept for older backends;
+// callers detect e.invalidFn and stop retrying.
 async function sendStateCloud(sessionToken, siteId, deviceId, state, dim) {
   const body = {
     siteId, deviceId,
@@ -349,11 +352,16 @@ async function sendStateCloud(sessionToken, siteId, deviceId, state, dim) {
     ...(typeof dim === 'number' ? { dim } : {}),
   };
   console.log(`[hub:plejd] cloud cmd → deviceId=${deviceId} state=${!!state}${typeof dim === 'number' ? ` dim=${dim}` : ''}`);
-  const result = await plejdFetch('/parse/functions/sendStateToDevice', {
-    method: 'POST', sessionToken, body,
-  });
-  console.log(`[hub:plejd] cloud cmd ✓ result=${JSON.stringify(result?.result ?? result)}`);
-  return result;
+  try {
+    const result = await plejdFetch('/parse/functions/sendStateToDevice', {
+      method: 'POST', sessionToken, body,
+    });
+    console.log(`[hub:plejd] cloud cmd ✓ result=${JSON.stringify(result?.result ?? result)}`);
+    return result;
+  } catch (e) {
+    if (/invalid function/i.test(String(e.message || ''))) e.invalidFn = true;
+    throw e;
+  }
 }
 
 // ── Gateway discovery ─────────────────────────────────────────────────────────
@@ -556,6 +564,10 @@ export function startPlejdPoller(hub, {
   /** @type {PlejdGateway|null} */
   let gateway      = null;
   let localActive  = false; // true when TCP connection is authenticated
+  // Plejd removed the sendStateToDevice Parse function — every cloud command
+  // 400s with "Invalid function". Flip this on first sighting so we fail fast
+  // with an actionable message instead of spamming dead requests.
+  let cloudControlDead = false;
 
   // BLE address maps populated from cloud; updated each fetch cycle
   let addressMap    = new Map();  // meshId:number → bleAddr:Buffer(6)
@@ -711,6 +723,7 @@ export function startPlejdPoller(hub, {
       })
       .catch((err) => {
         localActive = false;
+        hub.pushHealth('plejd', 'down', `GWY-01 TCP connect failed: ${err.message} — retrying`);
         console.warn(`[hub:plejd] TCP connect failed: ${err.message} — retrying in ${RECONNECT_MS / 1000}s`);
         gateway = null;
         if (!cleanedUp) {
@@ -737,13 +750,21 @@ export function startPlejdPoller(hub, {
     await fetchAndSeedDevices();
     if (!cryptoKey) {
       console.warn('[hub:plejd] No crypto key — local TCP commands unavailable');
+      hub.pushHealth('plejd', 'degraded', 'No crypto key from Plejd cloud — local control unavailable');
     }
     gatewayIp = await discoverGatewayIP(gatewayIp);
     if (gatewayIp && cryptoKey) {
       connectLocal();
       startFallbackPoller();
     } else {
-      console.log('[hub:plejd] Running in cloud-only mode');
+      // Cloud-only is STATE ONLY: Plejd removed the sendStateToDevice cloud
+      // function, so without the GWY-01 TCP connection nothing is controllable.
+      // Say so on the health dot instead of leaving "unknown".
+      if (!gatewayIp) {
+        hub.pushHealth('plejd', 'degraded',
+          'GWY-01 not found on LAN — set PLEJD_GATEWAY_IP in .env.local (router DHCP list, device "Plejd GWY-01") and restart the hub');
+      }
+      console.log('[hub:plejd] Running in cloud-only mode (state only — no control)');
       startFallbackPoller();
     }
   }
@@ -790,6 +811,7 @@ export function startPlejdPoller(hub, {
           gateway.sendCommand(devMeshId, sd.on, sd.on ? sd.brightness : undefined);
           if (dev) { dev.isOn = sd.on; dev.dim = Math.round((sd.brightness / 100) * 255); }
         } else {
+          if (cloudControlDead) throw new Error('Plejd cloud control unavailable — GWY-01 required');
           const dim255 = Math.round((sd.brightness / 100) * 255);
           await sendStateCloud(sessionToken, siteId, sd.deviceId, sd.on, sd.on ? dim255 : 0);
         }
@@ -825,6 +847,9 @@ export function startPlejdPoller(hub, {
             else if (action === 'dim') { dev.isOn = (brightness ?? 0) > 0; dev.dim = Math.round(((brightness ?? 0) / 100) * 255); }
           }
         } else {
+          if (cloudControlDead) {
+            throw new Error('Plejd cloud control unavailable — GWY-01 local connection required');
+          }
           if (action === 'toggle')      await sendStateCloud(sessionToken, siteId, devObjectId, on, undefined);
           else if (action === 'dim') {
             const dim255 = Math.round(((brightness ?? 0) / 100) * 255);
@@ -841,6 +866,11 @@ export function startPlejdPoller(hub, {
         if (rejected.some(r => r.reason?.status === 401 || r.reason?.status === 209 || /invalid session/i.test(r.reason?.message || ''))) {
           sessionToken = null;
           hub.pushError('plejd', 'Plejd session expired — sign in again from Settings');
+        }
+        if (rejected.some(r => r.reason?.invalidFn)) {
+          cloudControlDead = true;
+          hub.pushHealth('plejd', 'degraded',
+            'Plejd removed cloud control — connect the GWY-01 (set PLEJD_GATEWAY_IP in .env.local) to control devices');
         }
       } else {
         console.log(`[hub:plejd] room ${roomId} fan-out: ${devIds.length} devices ok`);
@@ -888,6 +918,9 @@ export function startPlejdPoller(hub, {
       }
     } else {
       // Slow path: cloud REST
+      if (cloudControlDead) {
+        throw new Error('Plejd cloud control unavailable — connect the GWY-01 (set PLEJD_GATEWAY_IP in .env.local, restart hub)');
+      }
       console.log('[hub:plejd] Using cloud REST for command (local TCP unavailable)');
 
       // Optimistic update — mutate deviceMap now so broadcastFromMap() reflects
@@ -926,6 +959,12 @@ export function startPlejdPoller(hub, {
         if (e.status === 401 || e.status === 209 || /invalid session/i.test(e.message)) {
           sessionToken = null;
           hub.pushError('plejd', 'Plejd session expired — sign in again from Settings');
+        }
+        // Dead cloud API: stop retrying, point at the real fix (local TCP).
+        if (e.invalidFn) {
+          cloudControlDead = true;
+          hub.pushHealth('plejd', 'degraded',
+            'Plejd removed cloud control — connect the GWY-01 (set PLEJD_GATEWAY_IP in .env.local) to control devices');
         }
         console.error(`[hub:plejd] cloud command failed for ${cloudObjectId}: ${e.message}`);
         throw e;
