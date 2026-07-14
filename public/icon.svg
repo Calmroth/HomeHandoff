@@ -1,32 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <!--
-    Home Domain icon -- a rounded square in clay-950, the brand amber rooftop
-    arch from the sidebar's brand mark, set against the dark clay background.
-    Designed maskable: the meaningful glyph is inside the safe zone (radius
-    192 around center) so iOS rounded-square masking and Android adaptive-
-    icon shapes don't crop it.
-
-    Note: hex/rgb colors here, NOT oklch(). The browser's manifest icon
-    fetcher needs a rasterizable SVG; oklch() in attribute color values
-    fails the validator in some Chromium versions and the icon shows up as
-    "Download error or resource isn't a valid image" in DevTools. These
-    hex values are perceptually close to the design tokens (--clay-950,
-    --amber-300 -> --amber-600, --green-500) but committed as static so
-    the icon never depends on color-mix() / oklch() support.
+    Home Domain app icon.
+    Warm clay tile, amber hearth-light house, alive dot.
+    Maskable: glyph stays inside the 192px-radius safe zone so iOS and
+    Android adaptive masks never crop it.
+    Colors are static hex (perceptually matched to the clay/amber tokens):
+    manifest image decoding is strict XML plus no oklch(), and note that
+    double hyphens are illegal inside XML comments, which is exactly what
+    broke the previous version of this file.
   -->
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%"  stop-color="#e7b87a" />
-      <stop offset="100%" stop-color="#bb6428" />
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#efc189" />
+      <stop offset="55%" stop-color="#d99a54" />
+      <stop offset="100%" stop-color="#b26327" />
     </linearGradient>
+    <radialGradient id="hearth" cx="0.5" cy="0.62" r="0.55">
+      <stop offset="0%"  stop-color="#3a2c1f" />
+      <stop offset="100%" stop-color="#1e1815" />
+    </radialGradient>
   </defs>
-  <!-- Background: deep clay -->
-  <rect width="512" height="512" rx="96" ry="96" fill="#1e1815" />
-  <!-- Brand mark: arc + dot, scaled into the safe zone (radius 192 around center) -->
-  <g transform="translate(256 256)" fill="none" stroke="url(#g)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M -128 32 L 0 -88 L 128 32" />
-    <path d="M -104 24 L -104 128 L 104 128 L 104 24" />
+
+  <!-- Tile: deep clay with a faint warm hearth glow low-center -->
+  <rect width="512" height="512" rx="112" ry="112" fill="#1e1815" />
+  <rect width="512" height="512" rx="112" ry="112" fill="url(#hearth)" />
+
+  <!-- House: open, rounded, drawn like the sidebar brand mark -->
+  <g fill="none" stroke="url(#amber)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Roof arch -->
+    <path d="M 122 292 L 256 168 L 390 292" />
+    <!-- Walls, open at the roofline so the mark breathes -->
+    <path d="M 148 300 L 148 386 L 364 386 L 364 300" />
   </g>
-  <!-- The "alive" dot -- mirrors the wifi-pulse dot in the sidebar -->
-  <circle cx="256" cy="384" r="14" fill="#5fb56e" />
+
+  <!-- Alive dot: the wifi-pulse green from the sidebar, sitting as the hearth -->
+  <circle cx="256" cy="343" r="17" fill="#5fb56e" />
 </svg>
