@@ -6,15 +6,20 @@
  * device's live parameters, and normalizes them into the driver-agnostic
  * `heatpump` payload the UI renders.
  *
- * Why the hub owns it: myUplink requires a confidential client (client_secret)
- * and an HTTPS redirect — neither can live in the Vite bundle. Same pattern as
+ * Why the hub owns it: myUplink requires a confidential client (client_secret),
+ * which can't live in the Vite bundle. Same pattern as
  * server/lib/integrations/sonos-cloud.js.
  *
  * Environment (.env.local, server-side):
  *   NIBE_CLIENT_ID      App identifier from dev.myuplink.com/apps
  *   NIBE_CLIENT_SECRET  App secret (never sent to the browser)
- *   NIBE_REDIRECT_URI   Registered HTTPS callback (the dashboard's own HTTPS
- *                       origin — plain http://localhost is NOT accepted)
+ *   NIBE_REDIRECT_URI   Callback registered in the myUplink app; must match
+ *                       EXACTLY. Verified: plain http://localhost:5183/... IS
+ *                       accepted (myUplink runs IdentityServer, which validates
+ *                       redirect_uri before login and forwarded ours to the
+ *                       login page). The path just has to load the SPA so the
+ *                       ?code is caught — /api/integrations/nibe/callback works
+ *                       because Vite only proxies /api/plejd.
  *
  * Tokens persist in server/nibe-tokens.json (gitignored) — never the broadcast
  * state cache.
