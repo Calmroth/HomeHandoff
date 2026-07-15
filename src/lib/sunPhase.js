@@ -16,18 +16,24 @@
 //   civil twilight at dusk (-6° falling)                     -> sunset
 //   nautical twilight or later                               -> night
 //
-// Weather still overrides: during day, "rain" / "snow" / "cloudy" pick their
-// own backdrops; only "clear" follows the sun-phase day photo.
+// Weather still overrides: during day, "rain" and "snow" pick their own
+// backdrops; "clear" and "cloudy" both fall through to the daylight photo,
+// which is itself overcast (see DAY_PHOTO below).
 
 import SunCalc from 'suncalc';
 
 const NIGHT_PHOTO    = '/assets/backdrop-night.avif';
 const SUNRISE_PHOTO  = '/assets/backdrop-sunrise.avif';
-const DAY_PHOTO      = '/assets/backdrop-day.avif';
 const SUNSET_PHOTO   = '/assets/backdrop-sunset.avif';
 const RAIN_PHOTO     = '/assets/backdrop-rain.avif';
 const SNOW_PHOTO     = '/assets/backdrop-winter.avif';
-const CABIN_PHOTO    = '/assets/backdrop-cabin.avif';
+
+// The one daylight photo we have is overcast, so "clear" and "cloudy" share it.
+// This used to look like a real choice: backdrop-day.avif was a byte-identical
+// copy of backdrop-cabin.avif (same SHA-256), so the branch shipped 111 KB of
+// duplicate payload to pick between two names for one picture. Collapsed to the
+// truth. Split it again when a genuine sunlit exposure of the cabin exists.
+const DAY_PHOTO      = '/assets/backdrop-cabin.avif';
 
 // Where "twilight" sits. SunCalc's `getTimes()` returns named milestones --
 // we want the civil-twilight pair (sun 6 degrees below horizon).
@@ -61,10 +67,9 @@ export function pickBackdrop(now, weather, lat, lon) {
   if (p === 'sunrise') return SUNRISE_PHOTO;
   if (p === 'sunset')  return SUNSET_PHOTO;
   // Daytime -- weather decides.
-  if (weather === 'rain')   return RAIN_PHOTO;
-  if (weather === 'snow')   return SNOW_PHOTO;
-  if (weather === 'cloudy') return CABIN_PHOTO;
-  return DAY_PHOTO;
+  if (weather === 'rain') return RAIN_PHOTO;
+  if (weather === 'snow') return SNOW_PHOTO;
+  return DAY_PHOTO; // 'clear' and 'cloudy' -- one overcast photo serves both
 }
 
 // Optional helper exposed for UI ("17 minutes until sunset"). Returns
