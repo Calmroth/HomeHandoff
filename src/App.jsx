@@ -596,8 +596,27 @@ function App() {
   const [activity, setActivity] = useState([]); // newest-first; cap at 8
   const reducedMotion = usePrefersReducedMotion();
   const [route, navigate] = useRoute();
-  const [musicSource, setMusicSource] = useState(null);          // Curated source key; null = nothing selected yet
-  const [musicCustom, setMusicCustom] = useState(null);          // { type, id, label } when playing a search/library pick
+  // Last-played music selection. PERSISTED: the Home hero's "pick up where you
+  // left off" is meaningless if it forgets on every reload — the wall iPad
+  // reloads constantly.
+  const [musicSource, setMusicSource] = useState(() => {         // Curated source key; null = nothing selected yet
+    try { return localStorage.getItem('hdg-music-source') || null; } catch (e) { return null; }
+  });
+  const [musicCustom, setMusicCustom] = useState(() => {         // { type, id, label, sub } when playing a search/library pick
+    try { return JSON.parse(localStorage.getItem('hdg-music-custom') || 'null'); } catch (e) { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (musicSource) localStorage.setItem('hdg-music-source', musicSource);
+      else localStorage.removeItem('hdg-music-source');
+    } catch (e) {}
+  }, [musicSource]);
+  useEffect(() => {
+    try {
+      if (musicCustom) localStorage.setItem('hdg-music-custom', JSON.stringify(musicCustom));
+      else localStorage.removeItem('hdg-music-custom');
+    } catch (e) {}
+  }, [musicCustom]);
   const [musicFavs, setMusicFavs] = useState(() => {             // Local favourites — works without Spotify auth
     try { return JSON.parse(localStorage.getItem('hdg-music-favs') || '[]'); } catch (e) { return []; }
   });
@@ -1997,7 +2016,9 @@ function App() {
               toggleOutlet={toggleOutlet}
               toggleSpeaker={toggleSpeaker} setVolume={setVolume}
               hideSpeaker={hideSpeaker} hiddenSpeakerCount={hiddenSpeakerIds.size} unhideAllSpeakers={unhideAllSpeakers}
-              musicNowLabel={musicNowLabel} onOpenMusic={() => navigate('music')}
+              musicNowLabel={musicNowLabel} musicNowSub={musicNowSub}
+              oembed={oembed} hasLastPlayed={!!(musicCustom || musicSource)}
+              onOpenMusic={() => navigate('music')}
               activeScene={activeScene} activeSceneAt={activeSceneAt} now={now}
               applyScene={applyScene} breakScene={breakScene}
               plejdScenes={plejdScenes} activatePlejdScene={activatePlejdScene}
@@ -2096,7 +2117,7 @@ function App() {
 // Home hero — the welcome surface. One big image answering "what is this house
 // doing right now": the album art of what's playing, or what you left off on.
 // Everything else on Home is secondary to this.
-function HomeHero({ speakers, spotify, onOpenMusic, musicNowLabel }) {
+function HomeHero({ speakers, spotify, onOpenMusic, musicNowLabel, musicNowSub, oembed, hasLastPlayed }) {
   const playback = useHomeStore(s => s.playback);
   const hasTrack = !!playback.track;
   const activeSpeaker = speakers.find(s => s.on && s.primary) || speakers.find(s => s.on);
@@ -2117,22 +2138,33 @@ function HomeHero({ speakers, spotify, onOpenMusic, musicNowLabel }) {
     } finally { setToggling(false); }
   };
 
+  // Three states, in order of truth:
+  //   1. A track is actually playing/paused -> that track + its art.
+  //   2. Nothing playing but there IS a last-played source -> name it and show
+  //      its cover (Spotify oEmbed), so "left off" means something concrete.
+  //   3. Never played anything -> say so plainly. No invented "Music".
   const label = hasTrack
     ? (playback.isPlaying ? 'Now playing' : 'Paused')
-    : (musicNowLabel ? 'Pick up where you left off' : 'Nothing playing');
-  const title = hasTrack ? playback.track : (musicNowLabel || 'Your house is quiet');
+    : (hasLastPlayed ? 'Pick up where you left off' : 'Nothing playing');
+  const title = hasTrack
+    ? playback.track
+    : (hasLastPlayed ? (musicNowLabel || oembed?.title || 'Last playlist') : 'Your house is quiet');
+  const subtitle = hasTrack
+    ? playback.artist
+    : (hasLastPlayed ? (musicNowSub || oembed?.author) : null);
+  const artUrl = playback.art || (hasLastPlayed ? oembed?.thumb : null);
 
   return (
     <div className="home-hero" data-playing={playback.isPlaying || undefined}>
-      <button className="home-hero-art" onClick={onOpenMusic} aria-label="Open music">
-        {playback.art
-          ? <img src={playback.art} alt="" draggable={false} />
+      <button className="home-hero-art" onClick={onOpenMusic} aria-label={hasTrack ? `Open music — ${title}` : 'Open music'}>
+        {artUrl
+          ? <img src={artUrl} alt="" draggable={false} />
           : <span className="home-hero-art-fallback" />}
       </button>
       <div className="home-hero-body">
         <span className="home-hero-label">{label}</span>
         <h2 className="home-hero-title">{title}</h2>
-        {hasTrack && playback.artist && <div className="home-hero-artist">{playback.artist}</div>}
+        {subtitle && <div className="home-hero-artist">{subtitle}</div>}
         {activeSpeaker && (
           <div className="home-hero-room">on <b>{activeSpeaker.name}</b></div>
         )}
@@ -2170,7 +2202,7 @@ function HomePage({
   activity,
   spotify,
   sendingIds, failedIds, failedCommands,
-  musicNowLabel, onOpenMusic,
+  musicNowLabel, musicNowSub, oembed, hasLastPlayed, onOpenMusic,
 }) {
   // Home shows ONLY what's actually on. "Show everything" reveals the full
   // stack (and every off device) for when you want the whole board. The
@@ -2208,6 +2240,9 @@ function HomePage({
         spotify={spotify}
         onOpenMusic={onOpenMusic}
         musicNowLabel={musicNowLabel}
+        musicNowSub={musicNowSub}
+        oembed={oembed}
+        hasLastPlayed={hasLastPlayed}
       />
 
       <Section
