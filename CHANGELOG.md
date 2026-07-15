@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+### Changed
+- **Home is a welcome screen, not a control panel.** It used to stack seven equal-weight sections (Scenes, Lights, Music, Sound, Power, Sensors, Activity) always, whether or not anything was on — a wall of dark cards with no entry point for the eye. Now:
+  - A **hero** leads: large album art of what's playing, or "pick up where you left off" when idle, with the track, artist, the room it's on, and transport controls. Tapping the art opens Music.
+  - **Only what's on is shown** — lights that are lit, speakers playing, outlets drawing power. Sections retitle to match ("Lights on", "Playing on", "Drawing power").
+  - **"All quiet"** — one calm line when nothing is running, instead of a grid of off cards.
+  - **"Show everything"** reveals the full stack (every device, plus Sensors and the Activity log, which are reference detail rather than glance material). The choice persists per browser.
+
 ### Added
 - **Public market prices when there's no Tibber contract**: the Energy page now falls back to the real Nord Pool spot price (via elprisetjustnu.se, free, no auth) for the account's price zone (SE3 default, override with `ELPRIS_ZONE`), so the price chart is never empty. 15-minute Nord Pool slots are aggregated to 24 hourly bars. A **cheapest vs most-expensive** callout shows both with clock times (e.g. "Cheapest 0.37 @ 13:00 · Most expensive 0.99 @ 20:00"), the cheapest and priciest bars are highlighted (amber / warm-red), and the source is clearly labelled "Market spot price · SE3" with a note that it's the raw market rate excl. fees. Switches to the user's actual price automatically if they connect a Tibber contract.
 - **Nibe heat pump** (read-only) via the official myUplink cloud API. Hub-side OAuth2 (`READSYSTEM offline_access`, client secret stays server-side, HTTPS redirect); polls the pump every 60s and shows a climate card on the Energy page with outdoor/indoor/supply/return/hot-water temperatures, degree-minutes, compressor state, and power. Readings are identified by the Nibe sensor tag (`BT1`, `BT2`, …) embedded in each parameter's name, so it works across both F-series and S-series pumps despite their different parameter IDs. `-32768` sentinels are treated as "unavailable". Dormant until `NIBE_CLIENT_ID/SECRET/REDIRECT_URI` are set; then "Sign in with Nibe" appears on the Energy page. Tokens persist in gitignored `server/nibe-tokens.json`.

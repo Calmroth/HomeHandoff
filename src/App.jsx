@@ -21,6 +21,15 @@ import { Icon, I } from './components/icons.jsx';
 import { Slider, Toggle, HoldToggle } from './components/primitives.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
 import { BottomNav } from './components/BottomNav.jsx';
+import {
+  PLANNED_INTEGRATIONS,
+  REGIONS,
+  CATEGORIES,
+  LIVE_REGIONS,
+  AUTH_BADGE,
+  logoUrl,
+  filterCatalog,
+} from './data/integrationCatalog.js';
 
 // Weather — open-meteo is free, no key, CORS-open. WMO weather codes map
 // to our four buckets for the photo backdrop. Hourly+daily arrays populate
@@ -1988,6 +1997,7 @@ function App() {
               toggleOutlet={toggleOutlet}
               toggleSpeaker={toggleSpeaker} setVolume={setVolume}
               hideSpeaker={hideSpeaker} hiddenSpeakerCount={hiddenSpeakerIds.size} unhideAllSpeakers={unhideAllSpeakers}
+              musicNowLabel={musicNowLabel} onOpenMusic={() => navigate('music')}
               activeScene={activeScene} activeSceneAt={activeSceneAt} now={now}
               applyScene={applyScene} breakScene={breakScene}
               plejdScenes={plejdScenes} activatePlejdScene={activatePlejdScene}
@@ -2083,6 +2093,67 @@ function App() {
 // HomePage — Music + Sound + Lights + Power + Scenes + Activity
 // (extracted from App so each page can render independently)
 // ─────────────────────────────────────────────────────────────────────────────
+// Home hero — the welcome surface. One big image answering "what is this house
+// doing right now": the album art of what's playing, or what you left off on.
+// Everything else on Home is secondary to this.
+function HomeHero({ speakers, spotify, onOpenMusic, musicNowLabel }) {
+  const playback = useHomeStore(s => s.playback);
+  const hasTrack = !!playback.track;
+  const activeSpeaker = speakers.find(s => s.on && s.primary) || speakers.find(s => s.on);
+  const [toggling, setToggling] = useState(false);
+
+  const handlePlayPause = async () => {
+    if (!spotify?.token || toggling) return;
+    setToggling(true);
+    try {
+      const store = useHomeStore.getState();
+      if (playback.isPlaying) {
+        await spotify.pausePlay(playback.deviceId);
+        store.setPlayback({ isPlaying: false });
+      } else {
+        await spotify.resumePlay(playback.deviceId);
+        store.setPlayback({ isPlaying: true });
+      }
+    } finally { setToggling(false); }
+  };
+
+  const label = hasTrack
+    ? (playback.isPlaying ? 'Now playing' : 'Paused')
+    : (musicNowLabel ? 'Pick up where you left off' : 'Nothing playing');
+  const title = hasTrack ? playback.track : (musicNowLabel || 'Your house is quiet');
+
+  return (
+    <div className="home-hero" data-playing={playback.isPlaying || undefined}>
+      <button className="home-hero-art" onClick={onOpenMusic} aria-label="Open music">
+        {playback.art
+          ? <img src={playback.art} alt="" draggable={false} />
+          : <span className="home-hero-art-fallback" />}
+      </button>
+      <div className="home-hero-body">
+        <span className="home-hero-label">{label}</span>
+        <h2 className="home-hero-title">{title}</h2>
+        {hasTrack && playback.artist && <div className="home-hero-artist">{playback.artist}</div>}
+        {activeSpeaker && (
+          <div className="home-hero-room">on <b>{activeSpeaker.name}</b></div>
+        )}
+        <div className="home-hero-actions">
+          {hasTrack && spotify?.token ? (
+            <>
+              <button className="np-ctrl" onClick={() => spotify.skipPrev()} title="Previous" aria-label="Previous track"><I.Back size={16} /></button>
+              <button className="np-ctrl np-ctrl--play" onClick={handlePlayPause} disabled={toggling} aria-label={playback.isPlaying ? 'Pause' : 'Play'}>
+                {playback.isPlaying ? <I.Pause size={20} /> : <I.Play size={20} />}
+              </button>
+              <button className="np-ctrl" onClick={() => spotify.skipNext()} title="Next" aria-label="Next track"><I.Skip size={16} /></button>
+            </>
+          ) : (
+            <button className="group-toggle" data-active="true" onClick={onOpenMusic}>Open music</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HomePage({
   rooms, outlets, speakers,
   onCount, litWatts, outletWatts, speakerWatts, totalW,
@@ -2099,27 +2170,46 @@ function HomePage({
   activity,
   spotify,
   sendingIds, failedIds, failedCommands,
+  musicNowLabel, onOpenMusic,
 }) {
-  // Cast-to-room handler for the NowPlaying hero. Two cases:
-  // (1) a speaker is already active -> reassert it (no-op behavioral, but the
-  //     button visibly confirms what's happening). Helpful UX when a guest
-  //     wonders "did I tap it or not?"
-  // (2) no active speaker but at least one is off -> turn the first off
-  //     speaker ON (toggleSpeaker routes to Spotify Connect transferTo or
-  //     Sonos bridge under the hood). Hero now reflects the change next poll.
-  const handleCastToggle = useCallback((activeSpeaker) => {
-    if (!speakers.length) return;
-    const target = activeSpeaker || speakers.find(s => !s.on) || speakers[0];
-    toggleSpeaker(target.id);
-  }, [speakers, toggleSpeaker]);
+  // Home shows ONLY what's actually on. "Show everything" reveals the full
+  // stack (and every off device) for when you want the whole board. The
+  // choice sticks per browser — the kitchen iPad keeps whichever you chose.
+  const [showAll, setShowAll] = useState(() => {
+    try { return localStorage.getItem('hdg-home-showall') === '1'; } catch (e) { return false; }
+  });
+  const toggleShowAll = useCallback(() => {
+    setShowAll(v => {
+      const next = !v;
+      try { localStorage.setItem('hdg-home-showall', next ? '1' : '0'); } catch (e) {}
+      return next;
+    });
+  }, []);
+
+  const litRooms        = rooms.filter(r => r.on);
+  const playingSpeakers = speakers.filter(s => s.on);
+  const liveOutlets     = outlets.filter(o => o.on);
+  const nothingOn = !litRooms.length && !playingSpeakers.length && !liveOutlets.length;
+
+  // What each section renders: only-active by default, everything when asked.
+  const shownRooms    = showAll ? rooms    : litRooms;
+  const shownSpeakers = showAll ? speakers : playingSpeakers;
+  const shownOutlets  = showAll ? outlets  : liveOutlets;
 
   return (
     <>
-      {/* Hierarchy: Scenes and Lights master surface first — they are the
-          5-second actions a family member runs on entering the house. Music,
-          Sound, Power, Sensors, and Activity follow. The order here IS the
-          dashboard's information hierarchy; do not rearrange without
-          rechecking the 5-second test from CLAUDE.md. */}
+      {/* Hierarchy: the hero answers "what is the house doing" in one glance,
+          then Scenes (the 5-second action), then ONLY what is actually on.
+          Everything off is hidden behind "Show everything" — a wall of dark
+          cards is noise, not information. Re-check the 5-second test from
+          CLAUDE.md before rearranging. */}
+      <HomeHero
+        speakers={speakers}
+        spotify={spotify}
+        onOpenMusic={onOpenMusic}
+        musicNowLabel={musicNowLabel}
+      />
+
       <Section
         title="Scenes"
         source="local"
@@ -2177,8 +2267,19 @@ function HomePage({
         </div>
       </Section>
 
+      {/* Nothing on at all — one calm line instead of a grid of dark cards. */}
+      {nothingOn && !showAll && (
+        <Section title="All quiet" source="nothing is on" summary={<>No lights, speakers, or outlets are running.</>}>
+          <div className="home-quiet">
+            <span className="home-quiet-dot" />
+            The house is idle. Tap a scene above, or <button className="linklike" onClick={toggleShowAll}>show everything</button>.
+          </div>
+        </Section>
+      )}
+
+      {(showAll || litRooms.length > 0) && (
       <Section
-        title="Lights"
+        title={showAll ? 'Lights' : 'Lights on'}
         statusId="plejd"
         source={rooms.length ? `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'} · live` : 'no rooms yet'}
         summary={rooms.length
@@ -2187,6 +2288,7 @@ function HomePage({
       >
         {rooms.length ? (
           <div className="stack">
+            {showAll && (
             <div className="master">
               <div>
                 <div className="master-title">All lights</div>
@@ -2199,8 +2301,9 @@ function HomePage({
                 ariaLabel="Toggle all lights"
               />
             </div>
+            )}
             <div className="lights-grid">
-              {rooms.map(r => (
+              {shownRooms.map(r => (
                 <RoomCard
                   key={r.id}
                   room={r}
@@ -2221,18 +2324,11 @@ function HomePage({
           <EmptyIntegration title="No rooms found" sub="Add a Home Assistant URL + token in Settings → Integrations to surface your Plejd lights." />
         )}
       </Section>
+      )}
 
+      {(showAll || playingSpeakers.length > 0) && (
       <Section
-        title="Music"
-        statusId="spotify"
-        source={null}
-        summary={<>Streaming to <b>{speakers.filter(s => s.on).length}</b> of <b>{speakers.length}</b> rooms</>}
-      >
-        <NowPlaying speakers={speakers} onCastToggle={handleCastToggle} spotify={spotify} />
-      </Section>
-
-      <Section
-        title="Sound"
+        title={showAll ? 'Sound' : 'Playing on'}
         statusId="sonos"
         source={speakers.length ? `${speakers.length} ${speakers.length === 1 ? 'zone' : 'zones'} · live` : 'no speakers yet'}
         summary={
@@ -2248,22 +2344,24 @@ function HomePage({
       >
         {speakers.length ? (
           <div className="speaker-grid">
-            {speakers.map(sp => (
+            {shownSpeakers.map(sp => (
               <SpeakerCard key={sp.id} speaker={sp} onToggle={() => toggleSpeaker(sp.id)} onVolume={(v) => setVolume(sp.id, v)} onHide={hideSpeaker ? () => hideSpeaker(sp.id) : undefined} />
             ))}
           </div>
         ) : (
           <EmptyIntegration title="No speakers found" sub="Sign in with Sonos in Settings — or connect Spotify and your Connect devices appear here." />
         )}
-        {hiddenSpeakerCount > 0 && (
+        {showAll && hiddenSpeakerCount > 0 && (
           <button className="group-toggle" style={{ marginTop: 8 }} onClick={unhideAllSpeakers}>
             {hiddenSpeakerCount} hidden speaker{hiddenSpeakerCount > 1 ? 's' : ''} — show
           </button>
         )}
       </Section>
+      )}
 
+      {(showAll || liveOutlets.length > 0) && (
       <Section
-        title="Power"
+        title={showAll ? 'Power' : 'Drawing power'}
         statusId="shelly"
         source={outlets.length ? `${outlets.length} ${outlets.length === 1 ? 'outlet' : 'outlets'} · live` : 'no outlets yet'}
         summary={outlets.length
@@ -2273,24 +2371,35 @@ function HomePage({
         {outlets.length ? (
           <div className="power-grid">
             <div className="outlets">
-              {outlets.map(o => <OutletRow key={o.id} outlet={o} onToggle={() => toggleOutlet(o.id)} sending={sendingIds.has(o.id)} failed={failedIds.has(o.id)} retryFn={failedCommands.get(o.id)} />)}
+              {shownOutlets.map(o => <OutletRow key={o.id} outlet={o} onToggle={() => toggleOutlet(o.id)} sending={sendingIds.has(o.id)} failed={failedIds.has(o.id)} retryFn={failedCommands.get(o.id)} />)}
             </div>
-            <PowerLive outlets={outlets} totalW={totalW} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts} />
+            {showAll && <PowerLive outlets={outlets} totalW={totalW} litWatts={litWatts} outletWatts={outletWatts} speakerWatts={speakerWatts} />}
           </div>
         ) : (
           <EmptyIntegration title="No outlets configured" sub="Add Shelly device IPs in Settings → Integrations." />
         )}
       </Section>
+      )}
 
-      <SensorsSection />
+      {/* Reference detail — pinned sensors and the action log are for when you
+          go looking, not for the glance. Energy has its own page. */}
+      {showAll && <SensorsSection />}
 
-      <Section
-        title="Activity"
-        source="local"
-        summary={<>Last <b>{activity.length}</b> {activity.length === 1 ? 'action' : 'actions'}</>}
-      >
-        <ActivityLog items={activity} now={now} />
-      </Section>
+      {showAll && (
+        <Section
+          title="Activity"
+          source="local"
+          summary={<>Last <b>{activity.length}</b> {activity.length === 1 ? 'action' : 'actions'}</>}
+        >
+          <ActivityLog items={activity} now={now} />
+        </Section>
+      )}
+
+      <div className="home-showall">
+        <button className="group-toggle" onClick={toggleShowAll} data-active={showAll || undefined}>
+          {showAll ? 'Show only what’s on' : 'Show everything'}
+        </button>
+      </div>
     </>
   );
 }
@@ -5026,7 +5135,7 @@ const INTEGRATION_CATALOG = [
   },
 ];
 
-const STATUS_LABEL = { configured: 'Connected', partial: 'Partial', 'not-configured': 'Not set up', default: 'Using defaults' };
+const STATUS_LABEL = { configured: 'Connected', partial: 'Partial', 'not-configured': 'Not set up', default: 'Using defaults', planned: 'Coming soon' };
 
 // Shelly device discovery -- best-effort HTTP probe of a /24 subnet. Browser
 // can't do mDNS/BLE, but Shelly's HTTP server speaks CORS, so we can read the
@@ -5706,23 +5815,33 @@ function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
 
   const Ic = BRAND_LOGOS[it.id] ?? I[it.icon] ?? I.Plug;
   const status = it.status(integrations, spotify);
-  const action = inlineActionFor(it, status, integrations, spotify);
+  const action = it.planned ? null : inlineActionFor(it, status, integrations, spotify);
+  const url = it.planned ? logoUrl(it) : null;
+  const kindLabel = it.planned ? (AUTH_BADGE[it.auth] || 'Coming soon') : it.kind;
 
   return (
-    <div className="catalog-item" data-status={status} data-open={isOpen}>
+    <div className="catalog-item" data-status={status} data-open={isOpen} data-planned={it.planned || undefined}>
       <div className="catalog-head-wrap">
         <button
           type="button"
           className="catalog-head"
-          onClick={onToggle}
-          aria-expanded={isOpen}
+          onClick={it.planned ? undefined : onToggle}
+          aria-expanded={it.planned ? undefined : isOpen}
+          disabled={it.planned}
         >
-          <span className="settings-row-icon"><Ic size={14} /></span>
+          <span className="settings-row-icon catalog-logo-icon">
+            {url
+              ? <img src={url} alt="" className="catalog-logo-img" loading="lazy"
+                     onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+              : it.planned
+                ? <span className="catalog-logo-monogram" style={{ background: `#${it.logoColor || '888'}` }}>{it.monogram || it.name.slice(0,1)}</span>
+                : <Ic size={14} />}
+          </span>
           <div className="catalog-head-meta">
             <div className="catalog-head-name">{it.name}</div>
             <div className="catalog-head-sub">{it.tagline}</div>
           </div>
-          <span className="catalog-kind">{it.kind}</span>
+          <span className="catalog-kind">{kindLabel}</span>
           <span className="catalog-status" data-status={status}>
             <span className="catalog-status-dot" aria-hidden="true" />
             {STATUS_LABEL[status]}
@@ -5752,16 +5871,18 @@ function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
                 {action.label}
               </button>
         )}
-        <button
-          type="button"
-          className="catalog-chev-btn"
-          onClick={onToggle}
-          aria-label={isOpen ? 'Collapse details' : 'Expand details'}
-        >
-          <I.ChevronDown size={14} />
-        </button>
+        {!it.planned && (
+          <button
+            type="button"
+            className="catalog-chev-btn"
+            onClick={onToggle}
+            aria-label={isOpen ? 'Collapse details' : 'Expand details'}
+          >
+            <I.ChevronDown size={14} />
+          </button>
+        )}
       </div>
-      {isOpen && (
+      {isOpen && !it.planned && (
         <div className="catalog-body">
           <IntegrationConfig id={it.id} integrations={integrations} spotify={spotify} />
         </div>
@@ -5772,17 +5893,31 @@ function CatalogItem({ it, integrations, spotify, isOpen, onToggle }) {
 
 function IntegrationCatalog({ integrations, spotify }) {
   const [query, setQuery] = useState('');
+  const [region, setRegion] = useState('all');
+  const [category, setCategory] = useState('all');
   const [expanded, setExpanded] = useState(null);
   const [showDiscovery, setShowDiscovery] = useState(false);
-  const items = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return INTEGRATION_CATALOG;
-    return INTEGRATION_CATALOG.filter(it =>
-      it.name.toLowerCase().includes(q) ||
-      it.tagline.toLowerCase().includes(q) ||
-      it.keywords.some(k => k.includes(q))
-    );
-  }, [query]);
+
+  // Merge live catalog (functional status) with planned catalog (data-only).
+  // Both flow through the same filterCatalog helper for search + region + category.
+  const merged = useMemo(() => {
+    const live = INTEGRATION_CATALOG.map(it => ({
+      ...it,
+      planned: false,
+      regions: LIVE_REGIONS[it.id] || ['global'],
+    }));
+    const planned = PLANNED_INTEGRATIONS.map(it => ({
+      ...it,
+      planned: true,
+      status: () => 'planned',
+    }));
+    return [...live, ...planned];
+  }, []);
+
+  const items = useMemo(
+    () => filterCatalog(merged, { query, region, category }),
+    [merged, query, region, category],
+  );
 
   const discoveredCount = (integrations.config.discovered?.devices || []).length;
 
@@ -5824,6 +5959,43 @@ function IntegrationCatalog({ integrations, spotify }) {
             <I.X size={12} />
           </button>
         )}
+      </div>
+      {/* Region + category chip filters. Region defaults to 'all' so the
+          list stays discoverable; users narrow by market when they know
+          what they want. */}
+      <div className="catalog-chips" role="group" aria-label="Filter by region">
+        {REGIONS.map(r => (
+          <button
+            key={r.id}
+            type="button"
+            className="catalog-chip"
+            data-active={region === r.id || undefined}
+            onClick={() => setRegion(r.id)}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+      <div className="catalog-chips" role="group" aria-label="Filter by category">
+        <button
+          type="button"
+          className="catalog-chip"
+          data-active={category === 'all' || undefined}
+          onClick={() => setCategory('all')}
+        >
+          All types
+        </button>
+        {CATEGORIES.map(c => (
+          <button
+            key={c.id}
+            type="button"
+            className="catalog-chip"
+            data-active={category === c.id || undefined}
+            onClick={() => setCategory(c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
       <div className="settings-section">
         {items.length === 0 && (
@@ -6724,6 +6896,104 @@ function DiscoveredDevicesList({ integrations }) {
   );
 }
 
+// Home Bridge panel — pairs the app with a self-hosted Docker bridge that
+// speaks BLE (Plejd) and does LAN discovery. The pairing code is printed in
+// the bridge's container logs on first boot; the user pastes it here.
+//
+// Persists to localStorage under 'hdg-home-bridge' as { url, code, bridgeId }.
+// The URL/code aren't wired into useWebSocketHub yet — that comes when we
+// switch VITE_HUB_URL from build-time to runtime. For now this proves the
+// pairing round-trip works and stores the credentials for later.
+function HomeBridgePanel({ integrations, hubConnected }) {
+  const [saved, setSaved] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('hdg-home-bridge') || 'null'); }
+    catch { return null; }
+  });
+  const [url, setUrl]   = useState(saved?.url || '');
+  const [code, setCode] = useState(saved?.code || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState(null);
+  const [info, setInfo] = useState(null); // { bridgeId, hostname, capabilities }
+
+  const test = useCallback(async () => {
+    setBusy(true); setErr(null); setInfo(null);
+    try {
+      const clean = url.trim().replace(/\/+$/, '');
+      if (!/^https?:\/\//.test(clean)) throw new Error('URL must start with http:// or https://');
+      const r = await fetch(`${clean}/bridge/info`, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error(`Bridge returned ${r.status}`);
+      const j = await r.json();
+      if (j?.kind !== 'homedomain-bridge') throw new Error('That URL is not a Home Domain bridge');
+      setInfo(j);
+      // If a code is present, verify it against /health with the secret header.
+      if (code.trim()) {
+        const hr = await fetch(`${clean}/health`, { headers: { 'X-Hub-Secret': code.trim() } });
+        if (!hr.ok) throw new Error('Pairing code rejected');
+      }
+      const next = { url: clean, code: code.trim(), bridgeId: j.bridgeId };
+      localStorage.setItem('hdg-home-bridge', JSON.stringify(next));
+      setSaved(next);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }, [url, code]);
+
+  const forget = useCallback(() => {
+    localStorage.removeItem('hdg-home-bridge');
+    setSaved(null); setUrl(''); setCode(''); setInfo(null); setErr(null);
+  }, []);
+
+  return (
+    <div className="settings-page" style={{ marginTop: 0 }}>
+      <div className="settings-section">
+        <div className="settings-row" data-on={(saved || hubConnected) || undefined}>
+          <span className="settings-row-icon"><I.Wifi size={14} /></span>
+          <div style={{ width: '100%' }}>
+            <div className="settings-row-name">Home Bridge</div>
+            <div className="settings-row-sub">
+              {saved
+                ? <>Paired with <span className="mono">{saved.url}</span>{info?.hostname ? <> · host <span className="mono">{info.hostname}</span></> : null}</>
+                : <>Optional. Enables Plejd BLE, LAN discovery, and offline control. Install via <span className="mono">docker compose -f bridge/docker-compose.yml up -d</span> and read the pairing code from <span className="mono">docker logs homedomain-bridge</span>.</>}
+            </div>
+            <div className="catalog-form" style={{ marginTop: 8 }}>
+              <input
+                className="settings-input"
+                type="url"
+                autoComplete="off"
+                placeholder="http://192.168.1.42:3001"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+              <input
+                className="settings-input"
+                type="text"
+                autoComplete="off"
+                placeholder="Pairing code — e.g. HZKP-BRGF-MTQX-VLDN"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}
+              />
+              {err && <div className="catalog-notice" role="alert" style={{ color: 'var(--destructive)' }}>{err}</div>}
+              {info && !err && <div className="catalog-help">Found bridge <span className="mono">{info.bridgeId?.slice(0, 8)}…</span>{info.capabilities?.length ? <> — capabilities: {info.capabilities.join(', ')}</> : null}.</div>}
+              <div className="catalog-actions">
+                <button className="group-toggle" data-active onClick={test} disabled={busy || !url.trim()}>
+                  {busy ? 'Testing…' : saved ? 'Update' : 'Pair bridge'}
+                </button>
+                {saved && (
+                  <button className="group-toggle" onClick={forget}>Forget</button>
+                )}
+              </div>
+            </div>
+          </div>
+          <span className="settings-row-state">{saved ? 'Paired' : (hubConnected ? 'Live' : 'None')}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, integrations, demoMode, onLoadDemo, onClearDemo, hubConnected }) {
   const deviceTotal = rooms.length + outlets.length + speakers.length;
   // MaskedSecret handles its own draft/save for both Spotify and Google Client
@@ -6855,29 +7125,15 @@ function SettingsPage({ rooms, outlets, speakers, activity, spotify, google, int
       <Section
         title="Integrations"
         source={(() => {
-          const total = INTEGRATION_CATALOG.length;
           const ok = INTEGRATION_CATALOG.filter(it => it.status(integrations, spotify) === 'configured').length;
-          return `${ok} of ${total} connected`;
+          const live = INTEGRATION_CATALOG.length;
+          const total = live + PLANNED_INTEGRATIONS.length;
+          return `${ok} connected · ${total} services in catalog`;
         })()}
-        summary={<>Search for a service, expand to set it up, or scan your LAN for Shelly devices.</>}
+        summary={<>Search {PLANNED_INTEGRATIONS.length}+ services by region or category. Tap to connect the ones you use.</>}
       >
         <IntegrationCatalog integrations={integrations} spotify={spotify} />
-        <div className="settings-page" style={{ marginTop: 0 }}>
-          <div className="settings-section">
-            <div className="settings-row" data-on={hubConnected || undefined}>
-              <span className="settings-row-icon"><I.Wifi size={14} /></span>
-              <div>
-                <div className="settings-row-name">Real-time hub</div>
-                <div className="settings-row-sub">
-                  {hubConnected
-                    ? 'Connected — device updates stream live to all tabs'
-                    : <>Offline · run <span className="mono">npm run hub</span> to enable live updates</>}
-                </div>
-              </div>
-              <span className="settings-row-state">{hubConnected ? 'Live' : 'Offline'}</span>
-            </div>
-          </div>
-        </div>
+        <HomeBridgePanel integrations={integrations} hubConnected={hubConnected} />
       </Section>
 
       <Section
