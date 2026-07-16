@@ -19,6 +19,7 @@
  */
 
 import { createServer } from 'http';
+import { createServer as createNetServer } from 'net';
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -27,9 +28,14 @@ import cors from 'cors';
 import { HubState } from './lib/state.js';
 import { WssHub } from './lib/wss.js';
 import { requireSecret } from './lib/auth.js';
+import { initBridgeIdentity, logPairingBanner } from './lib/bridge-info.js';
 
 const SERVER_DIR    = join(fileURLToPath(import.meta.url), '..');
-const STATE_FILE    = join(SERVER_DIR, 'hub-state.json');
+// HUB_STATE_DIR is set by the Docker image so persisted state (hub state,
+// bridge identity, integration tokens) lives on a volume outside the app.
+// In dev the default keeps state next to the code as before.
+const STATE_DIR     = process.env.HUB_STATE_DIR || SERVER_DIR;
+const STATE_FILE    = join(STATE_DIR, 'hub-state.json');
 
 // ── Env ───────────────────────────────────────────────────────────────────
 
@@ -56,6 +62,37 @@ const PORT         = Number(process.env.HUB_PORT || 3001);
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 
+// ── Already-running guard ───────────────────────────────────────────────────
+// The single most common confusion running this by hand: you start the hub,
+// forget it's still up, run `npm run hub` again, and Node vomits a raw
+// EADDRINUSE stack trace that reads like the app is broken. It isn't — the app
+// works precisely because the FIRST hub is still serving it. Detect that case
+// up front and say so in plain language instead of crashing.
+function portInUse(port) {
+  return new Promise((resolve) => {
+    // Bind exactly like the real server below (`server.listen(PORT)`, no host)
+    // so the probe lands on the same stack. On Windows a bare listen binds IPv6
+    // `::` with IPV6_V6ONLY, so probing IPv4 0.0.0.0 would miss a running hub
+    // entirely and report the port free.
+    const probe = createNetServer()
+      .once('error', (e) => resolve(e.code === 'EADDRINUSE'))
+      .once('listening', () => probe.close(() => resolve(false)))
+      .listen(port);
+  });
+}
+
+if (await portInUse(PORT)) {
+  console.log('');
+  console.log(`  A Home Domain hub is already running on port ${PORT}.`);
+  console.log('  That is why the app works — it is already talking to that hub.');
+  console.log('  You do NOT need to start another one.');
+  console.log('');
+  console.log('  To restart cleanly: close the other hub (or its terminal) first,');
+  console.log('  then run  npm run hub  again.');
+  console.log('');
+  process.exit(0);
+}
+
 // ── Express app ───────────────────────────────────────────────────────────
 
 const app = express();
@@ -77,6 +114,12 @@ app.use(cors({
 }));
 
 // ── Shared state + WebSocket hub ─────────────────────────────────────────
+
+// Bridge identity — generates or restores a stable pairing code and sets
+// HUB_SECRET so requireSecret() gates /command and /scan. Must run before
+// the hub starts accepting connections.
+const bridgeIdentity = await initBridgeIdentity(STATE_DIR);
+logPairingBanner(bridgeIdentity);
 
 const state = new HubState();
 const server = createServer(app);
@@ -129,6 +172,26 @@ app.get('/health', (_req, res) => {
     integrations: state.keys,
     health: state.getHealthSnapshot(),
     uptime: Math.round(process.uptime()),
+  });
+});
+
+/**
+ * Bridge identity — public endpoint the app hits to confirm it's talking
+ * to a real Home Domain bridge before the user pastes the pairing code.
+ * Deliberately does NOT return the pairing code itself; that only ever
+ * appears in the container logs.
+ */
+app.get('/bridge/info', (_req, res) => {
+  res.json({
+    ok: true,
+    kind: 'homedomain-bridge',
+    bridgeId: bridgeIdentity.bridgeId,
+    hostname: bridgeIdentity.hostname,
+    version: '1.0.0',
+    capabilities: state.keys,
+    // Hint the app whether it needs a pairing code at all (unset HUB_SECRET
+    // means the bridge is running open — flag that so the app can warn).
+    requiresPairing: !!process.env.HUB_SECRET,
   });
 });
 

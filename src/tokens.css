@@ -50,6 +50,19 @@ select option:disabled {
   --chart-2: oklch(0.55 0.08 130); /* Outlets -- desat green */
   --chart-3: oklch(0.72 0.1 95);   /* Speakers -- pale yellow */
 
+  /* Per-domain section accents -- used to colour-code section headers so the
+     dashboard reads as more than an amber monolith. Kept in the same warm-dark
+     family (moderate chroma, L ~0.7-0.78) so they stay legible on the photo and
+     never turn garish. Lights stays amber to match the light glow itself. */
+  --accent-lights:  var(--amber-400);
+  --accent-sound:   oklch(0.74 0.10 195);  /* teal */
+  --accent-music:   oklch(0.72 0.13 305);  /* violet */
+  --accent-power:   oklch(0.72 0.13 150);  /* green */
+  --accent-climate: oklch(0.73 0.11 235);  /* blue */
+  --accent-weather: oklch(0.76 0.11 225);  /* sky */
+  --accent-sensors: oklch(0.75 0.045 250); /* slate */
+  --accent-news:    oklch(0.74 0.11 35);   /* warm coral */
+
   /* Amber surface tints -- used for callout backgrounds and status highlights.
      Centralised so a palette shift doesn't require hunting color-mix() calls. */
   --amber-tint-4:  color-mix(in oklch, var(--primary) 4%, transparent);
@@ -176,6 +189,39 @@ body {
       color-mix(in oklch, var(--clay-950) 25%, transparent) 0%,
       color-mix(in oklch, var(--clay-950) 55%, transparent) 100%);
   transition: background var(--motion-duration-base) var(--motion-ease-out-quart);
+}
+
+/* ── Weather grading ─────────────────────────────────────────────────────────
+   The only daytime photo we have is overcast, so a genuinely clear, sunny day
+   used to render as grey fog -- the backdrop lied about the weather. Rather
+   than ship five more photos, we colour-grade the one we have to the live
+   conditions (data-weather / data-sky are stamped on <html> in App.jsx). The
+   grade only applies during daylight; night and twilight keep their own photos
+   untouched. This can't paint blue sky over cloud, but it makes the canvas
+   warm + bright on a sunny day and cool + dim in the rain, which is the honest
+   signal the user actually reads. */
+:root[data-sky="day"][data-weather="clear"] .bg-photo {
+  filter: brightness(1.06) saturate(1.22) contrast(1.05) sepia(0.14) hue-rotate(-9deg);
+}
+:root[data-sky="day"][data-weather="clear"] .bg-wash {
+  background:
+    /* warm low sun, top-right */
+    radial-gradient(30% 26% at 82% 10%, color-mix(in oklch, var(--amber-300) 55%, transparent) 0%, transparent 60%),
+    radial-gradient(85% 60% at 80% 0%, color-mix(in oklch, oklch(0.86 0.09 85) 26%, transparent) 0%, transparent 62%),
+    /* a hint of blue sky up top, warm settle at the floor */
+    linear-gradient(180deg,
+      color-mix(in oklch, oklch(0.72 0.09 235) 14%, transparent) 0%,
+      color-mix(in oklch, var(--clay-950) 20%, transparent) 42%,
+      color-mix(in oklch, var(--clay-950) 52%, transparent) 100%);
+}
+:root[data-sky="day"][data-weather="cloudy"] .bg-photo {
+  filter: brightness(0.84) saturate(0.8) contrast(0.99);
+}
+:root[data-sky="day"][data-weather="rain"] .bg-photo {
+  filter: brightness(0.72) saturate(0.74) contrast(1.03) hue-rotate(6deg);
+}
+:root[data-sky="day"][data-weather="snow"] .bg-photo {
+  filter: brightness(0.9) saturate(0.72) contrast(1.02);
 }
 
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
@@ -458,12 +504,25 @@ img.avatar { display: block; }
   opacity: 0.6;
 }
 .section-title {
-  font-size: 10px; font-weight: 600;
+  font-size: 10px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.18em;
-  color: var(--muted-foreground);
+  /* Colour-coded per domain (see --accent-* / Section in App.jsx); falls back
+     to the muted label for any section without an assigned accent. */
+  color: var(--section-accent, var(--muted-foreground));
   margin: 0;
   display: inline-flex; align-items: center; gap: 8px;
 }
+/* Small leading tick that carries the section's colour even when the label is
+   short -- a full-bleed accent block would be a side-stripe (banned), this is a
+   4px inline dot, part of the title's own flow. Suppressed when an integration
+   status dot already leads the title, so the two never stack. */
+.section-title::before {
+  content: "";
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--section-accent, var(--muted-foreground));
+  flex-shrink: 0;
+}
+.section-title:has(.integration-dot)::before { display: none; }
 /* Inverted from the original 12px muted: the summary carries the live data
    ("3 of 4 rooms · 142 W") so it earns the foreground weight; the title is
    the small uppercase label. */
@@ -2459,18 +2518,27 @@ img.avatar { display: block; }
   padding: 6px 13px;
   border-radius: 999px;
   font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
   flex-shrink: 0;
-  color: var(--muted-foreground);
-  border: 1px solid var(--border);
-  background: transparent;
+  /* Legibility over the photo: the old transparent + muted-foreground pill
+     vanished wherever the backdrop was bright. A dark glass backing gives every
+     label a consistent contrast floor no matter what's behind it. */
+  color: var(--foreground);
+  border: 1px solid color-mix(in oklch, var(--foreground) 20%, transparent);
+  background: color-mix(in oklch, var(--clay-950) 55%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   transition: color var(--motion-duration-fast), border-color var(--motion-duration-fast), background var(--motion-duration-fast);
 }
-.room-filter-pill:hover { color: var(--foreground); border-color: var(--border-strong); }
+.room-filter-pill:hover {
+  border-color: color-mix(in oklch, var(--foreground) 38%, transparent);
+  background: color-mix(in oklch, var(--clay-950) 68%, transparent);
+}
 .room-filter-pill[data-active="true"] {
-  background: color-mix(in oklch, var(--amber-400) 18%, transparent);
-  color: var(--primary);
-  border-color: color-mix(in oklch, var(--amber-400) 35%, transparent);
+  background: color-mix(in oklch, var(--amber-400) 30%, color-mix(in oklch, var(--clay-950) 55%, transparent));
+  color: color-mix(in oklch, var(--amber-300) 60%, white);
+  border-color: color-mix(in oklch, var(--amber-400) 60%, transparent);
 }
 .room-filter-pill-count {
   font-size: 10px;

@@ -72,6 +72,20 @@ export function pickBackdrop(now, weather, lat, lon) {
   return DAY_PHOTO; // 'clear' and 'cloudy' -- one overcast photo serves both
 }
 
+// Coarse sky phase for right now, so the UI can grade itself to the actual
+// light. The daytime photo is overcast; on a genuinely clear day we want to
+// warm and brighten the canvas rather than leave it looking fogged in, but
+// only during daylight -- a "sunny" grade on the night aurora photo would be
+// nonsense. Mirrors pickBackdrop's own fallback when no location is saved.
+export function backdropPhase(now, lat, lon) {
+  if (lat != null && lon != null) return phase(now, Number(lat), Number(lon));
+  const h = now.getHours();
+  if (h >= 21 || h < 5) return 'night';
+  if (h < 9) return 'sunrise';
+  if (h < 17) return 'day';
+  return 'sunset';
+}
+
 // Optional helper exposed for UI ("17 minutes until sunset"). Returns
 // `{ next: 'sunset'|'sunrise'|'night', minutes: 17 }` -- null if no
 // location available.

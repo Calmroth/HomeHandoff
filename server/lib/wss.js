@@ -44,6 +44,14 @@ export class WssHub {
 
     this._wss = new WebSocketServer({ server: httpServer });
     this._wss.on('connection', (ws, req) => this._onConnection(ws, req));
+    // Without an 'error' listener, a failure on the shared HTTP server (e.g. a
+    // late EADDRINUSE) re-emits here as an unhandled 'error' and throws before
+    // index.js can print its friendly notice. Swallow the port collision (the
+    // HTTP server's own handler owns the exit) and log anything else.
+    this._wss.on('error', (err) => {
+      if (err && err.code === 'EADDRINUSE') return;
+      console.error('[hub:wss] WebSocket server error:', err?.message || err);
+    });
     this._startHeartbeat();
 
     console.log('[hub:wss] WebSocket server attached');

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useHomeStore, STATUS } from './store/useHomeStore.js';
 import { usePageVisible, useWakeLock } from './lib/tabLifecycle.js';
-import { pickBackdrop } from './lib/sunPhase.js';
+import { pickBackdrop, backdropPhase } from './lib/sunPhase.js';
 import { useMediaSession } from './lib/mediaSession.js';
 import { useHaEntities } from './lib/haEntities.js';
 import { plejdLogin, plejdFetchSites, plejdFetchDevices, plejdSetDeviceState } from './lib/plejdCloud.js';
@@ -1071,6 +1071,13 @@ function App() {
     const url = pickBackdrop(now, weather, lat, lon);
     const el = document.querySelector('.bg-photo');
     if (el) el.style.backgroundImage = `url('${url}')`;
+    // Grade the whole canvas to the live conditions. The one daytime photo is
+    // overcast, so on a genuinely clear day CSS warms + brightens it and lays a
+    // sun-glow wash on top instead of leaving it looking like fog rolled in.
+    // Gated on the sky phase so the grade never touches the night/twilight shots.
+    const root = document.documentElement;
+    root.dataset.weather = weather || 'clear';
+    root.dataset.sky = backdropPhase(now, lat, lon);
   }, [now, weather, integrations.config.weather?.lat, integrations.config.weather?.lon]);
 
   // Poll Spotify "currently playing" every 8 seconds while connected. Writes
@@ -2581,9 +2588,32 @@ function PageHeader({ now, onCount, totalW, deviceCount, weather, weatherData, c
   );
 }
 
-function Section({ title, summary, source, statusId, children }) {
+// Each section is colour-coded to its domain so the eye can find "lights" vs
+// "power" vs "sound" at a glance instead of scanning an all-amber wall. The
+// accent is derived from the title (falling back to the integration behind it),
+// so every call site gets it for free; pass `accent` to override.
+const SECTION_ACCENTS = {
+  scenes: 'var(--accent-lights)', 'global scenes': 'var(--accent-lights)',
+  lights: 'var(--accent-lights)', 'lights on': 'var(--accent-lights)', rooms: 'var(--accent-lights)',
+  sound: 'var(--accent-sound)', 'playing on': 'var(--accent-sound)',
+  music: 'var(--accent-music)',
+  power: 'var(--accent-power)', 'drawing power': 'var(--accent-power)', energy: 'var(--accent-power)',
+  'heat pump': 'var(--accent-climate)', climate: 'var(--accent-climate)',
+  weather: 'var(--accent-weather)',
+  sensors: 'var(--accent-sensors)',
+  news: 'var(--accent-news)', activity: 'var(--accent-news)',
+};
+const STATUS_ACCENTS = {
+  plejd: 'var(--accent-lights)', sonos: 'var(--accent-sound)',
+  shelly: 'var(--accent-power)', nibe: 'var(--accent-climate)',
+};
+
+function Section({ title, summary, source, statusId, children, accent }) {
+  const hue = accent
+    ?? SECTION_ACCENTS[String(title).toLowerCase()]
+    ?? STATUS_ACCENTS[statusId];
   return (
-    <section className="section">
+    <section className="section" style={hue ? { '--section-accent': hue } : undefined}>
       <div className="section-head">
         <div className="section-head-left">
           <h2 className="section-title">
