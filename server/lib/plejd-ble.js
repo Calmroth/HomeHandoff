@@ -95,6 +95,12 @@ export class PlejdBle extends EventEmitter {
     this._destroyed  = false;
     this._pingTimer  = null;
     this._reconnectTimer = null;
+    // State-notification subscription. Bound once so we can add/removeListener
+    // the same reference. _skipNotify latches on if subscribing proves to knock
+    // THIS adapter's link over (see _onDisconnect) — then we run control-only.
+    this._notifyHandler = (raw) => this._onNotify(raw);
+    this._skipNotify   = false;
+    this._subscribedAt = 0;
   }
 
   get isReady() { return this._authed; }
@@ -205,10 +211,6 @@ export class PlejdBle extends EventEmitter {
     const challenge = await this._authChar.readAsync();
     await this._authChar.writeAsync(computeAuthResponse(this._key, challenge), false);
 
-    // NOTE: we deliberately do NOT subscribe to notifications. On WinRT the
-    // CCCD write during subscribe can knock the freshly-authed link over, and
-    // control doesn't need inbound state (the cloud poll drives the display).
-
     // Only now, with a working authenticated link, treat a disconnect as a
     // real drop worth reconnecting.
     peripheral.once('disconnect', () => this._onDisconnect());
@@ -216,6 +218,17 @@ export class PlejdBle extends EventEmitter {
     this._startPing();
     console.log('[plejd-ble] Authenticated — mesh control active over Bluetooth');
     this.emit('ready');
+
+    // Subscribe to mesh state notifications so the display reflects REALITY:
+    // wall-switch presses, scenes, and commands from the phone app all broadcast
+    // on the DATA characteristic. Without this the hub only knows the state of
+    // lights it toggled itself, so a lamp lit by the wall switch shows as off.
+    //
+    // This was previously removed because the CCCD write during subscribe could
+    // knock a fresh WinRT link over. Re-enabled defensively: deferred a beat,
+    // non-fatal, and self-disabling if it proves to destabilise this adapter
+    // (_onDisconnect latches _skipNotify). Control works with or without it.
+    if (!this._skipNotify) this._subscribeState().catch(() => {});
   }
 
   /**
@@ -250,6 +263,26 @@ export class PlejdBle extends EventEmitter {
   }
 
   // ── State notifications ─────────────────────────────────────────────────────
+
+  // Turn on inbound state notifications. Deferred so the WinRT GATT session has
+  // settled after auth, and fully non-fatal: a failed subscribe leaves control
+  // working, just without passive state feedback.
+  async _subscribeState() {
+    const ch = this._dataChar;
+    if (!ch || this._skipNotify) return;
+    await new Promise(r => setTimeout(r, 700));
+    if (this._destroyed || !this._authed || this._dataChar !== ch) return;
+    try {
+      ch.on('data', this._notifyHandler);
+      await ch.subscribeAsync();
+      this._subscribedAt = Date.now();
+      console.log('[plejd-ble] Subscribed to mesh state notifications');
+    } catch (e) {
+      try { ch.removeListener('data', this._notifyHandler); } catch {}
+      console.warn(`[plejd-ble] state subscribe failed (control still works): ${e.message}`);
+    }
+  }
+
   _onNotify(raw) {
     try {
       const dec = plejdEncDec(this._key, this._connAddr, raw);
@@ -293,9 +326,19 @@ export class PlejdBle extends EventEmitter {
     if (this._destroyed) return;
     const alive = this._authedAt ? Math.round((Date.now() - this._authedAt) / 1000) : '?';
     console.log(`[plejd-ble] disconnect fired (link was up ${alive}s)`);
+    // If the link dropped within a few seconds of subscribing, the CCCD write is
+    // what this adapter can't tolerate — latch it off so reconnects run
+    // control-only instead of flapping. A stable link that dropped for other
+    // reasons keeps notifications enabled.
+    if (this._subscribedAt && (Date.now() - this._subscribedAt) < 5_000) {
+      this._skipNotify = true;
+      console.warn('[plejd-ble] dropped right after subscribe — disabling state notifications (control-only)');
+    }
+    this._subscribedAt = 0;
     const wasReady = this._authed;
     this._authed = false;
     this._stopPing();
+    try { this._dataChar?.removeListener('data', this._notifyHandler); } catch {}
     this._dataChar = this._authChar = this._pingChar = null;
     try { this._peripheral?.disconnectAsync?.(); } catch {}
     this._peripheral = null;
